@@ -5,6 +5,8 @@ import flixel.effects.FlxFlicker;
 import lime.app.Application;
 import states.editors.MasterEditorMenu;
 import options.OptionsState;
+import options.KEOptionsMenu;
+import backend.Highscore;
 
 enum MainMenuColumn {
 	LEFT;
@@ -14,6 +16,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
+	public static var frozenEngineVersion:String = '0.4.6 Mobile';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -94,13 +97,17 @@ class MainMenuState extends MusicBeatState
 			rightItem.x -= rightItem.width;
 		}
 
+		var frozenVer:FlxText = new FlxText(12, FlxG.height - 64, 0, "Frozen Engine v" + frozenEngineVersion, 12);
+		frozenVer.scrollFactor.set();
+		frozenVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+		add(frozenVer);
 		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Psych Engine v" + psychEngineVersion, 12);
 		psychVer.scrollFactor.set();
-		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		add(psychVer);
 		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + Application.current.meta.get('version'), 12);
 		fnfVer.scrollFactor.set();
-		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		add(fnfVer);
 		changeItem();
 
@@ -257,10 +264,9 @@ class MainMenuState extends MusicBeatState
 					}
 			}
 
-			if (controls.BACK)
+			if (controls.BACK || FlxG.mouse.justPressedRight)
 			{
 				selectedSomethin = true;
-				FlxG.mouse.visible = false;
 				FlxG.sound.play(Paths.sound('cancelMenu'));
 				MusicBeatState.switchState(new TitleState());
 			}
@@ -269,7 +275,6 @@ class MainMenuState extends MusicBeatState
 			{
 				FlxG.sound.play(Paths.sound('confirmMenu'));
 				selectedSomethin = true;
-				FlxG.mouse.visible = false;
 
 				if (ClientPrefs.data.flashing)
 					FlxFlicker.flicker(magenta, 1.1, 0.15, false);
@@ -298,7 +303,14 @@ class MainMenuState extends MusicBeatState
 						case 'story_mode':
 							MusicBeatState.switchState(new StoryMenuState());
 						case 'freeplay':
+							if (!ClientPrefs.data.oldFreeplay)
+							{
 							MusicBeatState.switchState(new FreeplayState());
+							}
+							else
+							{
+							MusicBeatState.switchState(new OldFreeplayState());	
+							}
 
 						#if MODS_ALLOWED
 						case 'mods':
@@ -313,8 +325,19 @@ class MainMenuState extends MusicBeatState
 						case 'credits':
 							MusicBeatState.switchState(new CreditsState());
 						case 'options':
+							if(ClientPrefs.data.keOptions)
+							{
+							MusicBeatState.switchState(new KEOptionsMenu());
+							KEOptionsMenu.onMainMenuState = true;
+							}
+							else
+							{
 							MusicBeatState.switchState(new OptionsState());
+							}
+
 							OptionsState.onPlayState = false;
+							KEOptionsMenu.onPlayState = false;
+							
 							if (PlayState.SONG != null)
 							{
 								PlayState.SONG.arrowSkin = null;
@@ -343,7 +366,6 @@ class MainMenuState extends MusicBeatState
 			else if (controls.justPressed('debug_1') || touchPad.buttonE.justPressed)
 			{
 				selectedSomethin = true;
-				FlxG.mouse.visible = false;
 				MusicBeatState.switchState(new MasterEditorMenu());
 			}
 		}

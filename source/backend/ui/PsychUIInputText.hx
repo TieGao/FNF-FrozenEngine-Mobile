@@ -616,26 +616,67 @@ class PsychUIInputText extends FlxSpriteGroup
 		textObj.text = '';
 		if(v != null && v.length > 0)
 		{
+        // 使用 OpenFL 9.5.0 的新特性
+        if(passwordMask) {
+            // 设置密码掩码字符（OpenFL 9.5.0 新增）
+            textObj.textField.displayAsPassword = true;
+            textObj.textField.passwordChar = "*"; // 可选，默认就是"*"
+            textObj.text = v; // 直接设置文本，OpenFL会自动处理掩码
+            // 计算掩码后的边界
+            var displayText = StringTools.lpad("", "*", v.length);
+            calculateBoundaries(displayText);
+        }
+        else {
+            textObj.textField.displayAsPassword = false;
+            // 原有逻辑，但需要优化
 			if(v.length > 1)
 			{
-				for (i in 0...v.length)
-				{
-					var toPrint:String = v.substr(i, 1);
-					if(toPrint == '\n') toPrint = ' ';
-					textObj.textField.appendText(!passwordMask ? toPrint : '*');
-					_boundaries.push(textObj.textField.textWidth);
-				}
+                // 批量处理，而不是逐个字符
+                var displayText = v.replace("\n", " ");
+                textObj.text = displayText;
+                calculateBoundaries(displayText);
 			}
 			else
 			{
-				textObj.text = !passwordMask ? v : '*';
+                textObj.text = v;
 				_boundaries.push(textObj.textField.textWidth);
 			}
 		}
+    }
+    else {
+        textObj.text = "";
+        textObj.textField.displayAsPassword = false;
+    }
+    
 		text = v;
 		updateCaret();
 		return v;
 	}
+
+// 新增的边界计算函数
+function calculateBoundaries(text:String)
+{
+    if(text.length == 0) return;
+    
+    // 对于长文本，使用更高效的计算方式
+    if(text.length > 100) {
+        // 使用近似计算
+        var avgWidth = textObj.textField.textWidth / text.length;
+        for(i in 0...text.length) {
+            _boundaries[i] = (i + 1) * avgWidth;
+        }
+    } else {
+        // 对于短文本，使用精确计算
+        var tempText = "";
+        for(i in 0...text.length) {
+            tempText += text.charAt(i);
+            textObj.textField.text = tempText;
+            _boundaries[i] = textObj.textField.textWidth;
+        }
+        // 恢复原文本
+        textObj.textField.text = text;
+    }
+}
 
 	public static function getAccentCharCode(accent:AccentCode)
 	{

@@ -1,0 +1,9 @@
+{
+    "imagePath": "holdCover/holdCover-Chip",
+    "holdAnim": "holdCoverLoop",
+    "holdOffset": [0, -10],
+    "endAnim": "holdCoverEnd",
+    "endOffset": [40, 10],
+    "scale": [0.7,0.9]
+}
+  

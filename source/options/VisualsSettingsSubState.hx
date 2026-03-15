@@ -167,6 +167,12 @@ class VisualsSettingsSubState extends BaseOptionsMenu
 			BOOL);
 		addOption(option);
 
+		var option:Option = new Option('FE Options Menu',
+			"",
+			'keOptions',
+			BOOL);
+		addOption(option);
+
 		super();
 		add(notes);
 		add(splashes);

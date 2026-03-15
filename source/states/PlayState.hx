@@ -23,10 +23,11 @@ import haxe.Json;
 import cutscenes.DialogueBoxPsych;
 
 import states.StoryMenuState;
-import states.FreeplayState;
+import states.OldFreeplayState;
 import states.editors.ChartingState;
 import states.editors.CharacterEditorState;
 
+import substates.NewPauseSubState;
 import substates.PauseSubState;
 import substates.GameOverSubstate;
 
@@ -55,6 +56,19 @@ import crowplexus.iris.Iris;
 import crowplexus.hscript.Expr.Error as IrisError;
 import crowplexus.hscript.Printer;
 #end
+
+import backend.Replay;
+import backend.OpponentModeSystem;
+
+	typedef ReplayNote = 
+	{
+    var strumTime:Float;
+    var column:Int;
+    var sustainLength:Float;
+    var diff:Float;
+    var isMiss:Bool;
+    var processed:Bool;
+	}
 
 /**
  * This is where all the Gameplay stuff happens and is managed
@@ -145,6 +159,7 @@ class PlayState extends MusicBeatState
 	public static var storyWeek:Int = 0;
 	public static var storyPlaylist:Array<String> = [];
 	public static var storyDifficulty:Int = 1;
+	public static var inResults:Bool = false;
 
 	public var spawnTime:Float = 2000;
 
@@ -167,6 +182,7 @@ class PlayState extends MusicBeatState
 	public var opponentStrums:FlxTypedGroup<StrumNote> = new FlxTypedGroup<StrumNote>();
 	public var playerStrums:FlxTypedGroup<StrumNote> = new FlxTypedGroup<StrumNote>();
 	public var grpNoteSplashes:FlxTypedGroup<NoteSplash> = new FlxTypedGroup<NoteSplash>();
+	public var noteHoldCover:NoteHoldCover;
 
 	public var camZooming:Bool = false;
 	public var camZoomingMult:Float = 1;
@@ -176,6 +192,7 @@ class PlayState extends MusicBeatState
 	public var gfSpeed:Int = 1;
 	public var health(default, set):Float = 1;
 	public var combo:Int = 0;
+	public var highestCombo:Int = 0;
 
 	public var healthBar:Bar;
 	public var timeBar:Bar;
@@ -198,10 +215,12 @@ class PlayState extends MusicBeatState
 	public var instakillOnMiss:Bool = false;
 	public var cpuControlled:Bool = false;
 	public var practiceMode:Bool = false;
+	public var opponentMode:Bool = false;
 	public var pressMissDamage:Float = 0.05;
 
 	public var botplaySine:Float = 0;
 	public var botplayTxt:FlxText;
+	public var replayTxt:FlxText; 
 
 	public var iconP1:HealthIcon;
 	public var iconP2:HealthIcon;
@@ -215,6 +234,25 @@ class PlayState extends MusicBeatState
 	public var songHits:Int = 0;
 	public var songMisses:Int = 0;
 	public var scoreTxt:FlxText;
+
+	//KE replay system
+	public static var rep:Replay;
+	public static var loadRep:Bool = false;
+	public var repNoteIndex:Int = 0; // 回放音符索引
+	private var replayMissTimer:FlxTimer; // 回放miss计时器
+	private var lastReplayTime:Float = 0; // 上一次回放时间
+	private var replayNoteQueue:Array<Array<Dynamic>> = []; // 回放音符队列（明确类型）
+	public static var inReplay:Bool = false; 
+	public static var replayFileName:String = "";
+
+	var scoreTxtColorTween:FlxTween;
+	var scoreTxtDefaultColor:FlxColor = 0xFFFFFFFF;
+
+	// New modular UI objects (migrated out of inline PlayState code)
+	var healthTextObj:objects.HealthText;
+	var judgementCounterObj:objects.JudgementCounter;
+	var songInfoTextObj:objects.SongInfoText;
+
 	var timeTxt:FlxText;
 	var scoreTxtTween:FlxTween;
 
@@ -225,13 +263,15 @@ class PlayState extends MusicBeatState
 
 	public var defaultCamZoom:Float = 1.05;
 
+
+
 	// how big to stretch the pixel art assets
 	public static var daPixelZoom:Float = 6;
 	private var singAnimations:Array<String> = ['singLEFT', 'singDOWN', 'singUP', 'singRIGHT'];
 
 	public var inCutscene:Bool = false;
 	public var skipCountdown:Bool = false;
-	var songLength:Float = 0;
+	public var songLength:Float = 0;
 
 	public var boyfriendCameraOffset:Array<Float> = null;
 	public var opponentCameraOffset:Array<Float> = null;
@@ -276,8 +316,36 @@ class PlayState extends MusicBeatState
 
 	public var luaTouchPad:TouchPad;
 
+	private var modInfoBox:ModInfoBox;
+	var hitErrorBar:HitErrorBar;
+	public var keyboardViewer:KeyboardViewer;
+	public var strumGuideLine:StrumGuideLine;
+
 	override public function create()
 	{
+		 // ========== 回放系统初始化 ==========
+    if (loadRep && rep != null)
+    {
+        trace('=== REPLAY MODE INITIALIZATION ===');
+        trace('Loading replay: ' + rep.path);
+        trace('Song: ' + rep.replay.songName);
+        
+        // 设置回放模式标志
+        inReplay = true;
+        cpuControlled = false; // 回放模式下禁用自动播放
+        practiceMode = false;
+        
+        // 初始化回放数据
+        initReplayData();
+        
+        trace('Replay mode activated with ${replayNoteQueue.length} notes');
+    }
+
+	if (inReplay)
+{
+    createReplayUI();
+}
+
 		//trace('Playback Rate: ' + playbackRate);
 		_lastLoadedModDirectory = Mods.currentModDirectory;
 		Paths.clearStoredMemory();
@@ -313,6 +381,7 @@ class PlayState extends MusicBeatState
 		instakillOnMiss = ClientPrefs.getGameplaySetting('instakill');
 		practiceMode = ClientPrefs.getGameplaySetting('practice');
 		cpuControlled = ClientPrefs.getGameplaySetting('botplay');
+		opponentMode = ClientPrefs.getGameplaySetting('opponentplay');
 		guitarHeroSustains = ClientPrefs.data.guitarHeroSustains;
 
 		// var gameCam:FlxCamera = FlxG.camera;
@@ -407,8 +476,11 @@ class PlayState extends MusicBeatState
 
 		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
 		luaDebugGroup = new FlxTypedGroup<psychlua.DebugLuaText>();
+		if (ClientPrefs.data.luadebugPrint)
+		{
 		luaDebugGroup.cameras = [camOther];
 		add(luaDebugGroup);
+		}
 		#end
 
 		if (!stageData.hide_girlfriend)
@@ -505,7 +577,12 @@ class PlayState extends MusicBeatState
 		if(ClientPrefs.data.downScroll) timeTxt.y = FlxG.height - 44;
 		if(ClientPrefs.data.timeBarType == 'Song Name') timeTxt.text = SONG.song;
 
+		if(ClientPrefs.data.customColor && ClientPrefs.data.gradientTimeBar) {
+			timeBar = new GradientTimeBar(0, timeTxt.y + (timeTxt.height / 4), 'timeBar', function() return songPercent, 0, 1);
+		} else {
+			// 使用普通Bar
 		timeBar = new Bar(0, timeTxt.y + (timeTxt.height / 4), 'timeBar', function() return songPercent, 0, 1);
+		}
 		timeBar.scrollFactor.set();
 		timeBar.screenCenter(X);
 		timeBar.alpha = 0;
@@ -513,8 +590,12 @@ class PlayState extends MusicBeatState
 		uiGroup.add(timeBar);
 		uiGroup.add(timeTxt);
 
+		strumGuideLine = new StrumGuideLine();
+		noteGroup.add(strumGuideLine);
 		noteGroup.add(strumLineNotes);
 
+		noteHoldCover = new NoteHoldCover();
+		noteGroup.add(noteHoldCover);
 		if(ClientPrefs.data.timeBarType == 'Song Name')
 		{
 			timeTxt.size = 24;
@@ -577,6 +658,37 @@ class PlayState extends MusicBeatState
 		botplayTxt.borderSize = 1.25;
 		botplayTxt.visible = cpuControlled;
 		uiGroup.add(botplayTxt);
+
+		replayTxt = new FlxText(400, healthBar.y + (ClientPrefs.data.downScroll ? 100 : -150), FlxG.width - 800, "REPLAY MODE", 32);
+		replayTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.YELLOW, CENTER, OUTLINE, FlxColor.BLACK);
+		replayTxt.scrollFactor.set();
+		replayTxt.borderSize = 1.25;
+		replayTxt.visible = false;
+		uiGroup.add(replayTxt);
+
+		// Instantiate modular UI objects (migrated to objects/)
+		healthTextObj = new objects.HealthText(this);
+		judgementCounterObj = new objects.JudgementCounter(this);
+		songInfoTextObj = new objects.SongInfoText(this);
+
+		keyboardViewer = new KeyboardViewer(FlxG.width/2  - 100 + ClientPrefs.data.kbOffsetX, FlxG.height - 150 + ClientPrefs.data.kbOffsetY);
+		keyboardViewer.antialiasing = ClientPrefs.data.antialiasing;
+		keyboardViewer.cameras = [camOther];
+		if (ClientPrefs.data.kb) add(keyboardViewer);
+		if (ClientPrefs.data.hitErrorBarVisible)
+		{
+			hitErrorBar = new HitErrorBar();
+			hitErrorBar.screenCenter();
+			hitErrorBar.x -= 250 + ClientPrefs.data.hitErrorBarOffsetX;
+			hitErrorBar.y = FlxG.height * 0.3 + ClientPrefs.data.hitErrorBarOffsetY; // 顶部10%位置
+			if (ClientPrefs.data.downScroll) {
+       		 hitErrorBar.y = FlxG.height - 100 + ClientPrefs.data.hitErrorBarOffsetY;
+    		}
+			uiGroup.add(hitErrorBar);
+		}
+
+		createModInfoBox();
+
 		if(ClientPrefs.data.downScroll)
 			botplayTxt.y = healthBar.y + 70;
 
@@ -585,6 +697,8 @@ class PlayState extends MusicBeatState
 		comboGroup.cameras = [camHUD];
 
 		startingSong = true;
+
+		reloadTimeBarAndTextColors();
 
 		#if LUA_ALLOWED
 		for (notetype in noteTypes)
@@ -665,6 +779,11 @@ class PlayState extends MusicBeatState
 		#end
 
 		super.create();
+		rep = new Replay("");
+
+		// 使用新的 JudgementCounter 模块替代旧的 createCounterUI
+		if (judgementCounterObj == null) judgementCounterObj = new objects.JudgementCounter(this);
+		
 		Paths.clearUnusedMemory();
 
 		cacheCountdown();
@@ -740,6 +859,44 @@ class PlayState extends MusicBeatState
 	public function reloadHealthBarColors() {
 		healthBar.setColors(FlxColor.fromRGB(dad.healthColorArray[0], dad.healthColorArray[1], dad.healthColorArray[2]),
 			FlxColor.fromRGB(boyfriend.healthColorArray[0], boyfriend.healthColorArray[1], boyfriend.healthColorArray[2]));
+			}
+
+	public function reloadTimeBarAndTextColors() {
+    if(ClientPrefs.data.customColor){
+        var opponentColor:FlxColor = FlxColor.fromRGB(dad.healthColorArray[0], dad.healthColorArray[1], dad.healthColorArray[2]);
+        var playerColor:FlxColor = FlxColor.fromRGB(boyfriend.healthColorArray[0], boyfriend.healthColorArray[1], boyfriend.healthColorArray[2]);
+        
+        // 更新TimeBar颜色
+        if (timeBar != null) {
+            if(Std.isOfType(timeBar, GradientTimeBar)) {
+                // 渐变TimeBar - 更新渐变颜色
+                var gradientBar:GradientTimeBar = cast timeBar;
+                gradientBar.updateGradientColors(opponentColor, playerColor);
+            } else if(Std.isOfType(timeBar, Bar)) {
+                // 普通Bar - 设置单色
+                var bar:Bar = cast timeBar;
+                bar.setColors(opponentColor);
+            }
+        }
+        
+        if (scoreTxt != null) {
+            scoreTxt.color = opponentColor;
+        }
+        
+        if (botplayTxt != null) {
+            botplayTxt.color = opponentColor;
+        }
+    } else {
+        if (timeBar != null) {
+            if(Std.isOfType(timeBar, GradientTimeBar)) {
+                var gradientBar:GradientTimeBar = cast timeBar;
+                gradientBar.updateGradientColors(0xFFFFFFFF, 0xFFFFFFFF);
+            } else if(Std.isOfType(timeBar, Bar)) {
+                var bar:Bar = cast timeBar;
+                bar.setColors(0xFFFFFFFF);
+            }
+        }
+    }
 	}
 
 	public function addCharacterToList(newCharacter:String, type:Int) {
@@ -1071,7 +1228,7 @@ class PlayState extends MusicBeatState
 						if(ClientPrefs.data.opponentStrums || note.mustPress)
 						{
 							note.copyAlpha = false;
-							note.alpha = note.multAlpha;
+							note.alpha = ClientPrefs.data.noteAlpha;
 							if(ClientPrefs.data.middleScroll && !note.mustPress)
 								note.alpha *= 0.35;
 						}
@@ -1176,32 +1333,38 @@ class PlayState extends MusicBeatState
 
 	public dynamic function updateScoreText()
 	{
-		var str:String = Language.getPhrase('rating_$ratingName', ratingName);
+		var percent:Float = CoolUtil.floorDecimal(ratingPercent * 100, 2);
+		var str:String = Language.getPhrase('rating_$ratingName', ratingName) ;
+		var impstr:String = Language.getPhrase('rating_$ratingName', ratingName) ;
 		if(totalPlayed != 0)
 		{
-			var percent:Float = CoolUtil.floorDecimal(ratingPercent * 100, 2);
 			str += ' (${percent}%) - ' + Language.getPhrase(ratingFC);
+			impstr = '${percent}%' + ' [${Language.getPhrase(ratingFC)}]';
 		}
 
 		var tempScore:String;
-		if(!instakillOnMiss) tempScore = Language.getPhrase('score_text', 'Score: {1} | Misses: {2} | Rating: {3}', [songScore, songMisses, str]);
+		if(!instakillOnMiss) tempScore = Language.getPhrase('score_text', 'Score: {1} | Combo Breaks: {2} | Accuracy: {3}', [songScore, songMisses, impstr]);
 		else tempScore = Language.getPhrase('score_text_instakill', 'Score: {1} | Rating: {2}', [songScore, str]);
 		scoreTxt.text = tempScore;
 	}
 
 	public dynamic function fullComboFunction()
 	{
-		var sicks:Int = ratingsData[0].hits;
-		var goods:Int = ratingsData[1].hits;
-		var bads:Int = ratingsData[2].hits;
-		var shits:Int = ratingsData[3].hits;
+		var marvelous:Int = ratingsData[0].hits;
+		var sicks:Int = ratingsData[1].hits;
+		var goods:Int = ratingsData[2].hits;
+		var bads:Int = ratingsData[3].hits;
+		var shits:Int = ratingsData[4].hits;
+		var totalHits:Int = marvelous + sicks + goods + bads + shits;
+
+		if (judgementCounterObj != null) judgementCounterObj.refresh();
 
 		ratingFC = "";
 		if(songMisses == 0)
 		{
 			if (bads > 0 || shits > 0) ratingFC = 'FC';
 			else if (goods > 0) ratingFC = 'GFC';
-			else if (sicks > 0) ratingFC = 'SFC';
+			else if (sicks > 0 || marvelous > 0) ratingFC = 'SFC';
 		}
 		else {
 			if (songMisses < 10) ratingFC = 'SDCB';
@@ -1209,10 +1372,30 @@ class PlayState extends MusicBeatState
 		}
 	}
 
+	function getOpponentHealthColor():FlxColor {
+    if(dad != null && dad.healthColorArray != null) {
+        var colors:Array<Int> = dad.healthColorArray;
+        if(colors.length >= 3) {
+            return FlxColor.fromRGB(colors[0], colors[1], colors[2]);
+        }
+    }
+    return 0xFF149DFF;
+	}
+
+	function updateHealthTextPosition()
+    {
+		// Delegate to modular HealthText
+		if (healthTextObj != null) healthTextObj.refresh();
+	}
+
 	public function doScoreBop():Void {
 		if(!ClientPrefs.data.scoreZoom)
 			return;
-
+		if(ClientPrefs.data.customColor){
+		if (judgementCounterObj != null) judgementCounterObj.refresh();
+		if (healthTextObj != null) healthTextObj.refresh();
+		if (songInfoTextObj != null) songInfoTextObj.refresh();
+	}
 		if(scoreTxtTween != null)
 			scoreTxtTween.cancel();
 
@@ -1265,6 +1448,11 @@ class PlayState extends MusicBeatState
 	function startSong():Void
 	{
 		startingSong = false;
+		
+		if (modInfoBox != null && modInfoBox.shouldDisplay)
+    {
+        modInfoBox.slideIn();
+    }
 
 		@:privateAccess
 		FlxG.sound.playMusic(inst._sound, 1, false);
@@ -1564,7 +1752,7 @@ class PlayState extends MusicBeatState
 		for (i in 0...4)
 		{
 			// FlxG.log.add(i);
-			var targetAlpha:Float = 1;
+			var targetAlpha:Float = ClientPrefs.data.noteAlpha;
 			if (player < 1)
 			{
 				if(!ClientPrefs.data.opponentStrums) targetAlpha = 0;
@@ -1709,6 +1897,16 @@ class PlayState extends MusicBeatState
 
 	override public function update(elapsed:Float)
 	{
+		     if (inReplay && !paused && !endingSong && !startingSong && generatedMusic)
+    {
+        processReplayNotes(elapsed);
+    }
+    
+	if(ClientPrefs.data.skipDeath&& health <=0)  
+	{	
+		openPauseMenu();
+		PauseSubState.restartSong();
+	}
 		if(!inCutscene && !paused && !freezeCamera) {
 			FlxG.camera.followLerp = 0.04 * cameraSpeed * playbackRate;
 			var idleAnim:Bool = (boyfriend.getAnimationName().startsWith('idle') || boyfriend.getAnimationName().startsWith('danceLeft') || boyfriend.getAnimationName().startsWith('danceRight'));
@@ -1902,6 +2100,9 @@ class PlayState extends MusicBeatState
 		}
 		#end
 
+		if (healthTextObj != null) healthTextObj.refresh();
+		if (judgementCounterObj != null) judgementCounterObj.refresh();
+
 		setOnScripts('botPlay', cpuControlled);
 		callOnScripts('onUpdatePost', [elapsed]);
 	}
@@ -1966,7 +2167,14 @@ class PlayState extends MusicBeatState
 					note.resetAnim = 0;
 				}
 		}
+		if (ClientPrefs.data.charmPause)
+		{
+		openSubState(new NewPauseSubState());
+		}
+		else
+		{
 		openSubState(new PauseSubState());
+		}
 
 		#if DISCORD_ALLOWED
 		if(autoUpdateRPC) DiscordClient.changePresence(detailsPausedText, SONG.song + " (" + storyDifficultyText + ")", iconP2.getCharacter());
@@ -2288,6 +2496,10 @@ class PlayState extends MusicBeatState
 				}
 				reloadHealthBarColors();
 
+			if(ClientPrefs.data.customColor){
+                reloadTimeBarAndTextColors();
+            }
+
 			case 'Change Scroll Speed':
 				if (songSpeedType != "constant")
 				{
@@ -2431,7 +2643,7 @@ class PlayState extends MusicBeatState
 
 
 	public var transitioning = false;
-	public function endSong()
+	public function endSong():Void
 	{
 		mobileControls.instance.visible = #if !android touchPad.visible = #end false;
 		//Should kill you if you tried to cheat
@@ -2449,7 +2661,7 @@ class PlayState extends MusicBeatState
 			}
 
 			if(doDeathCheck()) {
-				return false;
+			return;
 			}
 		}
 
@@ -2475,14 +2687,138 @@ class PlayState extends MusicBeatState
 			#if !switch
 			var percent:Float = ratingPercent;
 			if(Math.isNaN(percent)) percent = 0;
+		
+		// 只在非回放模式下保存分数
+		if (!loadRep && !inReplay && !opponentMode)
+		{
 			Highscore.saveScore(Song.loadedSongName, songScore, storyDifficulty, percent);
+		}
 			#end
+		
 			playbackRate = 1;
 
 			if (chartingMode)
 			{
 				openChartEditor();
-				return false;
+			return; 
+		}
+
+		// ========== 保存回放数据（普通游戏模式） ==========
+		if (!loadRep && !inReplay && rep != null && !practiceMode && !cpuControlled && ClientPrefs.data.saveReplays)
+		{
+			try
+			{
+				rep.finishRecording();
+				rep.SaveReplay(rep.replay.songNotes, rep.replay.songJudgements, rep.replay.ana);
+				trace('Replay saved successfully with ' + rep.replay.songNotes.length + ' notes');
+			}
+			catch (e:Dynamic)
+			{
+				trace('Error saving replay: ' + e);
+			}
+		}
+		
+		// ========== 根据模式显示结算界面 ==========
+		if (ClientPrefs.data.scoreScreen)
+		{
+			if (vocals != null) vocals.stop();
+			if (FlxG.sound.music != null) FlxG.sound.music.stop();
+			
+			paused = true;
+			canPause = false;
+			inResults = true;
+			transitioning = true;
+			
+			// 判断当前模式并打开对应的结果界面
+			if (loadRep || inReplay)
+			{
+				// 回放模式：使用 REPLAY_END 模式
+				trace('Opening replay end results screen');
+				
+				// 如果有存储的回放文件名，传递它
+				if (replayFileName != null && replayFileName.length > 0)
+				{
+					openSubState(new ResultsScreen(REPLAY_END, replayFileName));
+				}
+				else
+				{
+					openSubState(new ResultsScreen(REPLAY_END));
+				}
+			}
+			else
+			{
+				// 普通游戏模式：使用 NORMAL 模式
+				trace('Opening normal results screen');
+				openSubState(new ResultsScreen(NORMAL));
+			}
+		}
+		else
+		{
+			// 不显示结算界面，直接进入下一个状态
+			proceedToNextState();
+		}
+	}
+}
+
+// 辅助函数：查找最近的回放文件
+#if sys
+function findReplayFile():String
+{
+	try
+	{
+		var replayDir = "assets/replays/";
+		if (FileSystem.exists(replayDir))
+		{
+			var files = FileSystem.readDirectory(replayDir);
+			files.sort(function(a:String, b:String):Int {
+				try {
+					var aPath = replayDir + a;
+					var bPath = replayDir + b;
+					var aStat = FileSystem.stat(aPath);
+					var bStat = FileSystem.stat(bPath);
+					return Std.int(bStat.mtime.getTime() - aStat.mtime.getTime());
+				} catch(e:Dynamic) {
+					return 0;
+				}
+			});
+			
+			// 找到第一个.kadeReplay文件
+			for (file in files) {
+				if (file.endsWith(".kadeReplay")) {
+					trace('Found latest replay: $file');
+					return file;
+				}
+			}
+		}
+	}
+	catch(e:Dynamic)
+	{
+		trace('Error finding replay file: $e');
+	}
+	return null;
+}
+#end
+
+public function proceedToNextState():Void
+{
+	// 确保游戏音乐已经停止
+	if (vocals != null) vocals.stop();
+	if (FlxG.sound.music != null) FlxG.sound.music.stop();
+	
+	// 清理回放相关变量
+	if (loadRep || inReplay)
+	{
+		loadRep = false;
+		inReplay = false;
+		rep = null;
+		replayNoteQueue = [];
+		repNoteIndex = 0;
+		replayFileName = null;
+		
+		if (replayTxt != null)
+		{
+			replayTxt.visible = false;
+		}
 			}
 
 			if (isStoryMode)
@@ -2533,17 +2869,33 @@ class PlayState extends MusicBeatState
 			else
 			{
 				trace('WENT BACK TO FREEPLAY??');
+		
+		// 回放模式结束后，返回回放库而不是自由模式
+		if (loadRep || inReplay)
+		{
+			trace('Returning to replay library after replay');
+			Mods.loadTopMod();
+			MusicBeatState.switchState(new LoadReplayState());
+		}
+		else
+		{
 				Mods.loadTopMod();
 				#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
 
 				canResync = false;
+			if(!ClientPrefs.data.oldFreeplay)
+			{
 				MusicBeatState.switchState(new FreeplayState());
+			}
+			else
+			{
+				MusicBeatState.switchState(new OldFreeplayState());
+			}
 				FlxG.sound.playMusic(Paths.music('freakyMenu'));
+		}
 				changedDifficulty = false;
 			}
 			transitioning = true;
-		}
-		return true;
 	}
 
 	public function KillNotes() {
@@ -2574,19 +2926,75 @@ class PlayState extends MusicBeatState
 	private function cachePopUpScore()
 	{
 		var uiFolder:String = "";
+	var customUIPath:String = "";
+	
+	// 获取自定义UI路径（如果存在）
+	if (ClientPrefs.data.customUI != null && ClientPrefs.data.customUI != "")
+	{
+		customUIPath = ClientPrefs.data.customUI + "/";
+	}
+	
 		if (stageUI != "normal")
-			uiFolder = uiPrefix + "UI/";
+	{
+		// 优先使用自定义UI路径，否则使用默认路径
+		if (customUIPath != "")
+		{
+			uiFolder = 'ratings/' + customUIPath + uiPrefix + "UI/";
+		}
+		else
+		{
+			uiFolder =  uiPrefix + "UI/";
+		}
+	}
+	else if (customUIPath != "")
+	{
+		// 即使stageUI是normal，如果有自定义UI也使用
+		uiFolder = 'ratings/' + customUIPath;
+	}
 
+	// 缓存评级图片
 		for (rating in ratingsData)
+	{
 			Paths.image(uiFolder + rating.image + uiPostfix);
+	}
+	
+	// 缓存数字图片
 		for (i in 0...10)
+	{
 			Paths.image(uiFolder + 'num' + i + uiPostfix);
+	}
+	
+	// 缓存combo图片
+	if (Paths.fileExists('images/' + uiFolder + 'combo' + uiPostfix + '.png', IMAGE))
+	{
+		Paths.image(uiFolder + 'combo' + uiPostfix);
+	}
 	}
 
 	private function popUpScore(note:Note = null):Void
 	{
-		var noteDiff:Float = Math.abs(note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset);
+	if (combo >= highestCombo)
+	{
+		highestCombo = combo;
+	}
+	// 计算带符号的时间差
+	var rawNoteDiff:Float = note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+	var noteDiff:Float = Math.abs(rawNoteDiff);
 		vocals.volume = 1;
+
+	for (spr in comboGroup)
+	{
+		if(spr == null) continue;
+		
+		if (Std.isOfType(spr, FlxText))
+		{
+			var text:FlxText = cast(spr, FlxText);
+			// 如果是毫秒显示，立即销毁
+			comboGroup.remove(text);
+			text.destroy();
+			break;
+		}
+	}
 
 		if (!ClientPrefs.data.comboStacking && comboGroup.members.length > 0)
 		{
@@ -2603,7 +3011,7 @@ class PlayState extends MusicBeatState
 		var rating:FlxSprite = new FlxSprite();
 		var score:Int = 350;
 
-		//tryna do MS based judgment due to popular demand
+	// 基于毫秒的判定
 		var daRating:Rating = Conductor.judgeNote(ratingsData, noteDiff / playbackRate);
 
 		totalNotesHit += daRating.ratingMod;
@@ -2611,6 +3019,10 @@ class PlayState extends MusicBeatState
 		if(!note.ratingDisabled) daRating.hits++;
 		note.rating = daRating.name;
 		score = daRating.score;
+
+	// 添加毫秒显示
+	var msTiming:Float = Math.round(rawNoteDiff * 100) / 100; // 保留3位小数
+	var currentTimingShown:FlxText = null;
 
 		if(daRating.noteSplash && !note.noteSplashData.disabled)
 			spawnNoteSplashOnNote(note);
@@ -2626,28 +3038,170 @@ class PlayState extends MusicBeatState
 		}
 
 		var uiFolder:String = "";
+	var customUIPath:String = "";
 		var antialias:Bool = ClientPrefs.data.antialiasing;
+	
+	// 获取自定义UI路径
+	if (ClientPrefs.data.customUI != null && ClientPrefs.data.customUI != "")
+	{
+		customUIPath = ClientPrefs.data.customUI + "/";
+	}
+	
 		if (stageUI != "normal")
+	{
+		// 优先使用自定义UI路径，否则使用默认路径
+		if (customUIPath != "")
+		{
+			uiFolder = 'ratings/' + customUIPath + uiPrefix + "UI/";
+		}
+		else
 		{
 			uiFolder = uiPrefix + "UI/";
+		}
 			antialias = !isPixelStage;
 		}
+	else if (customUIPath != "")
+	{
+		uiFolder = 'ratings/' + customUIPath;
+	}
 
-		if (ClientPrefs.data.popUpRating)
+	// ==================== FOREVER套系特殊逻辑开始 ====================
+	var ratingImageToUse:String = daRating.image;
+	var shouldUseGoldenNumbers:Bool = false;
+	
+	// 检查是否为Forever套系
+	var isForeverUI:Bool = (customUIPath.toLowerCase().contains("forever") || 
+	                       (ClientPrefs.data.customUI != null && 
+	                        ClientPrefs.data.customUI.toLowerCase().contains("forever")));
+	
+	if (isForeverUI)
+	{
+		// 检查ratingFC是否为MFC或SFC
+		var isMFCOrSFC:Bool = (ratingFC == "MFC" || ratingFC == "SFC");
+		
+		// 如果ratingFC为MFC或SFC，始终使用Marvelous
+		// 否则只在22.5ms内使用Marvelous
+		if (isMFCOrSFC || (noteDiff <= ClientPrefs.data.marvelousWindow && daRating.name != "shit" && daRating.name != "bad" && daRating.name != "good"))
 		{
-			rating.loadGraphic(Paths.image(uiFolder + daRating.image + uiPostfix));
+			ratingImageToUse = "marvelous";
+			shouldUseGoldenNumbers = true;
+		}
+		else
+		{
+			// 对于good/bad/shit评级，添加Early/Late后缀
+			if (daRating.name == "good" || daRating.name == "bad" || daRating.name == "shit")
+			{
+				if (rawNoteDiff > 0)
+				{
+					ratingImageToUse = daRating.image + "-e"; // Early后缀
+				}
+				else
+				{
+					ratingImageToUse = daRating.image + "-l"; // Late后缀
+				}
+			}
+		}
+	}
+	// ==================== FOREVER套系特殊逻辑结束 ====================
+
+	var ratingImagePath:String = uiFolder + ratingImageToUse + uiPostfix;
+	if (!Paths.fileExists('images/' + ratingImagePath + '.png', IMAGE) && uiFolder != "")
+	{
+		// 如果带后缀的图片不存在，尝试使用原始评级图片
+		if (ratingImageToUse.contains("-e") || ratingImageToUse.contains("-l"))
+		{
+			ratingImagePath = uiFolder + daRating.image + uiPostfix;
+			if (!Paths.fileExists('images/' + ratingImagePath + '.png', IMAGE))
+			{
+				var fallbackFolder:String = "";
+				if (stageUI != "normal")
+					fallbackFolder = uiPrefix + "UI/";
+				ratingImagePath = fallbackFolder + daRating.image + uiPostfix;
+			}
+		}
+		else
+		{
+			var fallbackFolder:String = "";
+			if (stageUI != "normal")
+				fallbackFolder = uiPrefix + "UI/";
+			ratingImagePath = fallbackFolder + daRating.image + uiPostfix;
+		}
+	}
+
+	rating.loadGraphic(Paths.image(ratingImagePath));
 			rating.screenCenter();
 			rating.x = placement - 40;
 			rating.y -= 60;
 			rating.acceleration.y = 550 * playbackRate * playbackRate;
+	if (SONG.stage == "ejected")
+	{
+		rating.velocity.y -= FlxG.random.int(540, 600) * playbackRate;
+		rating.velocity.x -= FlxG.random.int(-10, 20) * playbackRate;
+	}
+	else if (SONG.stage == "airship")
+	{
+	rating.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+	rating.velocity.x = FlxG.random.float(-250, -300) * playbackRate;	
+	}
+	else if (SONG.stage == "turbulence")
+	{
+	rating.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+	rating.velocity.x = FlxG.random.float(250, 300) * playbackRate;	
+	}
+	else
+	{
 			rating.velocity.y -= FlxG.random.int(140, 175) * playbackRate;
 			rating.velocity.x -= FlxG.random.int(0, 10) * playbackRate;
+	}
 			rating.visible = (!ClientPrefs.data.hideHud && showRating);
 			rating.x += ClientPrefs.data.comboOffset[0];
 			rating.y -= ClientPrefs.data.comboOffset[1];
 			rating.antialiasing = antialias;
 
-			var comboSpr:FlxSprite = new FlxSprite().loadGraphic(Paths.image(uiFolder + 'combo' + uiPostfix));
+	if (!ClientPrefs.data.hideHud && ClientPrefs.data.showMS)
+	{
+		var msText:String = (msTiming >= 0 ? "+" : "") + msTiming + "ms";
+		
+		currentTimingShown = new FlxText(0, 0, 0, msText, 16);
+		currentTimingShown.setFormat(Paths.font('pixel-latin.ttf'), 16, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		
+		if (ClientPrefs.data.customColor)
+		{
+			switch(daRating.name)
+			{
+				case 'sick': 
+					currentTimingShown.color = FlxColor.CYAN;      // 0x00FFFF
+				case 'good': 
+					currentTimingShown.color = FlxColor.LIME;      // 0x00FF00
+				case 'bad': 
+					currentTimingShown.color = FlxColor.RED;    // 0xFF0000
+				case 'shit': 
+					currentTimingShown.color = FlxColor.RED;       // 0x970000
+			}
+		}
+		currentTimingShown.size = 16;
+		var msX:Float =	placement + ClientPrefs.data.comboOffset[0] + 175; // rating.x + 100
+		var msY:Float = 310 - ClientPrefs.data.comboOffset[1] ;   // rating.y + 50
+		currentTimingShown.x += msX;
+		currentTimingShown.y += msY;
+	}
+
+	// 加载combo图片，检查是否存在
+	var comboSpr:FlxSprite = new FlxSprite();
+	var comboImagePath:String = uiFolder + 'combo' + uiPostfix;
+	if (Paths.fileExists('images/' + comboImagePath + '.png', IMAGE))
+	{
+		comboSpr.loadGraphic(Paths.image(comboImagePath));
+	}
+	else
+	{
+		// 回退到默认路径
+		var fallbackFolder:String = "";
+		if (stageUI != "normal")
+			fallbackFolder = uiPrefix + "UI/";
+		comboSpr.loadGraphic(Paths.image(fallbackFolder + 'combo' + uiPostfix));
+	}
+	
 			comboSpr.screenCenter();
 			comboSpr.x = placement;
 			comboSpr.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
@@ -2659,6 +3213,8 @@ class PlayState extends MusicBeatState
 			comboSpr.y += 60;
 			comboSpr.velocity.x += FlxG.random.int(1, 10) * playbackRate;
 			comboGroup.add(rating);
+	if (currentTimingShown != null)
+		comboGroup.add(currentTimingShown);
 
 			if (!PlayState.isPixelStage)
 			{
@@ -2680,27 +3236,97 @@ class PlayState extends MusicBeatState
 				comboGroup.add(comboSpr);
 
 			var separatedScore:String = Std.string(combo).lpad('0', 3);
+	
+	// 数字根据评级变色
 			for (i in 0...separatedScore.length)
 			{
-				var numScore:FlxSprite = new FlxSprite().loadGraphic(Paths.image(uiFolder + 'num' + Std.parseInt(separatedScore.charAt(i)) + uiPostfix));
+		var numImagePath:String;
+		
+		// ==================== FOREVER套系数字逻辑开始 ====================
+		if (isForeverUI && shouldUseGoldenNumbers)
+		{
+			// 使用金色数字前缀
+			numImagePath = uiFolder + 'goldennum' + Std.parseInt(separatedScore.charAt(i)) + uiPostfix;
+			
+			// 如果金色数字不存在，回退到普通数字
+			if (!Paths.fileExists('images/' + numImagePath + '.png', IMAGE))
+			{
+				numImagePath = uiFolder + 'num' + Std.parseInt(separatedScore.charAt(i)) + uiPostfix;
+			}
+		}
+		else
+		{
+			// 非Forever套系或非Marvelous情况，使用默认数字
+			numImagePath = uiFolder + 'num' + Std.parseInt(separatedScore.charAt(i)) + uiPostfix;
+		}
+		// ==================== FOREVER套系数字逻辑结束 ====================
+		
+		// 检查数字图片是否存在，不存在则回退
+		if (!Paths.fileExists('images/' + numImagePath + '.png', IMAGE) && uiFolder != "")
+		{
+			var fallbackFolder:String = "";
+			if (stageUI != "normal")
+				fallbackFolder = uiPrefix + "UI/";
+			numImagePath = fallbackFolder + 'num' + Std.parseInt(separatedScore.charAt(i)) + uiPostfix;
+		}
+		
+		var numScore:FlxSprite = new FlxSprite().loadGraphic(Paths.image(numImagePath));
 				numScore.screenCenter();
 				numScore.x = placement + (43 * daLoop) - 90 + ClientPrefs.data.comboOffset[2];
 				numScore.y += 80 - ClientPrefs.data.comboOffset[3];
 
 				if (!PlayState.isPixelStage)
+		{
 					numScore.setGraphicSize(Std.int(numScore.width * 0.5));
+		}
 				else
+		{
 					numScore.setGraphicSize(Std.int(numScore.width * daPixelZoom));
+		}
+		
+		// 根据评级给数字着色
+		if (ClientPrefs.data.customColor && ClientPrefs.data.customUI == "Frozen" || ClientPrefs.data.forceNumberColor)
+		{
+			switch(daRating.name)
+			{
+			case 'sick':
+					numScore.color = 0x00FFFF; // 青色/CYAN
+			case 'good':
+				numScore.color = 0x00FF00; // 绿色/GREEN
+			case 'bad':
+				numScore.color = 0xFF0000; // 橙色/ORANGE
+			case 'shit':
+				numScore.color = 0x690000; // 红色/RED
+		}
+		}
+		
 				numScore.updateHitbox();
 
 				numScore.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
+		if (SONG.stage == "ejected")
+		{
+		numScore.velocity.y -= FlxG.random.int(540, 580) * playbackRate;
+		numScore.velocity.x = FlxG.random.float(-15, 15) * playbackRate;
+		}
+		else if (SONG.stage == "airship")
+		{
+		numScore.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+		numScore.velocity.x = FlxG.random.float(-250, -300) * playbackRate;	
+		}
+		else if (SONG.stage == "turbulence")
+		{
+		numScore.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+		numScore.velocity.x = FlxG.random.float(250, 300) * playbackRate;	
+		}
+		else
+		{
 				numScore.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
 				numScore.velocity.x = FlxG.random.float(-5, 5) * playbackRate;
+		}
 				numScore.visible = !ClientPrefs.data.hideHud;
 				numScore.antialiasing = antialias;
 
-				// if (combo >= 10 || combo == 0)
-				if (showComboNum)
+		if(showComboNum)
 					comboGroup.add(numScore);
 
 				FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
@@ -2712,9 +3338,9 @@ class PlayState extends MusicBeatState
 				});
 
 				daLoop++;
-				if (numScore.x > xThing)
-					xThing = numScore.x;
+		if(numScore.x > xThing) xThing = numScore.x;
 			}
+	
 			comboSpr.x = xThing + 50;
 			FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
 				startDelay: Conductor.crochet * 0.001 / playbackRate
@@ -2727,6 +3353,14 @@ class PlayState extends MusicBeatState
 					rating.destroy();
 				},
 				startDelay: Conductor.crochet * 0.002 / playbackRate
+	});
+
+	if (currentTimingShown != null)
+	{
+		FlxTween.tween(currentTimingShown, {alpha: 0}, 0.2 / playbackRate, {
+			onComplete: function(tween:FlxTween)
+			{},
+			startDelay: Conductor.crochet * 0.001 / playbackRate // 与rating同时开始
 			});
 		}
 	}
@@ -2734,7 +3368,8 @@ class PlayState extends MusicBeatState
 	public var strumsBlocked:Array<Bool> = [];
 	private function onKeyPress(event:KeyboardEvent):Void
 	{
-
+	 if (loadRep || inReplay)
+        return;
 		var eventKey:FlxKey = event.keyCode;
 		var key:Int = getKeyFromEvent(keysArray, eventKey);
 
@@ -2752,6 +3387,9 @@ class PlayState extends MusicBeatState
 	private function keyPressed(key:Int)
 	{
 		if(cpuControlled || paused || inCutscene || key < 0 || key >= playerStrums.length || !generatedMusic || endingSong || boyfriend.stunned) return;
+		if (inReplay || loadRep) return;
+
+		if (keyboardViewer != null) keyboardViewer.pressed(key);
 
 		var ret:Dynamic = callOnScripts('onKeyPressPre', [key]);
 		if(ret == LuaUtils.Function_Stop) return;
@@ -2829,8 +3467,9 @@ class PlayState extends MusicBeatState
 
 	private function keyReleased(key:Int)
 	{
-		if(cpuControlled || !startedCountdown || paused || key < 0 || key >= playerStrums.length) return;
+ if(cpuControlled || !startedCountdown || paused || key < 0 || key >= 4) return;
 
+		if (keyboardViewer != null) keyboardViewer.released(key);
 		var ret:Dynamic = callOnScripts('onKeyReleasePre', [key]);
 		if(ret == LuaUtils.Function_Stop) return;
 
@@ -2945,6 +3584,41 @@ class PlayState extends MusicBeatState
 		stagesFunc(function(stage:BaseStage) stage.noteMiss(daNote));
 		var result:Dynamic = callOnLuas('noteMiss', [notes.members.indexOf(daNote), daNote.noteData, daNote.noteType, daNote.isSustainNote]);
 		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('noteMiss', [daNote]);
+
+		
+    if(scoreTxt != null) {
+        if(scoreTxtColorTween != null) {
+            scoreTxtColorTween.cancel();
+        }
+        
+        if(ClientPrefs.data.customColor){
+            scoreTxtColorTween = FlxTween.color(scoreTxt, 0.1, scoreTxt.color, 0xFFFF1512, {
+                onComplete: function(twn:FlxTween) {
+                    new FlxTimer().start(0.4, function(tmr:FlxTimer) 
+                    {
+                        FlxTween.color(scoreTxt, 0.1, scoreTxt.color, getOpponentHealthColor());
+                    });
+                }
+            });
+        }
+        else {
+            scoreTxtColorTween = FlxTween.color(scoreTxt, 0.1, scoreTxt.color, 0xFFFF1512, {
+                onComplete: function(twn:FlxTween) {
+                    new FlxTimer().start(0.4, function(tmr:FlxTimer) 
+                    {
+                        FlxTween.color(scoreTxt, 0.1, scoreTxt.color, 0xFFFFFFFF);
+                    });
+                }
+            });
+        }
+    }
+    
+    // ========== 回放录制 ==========
+      if (rep != null && !loadRep && !cpuControlled && !practiceMode && !inReplay)
+    {
+        rep.recordMiss(daNote.noteData, daNote.strumTime);
+        //trace('Replay recorded miss at strumTime: ' + daNote.strumTime);
+    }
 	}
 
 	function noteMissPress(direction:Int = 1):Void //You pressed a key when there was no notes to press for this key
@@ -2955,6 +3629,12 @@ class PlayState extends MusicBeatState
 		FlxG.sound.play(Paths.soundRandom('missnote', 1, 3), FlxG.random.float(0.1, 0.2));
 		stagesFunc(function(stage:BaseStage) stage.noteMissPress(direction));
 		callOnScripts('noteMissPress', [direction]);
+
+		    // ========== 回放录制 ==========
+        if (rep != null && !loadRep && !cpuControlled && !practiceMode && !inReplay)
+    {
+        rep.recordMiss(direction, Conductor.songPosition);
+    }
 	}
 
 	function noteMissCommon(direction:Int, note:Note = null)
@@ -3083,6 +3763,17 @@ class PlayState extends MusicBeatState
 		var result:Dynamic = callOnLuas('opponentNoteHit', [notes.members.indexOf(note), Math.abs(note.noteData), note.noteType, note.isSustainNote]);
 		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('opponentNoteHit', [note]);
 
+		if (note.isSustainNote && noteHoldCover != null)
+	{
+		if (opponentMode)
+		{
+		noteHoldCover.onPlayerNoteHit(Std.int(Math.abs(note.noteData)), note.isSustainNote, note);
+		}
+		else
+		{
+		noteHoldCover.onOpponentNoteHit(Std.int(Math.abs(note.noteData)), note.isSustainNote, note);
+		}
+	}
 		if (!note.isSustainNote) invalidateNote(note);
 	}
 
@@ -3182,10 +3873,62 @@ class PlayState extends MusicBeatState
 			if(!note.noteSplashData.disabled && !note.isSustainNote) spawnNoteSplashOnNote(note);
 		}
 
+		if (note.isSustainNote && noteHoldCover != null)
+		{
+			if (opponentMode)
+			{
+				noteHoldCover.onOpponentNoteHit(Std.int(Math.abs(note.noteData)), note.isSustainNote, note);
+			}
+			else
+			{
+				noteHoldCover.onPlayerNoteHit(Std.int(Math.abs(note.noteData)), note.isSustainNote, note);
+			}
+		}
+
 		stagesFunc(function(stage:BaseStage) stage.goodNoteHit(note));
 		var result:Dynamic = callOnLuas('goodNoteHit', [notes.members.indexOf(note), leData, leType, isSus]);
 		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('goodNoteHit', [note]);
 		if(!note.isSustainNote) invalidateNote(note);
+
+		var diff = note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+
+		if (ClientPrefs.data.hitErrorBarVisible) {
+		if (hitErrorBar != null && (!isSus )) {
+			var hitTime:Float = -diff;
+			hitErrorBar.registerHit(hitTime);
+		}
+		}	
+
+		if (rep != null && !loadRep && !cpuControlled && !practiceMode && !inReplay)
+		{
+			// 如果是长箭头，不记录 diff（或记录为0，后续在 HitGraph 中过滤）
+			var diffToRecord = diff;
+			if (isSus)
+			{
+				diffToRecord = 0; // 或者 -9999，表示长箭头
+				var judge = "";
+				rep.judgementRecording.push(judge);
+				rep.noteRecording.push([note.strumTime, note.sustainLength, note.noteData, diffToRecord]);
+			}
+			
+			if (!isSus)
+			{
+				var absDiff = Math.abs(diff);
+				var judge = "marvelous";
+				var marvelousWindow:Float = ClientPrefs.data.marvelousWindow;
+				var sickWindow:Float = ClientPrefs.data.sickWindow;
+				var goodWindow:Float = ClientPrefs.data.goodWindow;
+				var badWindow:Float = ClientPrefs.data.badWindow;
+				if (absDiff <= marvelousWindow) judge = "marvelous";
+				else if (absDiff <= sickWindow) judge = "sick";
+				else if (absDiff <= goodWindow) judge = "good";
+				else if (absDiff <= badWindow) judge = "bad";
+				else judge = "shit";
+				
+				rep.judgementRecording.push(judge);			
+				rep.noteRecording.push([note.strumTime, note.sustainLength, note.noteData, diff]);
+			}
+		}
 	}
 
 	public function invalidateNote(note:Note):Void {
@@ -3261,6 +4004,20 @@ class PlayState extends MusicBeatState
 		instance = null;
 		shutdownThread = true;
 		FlxG.signals.preUpdate.remove(checkForResync);
+
+		inReplay = false;
+		loadRep = false;
+
+		if (modInfoBox != null)
+		{
+			modInfoBox.destroy();
+			modInfoBox = null;
+		}
+		if (strumGuideLine != null)
+		{
+			strumGuideLine.destroy();
+			strumGuideLine = null;
+		}
 		super.destroy();
 	}
 
@@ -3844,4 +4601,473 @@ class PlayState extends MusicBeatState
 		if (!FlxG.signals.preUpdate.has(checkForResync))
 			FlxG.signals.preUpdate.add(checkForResync);
 	}
+
+	function createModInfoBox():Void
+{
+    if (SONG == null) return;
+    
+    // 获取对手颜色
+    var opponentColor:FlxColor;
+    
+    if (dad != null && dad.healthColorArray != null && dad.healthColorArray.length >= 3)
+    {
+        // 使用 dad 的血条颜色
+        opponentColor = FlxColor.fromRGB(
+            dad.healthColorArray[0],
+            dad.healthColorArray[1],
+            dad.healthColorArray[2]
+        );
+        trace('Using dad color: R=${dad.healthColorArray[0]}, G=${dad.healthColorArray[1]}, B=${dad.healthColorArray[2]}');
+    }
+    else
+    {
+        // 默认颜色
+        opponentColor = FlxColor.fromString('#7E1C4A');
+        trace('Using default color for info box');
+    }
+    
+    // 创建 ModInfoBox
+    modInfoBox = new ModInfoBox(SONG.song, opponentColor);
+    
+    // 只有需要显示时才添加到舞台
+    if (modInfoBox.shouldDisplay)
+    {
+        modInfoBox.cameras = [camOther];
+        add(modInfoBox);
+        trace('ModInfoBox created for song: ${SONG.song}');
+    }
+    else
+    {
+        modInfoBox = null; // 如果不显示，设为 null
+        trace('No ModInfoBox for song: ${SONG.song}');
+    }
+}
+
+private function initReplayData():Void
+{
+    if (rep == null || rep.replay == null || rep.replay.songNotes == null)
+    {
+        trace('ERROR: Replay data is null or invalid!');
+        inReplay = false;
+        return;
+    }
+    
+    // 清空队列
+    replayNoteQueue = [];
+    repNoteIndex = 0;
+    lastReplayTime = 0;
+    
+    // 解析回放音符数据
+    for (i in 0...rep.replay.songNotes.length)
+    {
+        var noteData:Array<Dynamic> = rep.replay.songNotes[i];
+        if (noteData == null || noteData.length < 4) continue;
+        
+        // 数组格式: [strumTime, sustainLength, column, diff, isMiss, processed]
+        var replayNote:Array<Dynamic> = [
+            noteData[0],                     // 0: strumTime (音符出现时间)
+            noteData[1],                     // 1: sustainLength (长条长度)
+            Std.int(noteData[2] % 4),        // 2: column (按键列)
+            noteData[3],                     // 3: diff (击打时间差)
+            (noteData[3] >= 9999),           // 4: isMiss (是否失误)
+            false                            // 5: processed (是否已处理)
+        ];
+        
+        replayNoteQueue.push(replayNote);
+        
+        //trace('Replay Note ${i}: time=${replayNote[0]}, col=${replayNote[2]}, ' +
+             // 'sus=${replayNote[1]}, diff=${replayNote[3]}, ' +
+             // 'miss=${replayNote[4]}');
+    }
+    
+    // 按时间排序
+    replayNoteQueue.sort(function(a:Array<Dynamic>, b:Array<Dynamic>):Int
+    {
+        return Std.int(a[0] - b[0]); // 按strumTime排序
+    });
+    
+    //trace('Loaded ${replayNoteQueue.length} replay notes');
+}
+
+/**
+ * 创建回放UI界面
+ */
+private function createReplayUI():Void
+{
+    if (!inReplay) return;
+    
+    //trace('Creating replay UI...');
+    
+    try {
+        // 创建回放文字显示
+        replayTxt = new FlxText(0, 0, FlxG.width, "REPLAY MODE", 32);
+        replayTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.YELLOW, CENTER, 
+                         OUTLINE, FlxColor.BLACK);
+        replayTxt.scrollFactor.set();
+        replayTxt.borderSize = 2;
+        replayTxt.alpha = 0.8;
+        
+        // 添加文字到组
+        uiGroup.add(replayTxt);
+        replayTxt.visible = true;
+        
+        // 根据滚动方向调整位置
+        if (ClientPrefs.data.downScroll) {
+            replayTxt.y = healthBar != null ? healthBar.y - 100 : FlxG.height - 150;
+        } else {
+            replayTxt.y = healthBar != null ? healthBar.y + 100 : 50;
+        }
+        
+        //trace('Replay UI created successfully at y=${replayTxt.y}');
+    } catch (e:Dynamic) {
+        trace('ERROR creating replay UI: $e');
+        trace('Stack: ${e.stack}');
+    }
+}
+
+/**
+ * 主回放处理函数 - 每帧调用
+ */
+private function processReplayNotes(elapsed:Float):Void
+{
+    if (!inReplay || !generatedMusic) {
+        return;
+    }
+    
+    if (replayNoteQueue.length == 0 || repNoteIndex >= replayNoteQueue.length) {
+        return;
+    }
+    
+    var currentTime:Float = Conductor.songPosition;
+    var realCurrentTime:Float = currentTime + Conductor.offset; // 考虑offset
+    
+    // 每50个音符更新一次UI，避免过于频繁
+    updateReplayUI(currentTime);
+    
+    // 调试信息：每2秒打印一次状态
+    #if debug
+    if (Math.floor(currentTime / 2000) > Math.floor(lastReplayTime / 2000)) {
+        trace('Replay status at ${currentTime}ms: ${repNoteIndex}/${replayNoteQueue.length} notes processed');
+    }
+    #end
+    
+    lastReplayTime = currentTime;
+    
+    // 处理所有到期的回放音符
+    var processedCount:Int = 0;
+    while (repNoteIndex < replayNoteQueue.length && processedCount < 100) // 每帧最多处理10个音符
+    {
+        var replayNote:Array<Dynamic> = replayNoteQueue[repNoteIndex];
+        
+        if (replayNote == null || replayNote.length < 6) {
+            repNoteIndex++;
+            continue;
+        }
+        var time:Float = spawnTime * playbackRate;
+        // 关键：使用实际应该击打的时间（原始strumTime + diff）
+        var noteStrTime:Float = replayNote[0]; // 音符的原始出现时间
+        var diff:Float = replayNote[3];        // 实际击打时间与音符时间的差值
+        var actualHitTime:Float = noteStrTime + diff; // 实际应该在什么时候击打
+        var isMiss:Bool = replayNote[4];
+        var processed:Bool = replayNote[5];
+        
+        // 如果已经处理过，跳过
+        if (processed) {
+            repNoteIndex++;
+            continue;
+        }
+        
+        // 关键修改：应该基于实际击打时间来触发
+        // 如果击打时间还没到，等待
+        if (actualHitTime > realCurrentTime) { // 提前10ms准备
+            break;
+        }
+        
+        // 如果击打时间过期太多，跳过
+        if (realCurrentTime - actualHitTime > Conductor.safeZoneOffset) {
+            trace('Skipping too late note: noteTime=${noteStrTime}, hitTime=${actualHitTime}, current=${realCurrentTime}');
+            replayNoteQueue[repNoteIndex][5] = true;
+            repNoteIndex++;
+            continue;
+        }
+        
+        // 处理音符
+        try {
+            if (!isMiss) {
+                processReplayHit(replayNote, realCurrentTime);
+            } else {
+                processReplayMiss(replayNote, realCurrentTime);
+            }
+            
+            // 标记为已处理
+            replayNoteQueue[repNoteIndex][5] = true;
+            processedCount++;
+            
+        } catch (e:Dynamic) {
+            trace('ERROR processing replay note at ${noteStrTime}: $e');
+            trace('Stack: ${e.stack}');
+        }
+        
+        repNoteIndex++;
+    }
+    
+    // 如果没有更多音符，结束回放
+    if (repNoteIndex >= replayNoteQueue.length && inReplay)
+    {
+        trace('Replay finished! All notes processed.');
+        completeReplay();
+    }
+}
+
+/**
+ * 处理回放打击 (hit)
+ */
+private function processReplayHit(replayNote:Array<Dynamic>, currentTime:Float):Void
+{
+    var noteStrTime:Float = replayNote[0];
+	var sustainLength:Float = replayNote[1];
+    var column:Int = replayNote[2];
+    var diff:Float = replayNote[3];
+    var actualHitTime:Float = noteStrTime + diff;
+    
+   // trace('Processing replay HIT: noteTime=$noteStrTime, col=$column, diff=$diff, actualHit=$actualHitTime, current=$currentTime');
+    var time:Float = spawnTime * playbackRate;
+    // 1. 播放按键动画
+    var strum:StrumNote = playerStrums.members[column];
+    if (strum != null)
+    {
+        var spr = playerStrums.members[column];
+		strumPlayAnim(false, Std.int(Math.abs(column)), Conductor.stepCrochet * 1.25 / 1000 / playbackRate);
+        
+    }
+    
+    // 2. 查找并击中对应的游戏音符
+    // 关键修改：基于音符的原始出现时间来查找
+    var targetNote:Note = findNoteAtOriginalTime(noteStrTime, column);
+    if (targetNote != null)
+    {
+        var timeDiff:Float = currentTime - targetNote.strumTime;
+        
+        // 如果时间差在安全区内，正常击中
+        if (Math.abs(timeDiff) < Conductor.safeZoneOffset)
+        {
+            goodNoteHit(targetNote);
+        }
+        else
+        {
+            trace('WARNING: Time diff too large: $timeDiff, forcing hit');
+            // 强制击中，但可能会影响评分
+            goodNoteHit(targetNote);
+            // 也可以手动设置状态
+            targetNote.wasGoodHit = true;
+            targetNote.canBeHit = false;
+        }
+        
+        // 如果需要，处理长条音符
+        if (sustainLength > 0)
+        {
+            processSustainNotes(targetNote, replayNote);
+        }
+    }
+    else
+    {
+       // trace('WARNING: No target note found for replay hit at $noteStrTime');
+        
+        // 如果没有找到对应音符，至少播放动画
+        var animName:String = singAnimations[column];
+        if (boyfriend != null && boyfriend.hasAnimation(animName))
+        {
+            boyfriend.playAnim(animName, true);
+            boyfriend.holdTimer = 0;
+        }
+    }
+}
+
+/**
+ * 处理回放失误 (miss)
+ */
+private function processReplayMiss(replayNote:Array<Dynamic>, currentTime:Float):Void
+{
+    var noteStrTime:Float = replayNote[0];
+    var column:Int = replayNote[2];
+    
+    trace('Processing replay MISS: time=${noteStrTime}, col=${column}');
+    
+    // 播放miss效果
+    noteMissPress(column);
+    
+    // 播放miss动画
+    var animName:String = singAnimations[column] + 'miss';
+    if (boyfriend != null && boyfriend.hasAnimation(animName))
+    {
+        boyfriend.playAnim(animName, true);
+    }
+}
+
+/**
+ * 基于音符的原始出现时间查找音符（关键修复）
+ */
+private function findNoteAtOriginalTime(targetTime:Float, column:Int):Note
+{
+    var bestNote:Note = null;
+    var minTimeDiff:Float = 10; // 允许10ms的误差
+    
+    notes.forEachAlive(function(daNote:Note)
+    {
+        // 检查音符是否符合条件
+        if (!daNote.mustPress || 
+            daNote.wasGoodHit || 
+            daNote.tooLate || 
+            !daNote.canBeHit || 
+            daNote.noteData != column)
+            return;
+        
+        // 计算原始时间的差值
+        var timeDiff:Float = Math.abs(daNote.strumTime - targetTime);
+        
+        // 找到时间最接近的音符
+        if (timeDiff < minTimeDiff)
+        {
+            minTimeDiff = timeDiff;
+            bestNote = daNote;
+        }
+    });
+    
+    // 如果没找到精确匹配，放宽条件
+    if (bestNote == null)
+    {
+        var fallbackDiff:Float = 45; // 放宽到45ms
+        
+        notes.forEachAlive(function(daNote:Note)
+        {
+            if (!daNote.mustPress || 
+                daNote.wasGoodHit || 
+                daNote.tooLate || 
+                daNote.noteData != column)
+                return;
+            
+            var timeDiff:Float = Math.abs(daNote.strumTime - targetTime);
+            if (timeDiff < fallbackDiff)
+            {
+                fallbackDiff = timeDiff;
+                bestNote = daNote;
+            }
+        });
+    }
+    
+    if (bestNote != null) {
+        //trace('Found note: expected=${targetTime}, actual=${bestNote.strumTime}, diff=${bestNote.strumTime - targetTime}');
+    }
+    
+    return bestNote;
+}
+
+/**
+ * 备选方案：根据实际击打时间查找音符
+ */
+private function findNoteAtActualHitTime(hitTime:Float, column:Int):Note
+{
+    var bestNote:Note = null;
+    var minTimeDiff:Float = Conductor.safeZoneOffset * 0.5; // 50%的安全区
+    
+    notes.forEachAlive(function(daNote:Note)
+    {
+        if (!daNote.mustPress || 
+            daNote.wasGoodHit || 
+            daNote.tooLate || 
+            !daNote.canBeHit || 
+            daNote.noteData != column)
+            return;
+        
+        // 计算音符可被击打的时间窗口
+        var noteHitWindowStart:Float = daNote.strumTime - Conductor.safeZoneOffset + ClientPrefs.data.ratingOffset;
+        var noteHitWindowEnd:Float = daNote.strumTime + Conductor.safeZoneOffset + ClientPrefs.data.ratingOffset;
+        
+        // 如果击打时间在音符的可击打窗口内
+        if (hitTime >= noteHitWindowStart && hitTime <= noteHitWindowEnd)
+        {
+            // 选择时间最接近的音符
+            var timeDiff:Float = Math.abs(daNote.strumTime - hitTime);
+            if (timeDiff < minTimeDiff)
+            {
+                minTimeDiff = timeDiff;
+                bestNote = daNote;
+            }
+        }
+    });
+    
+    return bestNote;
+}
+
+/**
+ * 处理长条音符
+ */
+private function processSustainNotes(parentNote:Note, replayNote:Array<Dynamic>):Void
+{
+    if (parentNote == null || replayNote[1] <= 0)
+        return;
+    
+    // 处理长条音符
+    var sustainTime:Float = replayNote[1];
+    var column:Int = replayNote[2];
+	var strum:StrumNote = playerStrums.members[column];
+    if (sustainTime > 0)
+    {
+       strumPlayAnim(false, Std.int(Math.abs(column)), Conductor.stepCrochet * 1.25 / 1000 / playbackRate);
+        //trace('Note has sustain: ${sustainTime}ms');
+    }
+}
+
+/**
+ * 更新回放UI显示
+ */
+private function updateReplayUI(currentTime:Float):Void
+{
+    if (replayTxt == null) {
+        // 尝试重新创建UI
+        if (inReplay) {
+            createReplayUI();
+        }
+        return;
+    }
+    
+    try {
+        var totalNotes:Int = replayNoteQueue.length;
+        var progress:Float = totalNotes > 0 ? (repNoteIndex / totalNotes) * 100 : 100;
+        
+        // 添加时间信息
+        var timeStr:String = FlxStringUtil.formatTime(Math.floor(currentTime / 1000), false);
+        
+        replayTxt.text = 'REPLAY MODE\n${Math.round(progress)}% (${repNoteIndex}/${totalNotes})\n${timeStr}';
+        replayTxt.screenCenter(X);
+        replayTxt.visible = true;
+    } catch (e:Dynamic) {
+        trace('ERROR updating replay UI: $e');
+    }
+}
+
+/**
+ * 完成回放
+ */
+private function completeReplay():Void
+{
+    trace('Completing replay...');
+    
+    if (replayTxt != null)
+    {
+        replayTxt.text = 'REPLAY COMPLETE!';
+        replayTxt.color = FlxColor.GREEN;
+        
+        // 3秒后隐藏
+        new FlxTimer().start(3, function(tmr:FlxTimer)
+        {
+            if (replayTxt != null) {
+                replayTxt.visible = false;
+            }
+        });
+    }
+    
+    // 可以选择自动退出回放模式
+    inReplay = false;
+}
 }
