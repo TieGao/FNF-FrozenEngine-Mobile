@@ -249,6 +249,9 @@ class KEOption
 				case "Replay Manager":
 					MusicBeatState.switchState(new states.LoadReplayState());
 					return false;  
+				case "Mobile Settings":
+					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
+					return false;
 				case "Reset KeyBinds":
 					ClientPrefs.resetKeys();
 					ClientPrefs.saveSettings();
