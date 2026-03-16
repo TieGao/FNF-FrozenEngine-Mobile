@@ -476,7 +476,27 @@ class PsychUIInputText extends FlxSpriteGroup
 		if(textObj == null || !textObj.exists) return;
 
 		var textField = textObj.textField;
-		textField.setSelection(caretIndex, caretIndex);
+    
+    // OpenFL 9.5.0 修复了默认索引，需要确保索引有效
+    if(caretIndex < 0) caretIndex = 0;
+    if(caretIndex > text.length) caretIndex = text.length;
+    
+    // 修复 setSelection() 行为变化
+    try {
+        // 确保不会传入无效值
+        var start = Std.int(Math.max(0, Math.min(text.length, caretIndex)));
+        var end = start; // 单光标，没有选择
+        
+        if(selectIndex != -1 && selectIndex != caretIndex) {
+            start = Std.int(Math.min(caretIndex, selectIndex));
+            end = Std.int(Math.max(caretIndex, selectIndex));
+        }
+        
+        textField.setSelection(start, end);
+    } catch(e:Dynamic) {
+        trace("setSelection failed:", e);
+    }
+    
 		_caretTime = 0;
 		if(caret != null && caret.exists)
 		{
