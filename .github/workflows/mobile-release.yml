@@ -6,7 +6,7 @@ permissions:
   discussions: write
 
 env:
-  PROJECT_NAME: FrozenEngine
+  PROJECT_NAME: PsychEngine
   REPO_PATH: TieGao/FNF-FrozenEngine-Mobile
 
 jobs:
