@@ -62,30 +62,8 @@ jobs:
           haxelib run lime config JAVA_HOME $JAVA_HOME_17_arm64
           haxelib run lime config ANDROID_SETUP true
 
-      - name: Build HXCPP
-        run: |
-          echo "Building HXCPP..."
-          HXCPP_DIR=$(haxelib path hxcpp | head -1 | xargs dirname)
-          cd "$HXCPP_DIR"
-          
-          # Build command-line tool
-          if [ -f "tools/hxcpp/compile.hxml" ]; then
-            cd tools/hxcpp
-            haxe compile.hxml
-            cd ../..
-          fi
-          
-          # Build binaries
-          if [ -f "project/Build.xml" ]; then
-            cd project
-            haxelib run hxcpp Build.xml
-            cd ..
-          fi
-          
-          echo "HXCPP build completed"
-
       - name: Compile
-        run: haxelib run lime build ${{ inputs.buildArgs }}
+        run: yes y | haxelib run lime build ${{ inputs.buildArgs }}
 
       - name: Make IPA
         if: inputs.name == 'iOS'
