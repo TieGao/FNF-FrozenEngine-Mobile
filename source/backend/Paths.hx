@@ -201,13 +201,59 @@ class Paths
 	inline static public function lua(key:String, ?folder:String)
 		return getPath('$key.lua', TEXT, folder, true);
 
-	static public function video(key:String)
+	public static var currentTrackedVideos:Map<String, String> = [];
+	
+		static public function video(key:String):String
 	{
 		#if MODS_ALLOWED
 		var file:String = modsVideo(key);
 		if(FileSystem.exists(file)) return file;
 		#end
 		return 'assets/videos/$key.$VIDEO_EXT';
+	}
+
+	// 新增缓存视频函数
+	static public function cachedVideo(key:String):String
+	{
+		var videoPath:String = video(key); // 先获取原始路径
+		
+		// 检查是否已缓存
+		if (currentTrackedVideos.exists(videoPath))
+		{
+			localTrackedAssets.push(videoPath);
+			return currentTrackedVideos.get(videoPath);
+		}
+		
+		return cacheVideoPath(videoPath);
+	}
+
+	// 缓存视频路径
+	static function cacheVideoPath(filePath:String):String
+	{
+		// 验证视频文件是否存在
+		var exists:Bool = false;
+		
+		#if MODS_ALLOWED
+		if (FileSystem.exists(filePath))
+			exists = true;
+		#end
+		
+		#if !MODS_ALLOWED
+		if (OpenFlAssets.exists(filePath, VIDEO))
+			exists = true;
+		#end
+		
+		if (!exists)
+		{
+			trace('Video not found for caching: $filePath');
+			return filePath;
+		}
+		
+		// 缓存视频路径
+		currentTrackedVideos.set(filePath, filePath);
+		localTrackedAssets.push(filePath);
+		
+		return filePath;
 	}
 
 	inline static public function sound(key:String, ?modsAllowed:Bool = true):Sound

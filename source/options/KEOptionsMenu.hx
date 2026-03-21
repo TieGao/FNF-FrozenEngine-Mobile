@@ -8,6 +8,7 @@ import flixel.util.FlxTimer;
 import states.MainMenuState;
 import backend.MusicBeatState;
 import backend.StageData;
+import backend.Controls;
 
 import objects.BiosDateDisplay;
 
@@ -691,6 +692,8 @@ class KEOptionsMenu extends MusicBeatState
 		var leftPressed = controls.UI_LEFT;
 		var upPressed = controls.UI_UP;
 		var downPressed = controls.UI_DOWN;
+
+		changedOption = false;
 		
 		// 鼠标点击分类标签切换分类
 		for (i in 0...options.length)
@@ -1000,7 +1003,13 @@ class KEOptionsMenu extends MusicBeatState
 				KEOption.create("Note Opacity", "Note transparency", "noteAlpha", "float", 0.9, 0, 1, 0.1),
 				KEOption.create("Note Splash Opacity", "Note splash transparency", "splashAlpha", "float", 0.8, 0, 1, 0.1),
 				KEOption.create("Note HoldCover Opacity", "Note splash transparency", "holdcoverAlpha", "float", 0.8, 0, 1, 0.1),
-				KEOption.create("Force Number Color", "Force numbers to a specific color", "forceNumberColor", "bool")
+				KEOption.create("Force Number Color", "Force numbers to a specific color", "forceNumberColor", "bool"),
+				KEOption.create("showEarlyLate", "Show early/late text on hit", "showEarlyLate", "bool"),
+				KEOption.create("showCombo", "Show combo text when combo > 10", "showCombo", "bool"),
+				KEOption.create("Force Note Skin", "Force using the custom note skin", "forceNoteSkin", "bool"),
+				KEOption.create("Force Splash Skin", "Force using the custom splash skin", "forceSplashSkin", "bool"),
+				KEOption.create("Force RGB Shader", "Force using the RGB shader for notes and splashes", "forceRGBShader", "bool")
+
 			],
 			"",
 			"Skin Settings"
