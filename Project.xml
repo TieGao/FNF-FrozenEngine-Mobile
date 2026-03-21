@@ -124,6 +124,9 @@
 	<haxelib name="flxanimate"/>
 	<haxelib name="moonchart"/>
 
+	<!--Mobile Required (Lime 8.1.2 FUCK U)-->
+	<haxelib name="extension-androidtools" />
+
 	<!-- Disable Discord IO Thread -->
 	<haxedef name="DISCORD_DISABLE_IO_THREAD" if="hxdiscord_rpc" />
 	<haxedef name="NO_PRECOMPILED_HEADERS" if="linux" />
