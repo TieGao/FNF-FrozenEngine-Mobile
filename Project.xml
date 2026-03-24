@@ -125,7 +125,7 @@
 	<haxelib name="moonchart"/>
 
 	<!--Mobile Required (Lime 8.1.2 FUCK U)-->
-	<haxelib name="extension-androidtools" />
+	<haxelib name="extension-androidtools" if="android"/>
 
 	<!-- Disable Discord IO Thread -->
 	<haxedef name="DISCORD_DISABLE_IO_THREAD" if="hxdiscord_rpc" />
@@ -212,4 +212,15 @@
 	<icon path="art/icons/icon32.png" size='32'/>
 	<icon path="art/icons/icon64.png" size='64'/>
 	<icon path="art/icons/iconOG.png" />
+
+	<android if="android"
+	gradle-version="8.10.2"/>
+
+<!-- Android 权限配置 -->
+<config:android if="android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" if="LUA_ALLOWED" />
+</config:android>
 </project>
