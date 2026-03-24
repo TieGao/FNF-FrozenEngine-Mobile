@@ -62,6 +62,31 @@ jobs:
           haxelib run lime config JAVA_HOME $JAVA_HOME_17_arm64
           haxelib run lime config ANDROID_SETUP true
 
+      # 新增：配置 Gradle 内存
+      - name: Configure Gradle Memory for Android
+        if: inputs.name == 'Android'
+        run: |
+          echo "Configuring Gradle memory settings..."
+          GRADLE_PROPERTIES="export/release/android/bin/gradle.properties"
+          if [ -f "$GRADLE_PROPERTIES" ]; then
+            echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError" >> $GRADLE_PROPERTIES
+            echo "org.gradle.parallel=true" >> $GRADLE_PROPERTIES
+            echo "org.gradle.daemon=false" >> $GRADLE_PROPERTIES
+            echo "org.gradle.caching=true" >> $GRADLE_PROPERTIES
+            echo "org.gradle.workers.max=2" >> $GRADLE_PROPERTIES
+            echo "Gradle memory settings added to $GRADLE_PROPERTIES"
+            cat $GRADLE_PROPERTIES
+          else
+            echo "Warning: gradle.properties not found at $GRADLE_PROPERTIES"
+          fi
+
+      # 可选：增加 Java 内存限制
+      - name: Set Java Memory Limits
+        if: inputs.name == 'Android'
+        run: |
+          export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=1g"
+          echo "GRADLE_OPTS set to: $GRADLE_OPTS"
+
       - name: Compile
         run: haxelib run lime build ${{ inputs.buildArgs }} -always
 
