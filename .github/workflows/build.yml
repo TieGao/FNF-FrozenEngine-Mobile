@@ -63,21 +63,7 @@ jobs:
           haxelib run lime config ANDROID_SETUP true
 
       - name: Compile
-        run: |
-          # 仅在编译 Android 时设置 JVM 内存参数
-          if [[ "${{ inputs.name }}" == "Android" ]]; then
-            echo "Setting Gradle memory options for Android build..."
-            export GRADLE_OPTS="-Xmx2048m -Xms512m -XX:MaxMetaspaceSize=1024m"
-            export JAVA_OPTS="-Xmx2048m -Xms512m"
-            echo "GRADLE_OPTS=$GRADLE_OPTS"
-            echo "JAVA_OPTS=$JAVA_OPTS"
-          fi
-          
-          haxelib run lime build ${{ inputs.buildArgs }} -always
-        env:
-          # 仅在 Android 构建时设置这些环境变量
-          GRADLE_OPTS: ${{ inputs.name == 'Android' && '-Xmx8192m -Xms512m -XX:MaxMetaspaceSize=1024m' || '' }}
-          JAVA_OPTS: ${{ inputs.name == 'Android' && '-Xmx8192m -Xms512m' || '' }}
+        run: haxelib run lime build ${{ inputs.buildArgs }} -always
 
       - name: Make IPA
         if: inputs.name == 'iOS'

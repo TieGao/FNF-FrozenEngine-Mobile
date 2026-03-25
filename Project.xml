@@ -214,7 +214,15 @@
 	<icon path="art/icons/iconOG.png" />
 
 	<android if="android"
-	gradle-version="8.10.2"/>
+    gradle-version="8.10.2">
+    <!-- Gradle JVM 内存配置 -->
+    <gradle-properties>
+        org.gradle.jvmargs=-Xmx2048m -Xms512m -XX:MaxMetaspaceSize=1024m
+        org.gradle.daemon=false
+        android.useAndroidX=true
+        android.enableJetifier=true
+    </gradle-properties>
+</android>
 
 <!-- Android 权限配置 -->
 <config:android if="android">
