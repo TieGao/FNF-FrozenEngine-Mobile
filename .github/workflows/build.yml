@@ -63,32 +63,38 @@ jobs:
           haxelib run lime config ANDROID_SETUP true
 
       # 新增：配置 Gradle 内存
-      - name: Configure Gradle Memory for Android
+      - name: Configure Gradle Memory
         if: inputs.name == 'Android'
         run: |
-          echo "Configuring Gradle memory settings..."
-          GRADLE_PROPERTIES="export/release/android/bin/gradle.properties"
-          if [ -f "$GRADLE_PROPERTIES" ]; then
-            echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError" >> $GRADLE_PROPERTIES
-            echo "org.gradle.parallel=true" >> $GRADLE_PROPERTIES
-            echo "org.gradle.daemon=false" >> $GRADLE_PROPERTIES
-            echo "org.gradle.caching=true" >> $GRADLE_PROPERTIES
-            echo "org.gradle.workers.max=2" >> $GRADLE_PROPERTIES
-            echo "Gradle memory settings added to $GRADLE_PROPERTIES"
-            cat $GRADLE_PROPERTIES
-          else
-            echo "Warning: gradle.properties not found at $GRADLE_PROPERTIES"
-          fi
-
-      # 可选：增加 Java 内存限制
-      - name: Set Java Memory Limits
-        if: inputs.name == 'Android'
-        run: |
-          export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=1g"
-          echo "GRADLE_OPTS set to: $GRADLE_OPTS"
+          GRADLE_DIR="export/release/android/bin"
+          
+          # 创建 gradle.properties
+          cat > $GRADLE_DIR/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError
+          org.gradle.parallel=true
+          org.gradle.daemon=false
+          org.gradle.caching=true
+          org.gradle.workers.max=2
+          android.useAndroidX=true
+          android.enableJetifier=false
+          EOF
+          
+          echo "Gradle memory settings configured:"
+          cat $GRADLE_DIR/gradle.properties
+          
+          # 设置环境变量作为备用
+          echo "GRADLE_OPTS=-Xmx4g -XX:MaxMetaspaceSize=1g" >> $GITHUB_ENV
+          echo "JAVA_OPTS=-Xmx4g -XX:MaxMetaspaceSize=1g" >> $GITHUB_ENV
 
       - name: Compile
-        run: haxelib run lime build ${{ inputs.buildArgs }} -always
+        run: |
+          if [[ "${{ inputs.name }}" == "Android" ]]; then
+            # 设置 GRADLE_OPTS 环境变量
+            export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=1g"
+            haxelib run lime build ${{ inputs.buildArgs }} -always
+          else
+            haxelib run lime build ${{ inputs.buildArgs }} -always
+          fi
 
       - name: Make IPA
         if: inputs.name == 'iOS'
