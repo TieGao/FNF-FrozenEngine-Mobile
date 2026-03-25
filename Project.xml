@@ -216,13 +216,8 @@
 	<android if="android"
     gradle-version="8.10.2">
     <!-- Gradle JVM 内存配置 -->
-    <gradle-properties>
-        org.gradle.jvmargs=-Xmx8192m -Xms512m -XX:MaxMetaspaceSize=1024m
-        org.gradle.daemon=false
-        android.useAndroidX=true
-        android.enableJetifier=true
-    </gradle-properties>
 </android>
+
 
 <!-- Android 权限配置 -->
 <config:android if="android">
@@ -230,5 +225,6 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" if="LUA_ALLOWED" />
+	<gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
 </config:android>
 </project>
