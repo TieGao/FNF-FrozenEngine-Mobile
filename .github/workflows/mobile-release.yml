@@ -40,17 +40,41 @@ jobs:
       matrix:
         include:
           - name: Android
-            os: macos-15
+            os: macos-latest
             buildArgs: "android -final -D officialBuild"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
           - name: iOS
-            os: macos-15
+            os: macos-latest
             setupCommand: sh ./setup/unix.sh
             buildArgs: "ios -final -nosign -D officialBuild"
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
+          - name: Windows
+            os: windows-latest
+            buildArgs: windows
+            setupCommand: .\"setup/windows.bat"
+            artifactName: windowsBuild-x86_64
+            artifactPath: export\release\windows\bin\*
+          - name: Linux
+            os: ubuntu-latest
+            buildArgs: linux
+            setupCommand: sh ./setup/unix.sh
+            artifactName: linuxBuild-x86_64
+            artifactPath: export/release/linux/bin/*
+          - name: macOS x86_64
+            os: macos-latest
+            setupCommand: sh ./setup/unix.sh
+            buildArgs: "mac -64 -D HXCPP_M64"
+            artifactName: macOSBuild-x86_64
+            artifactPath: export/release/macos/bin/*
+          - name: macOS ARM64
+            os: macos-latest
+            setupCommand: sh ./setup/unix.sh
+            buildArgs: "mac -arm64 -D HXCPP_ARM64"
+            artifactName: macOSBuild-arm64
+            artifactPath: export/release/macos/bin/*
     uses: ./.github/workflows/build.yml
     with:
         name: ${{ matrix.name }}
