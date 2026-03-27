@@ -43,6 +43,12 @@ class StoryMenuState extends MusicBeatState
 
 	var loadedWeeks:Array<WeekData> = [];
 
+	// 鼠标控制相关变量
+	var allowMouse:Bool = true;
+	var mouseOverWeek:Int = -1;
+	var mouseOverLeftArrow:Bool = false;
+	var mouseOverRightArrow:Bool = false;
+
 	override function create()
 	{
 		Paths.clearStoredMemory();
@@ -190,6 +196,8 @@ class StoryMenuState extends MusicBeatState
 
 		addTouchPad('LEFT_FULL', 'A_B_X_Y');
 
+		FlxG.mouse.visible = true;
+
 		super.create();
 	}
 
@@ -205,7 +213,7 @@ class StoryMenuState extends MusicBeatState
 	{
 		if(WeekData.weeksList.length < 1)
 		{
-			if (controls.BACK && !movedBack && !selectedWeek)
+			if ((controls.BACK || FlxG.mouse.justPressedRight )&& !movedBack && !selectedWeek)
 			{
 				FlxG.sound.play(Paths.sound('cancelMenu'));
 				movedBack = true;
@@ -228,6 +236,86 @@ class StoryMenuState extends MusicBeatState
 
 		if (!movedBack && !selectedWeek)
 		{
+			// 鼠标控制逻辑
+			if (allowMouse && ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed))
+			{
+				allowMouse = false;
+				
+				var newMouseOverWeek:Int = -1;
+				var minDist:Float = 999999;
+				
+				// 检查鼠标是否悬停在某个周上
+				for (i in 0...grpWeekText.length)
+				{
+					var weekItem:MenuItem = grpWeekText.members[i];
+					if (FlxG.mouse.overlaps(weekItem))
+					{
+						// 计算距离
+						var distance:Float = Math.sqrt(Math.pow(weekItem.getGraphicMidpoint().x - FlxG.mouse.screenX, 2) + 
+													   Math.pow(weekItem.getGraphicMidpoint().y - FlxG.mouse.screenY, 2));
+						if (distance < minDist)
+						{
+							minDist = distance;
+							newMouseOverWeek = i;
+						}
+					}
+				}
+				
+				// 检查鼠标是否悬停在难度箭头上
+				mouseOverLeftArrow = FlxG.mouse.overlaps(leftArrow);
+				mouseOverRightArrow = FlxG.mouse.overlaps(rightArrow);
+				
+				// 更新鼠标悬停状态
+				if (newMouseOverWeek != -1 && newMouseOverWeek != mouseOverWeek)
+				{
+					mouseOverWeek = newMouseOverWeek;
+					updateMouseHover();
+				}
+				else if (newMouseOverWeek == -1)
+				{
+					mouseOverWeek = -1;
+					updateMouseHover();
+				}
+				
+				allowMouse = true;
+			}
+			
+			// 鼠标点击选择周
+			if (FlxG.mouse.justPressed && mouseOverWeek != -1)
+			{
+				if (curWeek != mouseOverWeek)
+				{
+					// 左键点击未选中的周：选择它
+					curWeek = mouseOverWeek;
+					changeWeek();
+				}
+				else
+				{
+					// 左键点击已选中的周：进入周
+					selectWeek();
+				}
+			}
+			
+			// 鼠标点击难度箭头
+			if (FlxG.mouse.justPressed && mouseOverLeftArrow)
+			{
+				leftArrow.animation.play('press');
+				changeDifficulty(-1);
+			}
+			if (FlxG.mouse.justPressed && mouseOverRightArrow)
+			{
+				rightArrow.animation.play('press');
+				changeDifficulty(1);
+			}
+			
+			// 鼠标滚轮滚动
+			if(FlxG.mouse.wheel != 0)
+			{
+				FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+				changeWeek(-FlxG.mouse.wheel);
+				changeDifficulty();
+			}
+
 			var changeDiff = false;
 			if (controls.UI_UP_P)
 			{
@@ -243,21 +331,14 @@ class StoryMenuState extends MusicBeatState
 				changeDiff = true;
 			}
 
-			if(FlxG.mouse.wheel != 0)
-			{
-				FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-				changeWeek(-FlxG.mouse.wheel);
-				changeDifficulty();
-			}
-
 			if (controls.UI_RIGHT)
 				rightArrow.animation.play('press')
-			else
+			else if (!mouseOverRightArrow)
 				rightArrow.animation.play('idle');
 
 			if (controls.UI_LEFT)
 				leftArrow.animation.play('press');
-			else
+			else if (!mouseOverLeftArrow)
 				leftArrow.animation.play('idle');
 
 			if (controls.UI_RIGHT_P)
@@ -267,7 +348,7 @@ class StoryMenuState extends MusicBeatState
 			else if (changeDiff)
 				changeDifficulty();
 
-			if(FlxG.keys.justPressed.CONTROL || touchPad.buttonX.justPressed)
+			if(FlxG.keys.justPressed.CONTROL || touchPad.buttonX.justPressed || FlxG.mouse.justPressedMiddle)
 			{
 				persistentUpdate = false;
 				openSubState(new GameplayChangersSubstate());
@@ -284,7 +365,7 @@ class StoryMenuState extends MusicBeatState
 				selectWeek();
 		}
 
-		if (controls.BACK && !movedBack && !selectedWeek)
+		if ((controls.BACK || FlxG.mouse.justPressedRight) && !movedBack && !selectedWeek)
 		{
 			FlxG.sound.play(Paths.sound('cancelMenu'));
 			movedBack = true;
@@ -299,6 +380,36 @@ class StoryMenuState extends MusicBeatState
 
 		for (num => lock in grpLocks.members)
 			lock.y = grpWeekText.members[lock.ID].y + grpWeekText.members[lock.ID].height/2 - lock.height/2;
+	}
+	
+	function updateMouseHover()
+	{
+		var unlocked:Bool = !weekIsLocked(loadedWeeks[curWeek].fileName);
+		
+		for (num => item in grpWeekText.members)
+		{
+			if (num == curWeek && unlocked)
+			{
+				item.alpha = 1;
+				item.isFlashing = false;
+			}
+			else if (mouseOverWeek == num)
+			{
+				item.alpha = 0.8;
+				item.isFlashing = false;
+			}
+			else
+			{
+				item.alpha = 0.6;
+				item.isFlashing = false;
+			}
+		}
+		
+		// 更新箭头动画
+		if (!mouseOverLeftArrow && leftArrow.animation.name != 'press')
+			leftArrow.animation.play('idle');
+		if (!mouseOverRightArrow && rightArrow.animation.name != 'press')
+			rightArrow.animation.play('idle');
 	}
 
 	var movedBack:Bool = false;
@@ -368,7 +479,7 @@ class StoryMenuState extends MusicBeatState
 			{
 				#if !SHOW_LOADING_SCREEN FlxG.sound.music.stop(); #end
 				LoadingState.loadAndSwitchState(new PlayState(), true);
-				FreeplayState.destroyFreeplayVocals();
+				OldFreeplayState.destroyFreeplayVocals();
 			});
 			
 			#if (MODS_ALLOWED && DISCORD_ALLOWED)
@@ -409,6 +520,11 @@ class StoryMenuState extends MusicBeatState
 		#if !switch
 		intendedScore = Highscore.getWeekScore(loadedWeeks[curWeek].fileName, curDifficulty);
 		#end
+		
+		// 重置鼠标悬停状态
+		mouseOverLeftArrow = false;
+		mouseOverRightArrow = false;
+		updateMouseHover();
 	}
 
 	var lerpScore:Int = 49324858;
@@ -462,6 +578,10 @@ class StoryMenuState extends MusicBeatState
 			curDifficulty = newPos;
 		}
 		updateText();
+		
+		// 重置鼠标悬停状态
+		mouseOverWeek = -1;
+		updateMouseHover();
 	}
 
 	function weekIsLocked(name:String):Bool {

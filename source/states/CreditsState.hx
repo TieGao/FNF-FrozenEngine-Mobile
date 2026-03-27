@@ -1,6 +1,8 @@
 package states;
 
 import objects.AttachedSprite;
+import flixel.ui.FlxButton;
+import flixel.math.FlxPoint;
 
 class CreditsState extends MusicBeatState
 {
@@ -16,6 +18,13 @@ class CreditsState extends MusicBeatState
 	var descBox:AttachedSprite;
 
 	var offsetThing:Float = -75;
+	
+	// 鼠标控制相关变量
+	var mouseOverItem:Alphabet = null;
+	var lastMousePosition:FlxPoint = FlxPoint.get(0, 0);
+	var mouseScrollTimer:Float = 0;
+	var mouseWheelDelay:Float = 0; // 鼠标滚轮延迟
+	var selectedItemLastFrame:Alphabet = null; // 记录上一帧选中的项目，用于滚轮动画
 
 	override function create()
 	{
@@ -44,33 +53,39 @@ class CreditsState extends MusicBeatState
 			['Moxie',				'moxie',			'Helper of Psych Engine Mobile',							'https://twitter.com/moxie_specalist',  'F592C4'],
 			[''],
 			["Psych Engine Team"],
-			["Shadow Mario",		"shadowmario",		"Main Programmer and Head of Psych Engine",					"https://ko-fi.com/shadowmario",	"444444"],
-			["Riveren",				"riveren",			"Main Artist/Animator of Psych Engine",						"https://x.com/riverennn",			"14967B"],
+            ["Shadow Mario",        "shadowmario",      "Main Programmer and Head of Psych Engine",                 "https://ko-fi.com/shadowmario",    "444444"],
+            ["Riveren",             "riveren",          "Main Artist/Animator of Psych Engine",                     "https://x.com/riverennn",          "14967B"],
 			[""],
 			["Former Engine Members"],
-			["bb-panzu",			"bb",				"Ex-Programmer of Psych Engine",							"https://x.com/bbsub3",				"3E813A"],
+            ["bb-panzu",            "bb",               "Ex-Programmer of Psych Engine",                            "https://x.com/bbsub3",             "3E813A"],
 			[""],
 			["Engine Contributors"],
-			["crowplexus",			"crowplexus",	"Linux Support, HScript Iris, Input System v3, and Other PRs",	"https://twitter.com/IamMorwen",	"CFCFCF"],
-			["Kamizeta",			"kamizeta",			"Creator of Pessy, Psych Engine's mascot.",				"https://www.instagram.com/cewweey/",	"D21C11"],
-			["MaxNeton",			"maxneton",			"Loading Screen Easter Egg Artist/Animator.",	"https://bsky.app/profile/maxneton.bsky.social","3C2E4E"],
-			["Keoiki",				"keoiki",			"Note Splash Animations and Latin Alphabet",				"https://x.com/Keoiki_",			"D2D2D2"],
-			["SqirraRNG",			"sqirra",			"Crash Handler and Base code for\nChart Editor's Waveform",	"https://x.com/gedehari",			"E1843A"],
-			["EliteMasterEric",		"mastereric",		"Runtime Shaders support and Other PRs",					"https://x.com/EliteMasterEric",	"FFBD40"],
-			["MAJigsaw77",			"majigsaw",			".MP4 Video Loader Library (hxvlc)",						"https://x.com/MAJigsaw77",			"5F5F5F"],
-			["iFlicky",				"flicky",			"Composer of Psync and Tea Time\nAnd some sound effects",	"https://x.com/flicky_i",			"9E29CF"],
-			["KadeDev",				"kade",				"Fixed some issues on Chart Editor and Other PRs",			"https://x.com/kade0912",			"64A250"],
-			["superpowers04",		"superpowers04",	"LUA JIT Fork",												"https://x.com/superpowers04",		"B957ED"],
-			["CheemsAndFriends",	"cheems",			"Creator of FlxAnimate",									"https://x.com/CheemsnFriendos",	"E1E1E1"],
+            ["crowplexus",          "crowplexus",   "Linux Support, HScript Iris, Input System v3, and Other PRs",  "https://twitter.com/IamMorwen",    "CFCFCF"],
+            ["Kamizeta",            "kamizeta",         "Creator of Pessy, Psych Engine's mascot.",             "https://www.instagram.com/cewweey/",   "D21C11"],
+            ["MaxNeton",            "maxneton",         "Loading Screen Easter Egg Artist/Animator.",   "https://bsky.app/profile/maxneton.bsky.social","3C2E4E"],
+            ["Keoiki",              "keoiki",           "Note Splash Animations and Latin Alphabet",                "https://x.com/Keoiki_",            "D2D2D2"],
+            ["SqirraRNG",           "sqirra",           "Crash Handler and Base code for\nChart Editor's Waveform", "https://x.com/gedehari",           "E1843A"],
+            ["EliteMasterEric",     "mastereric",       "Runtime Shaders support and Other PRs",                    "https://x.com/EliteMasterEric",    "FFBD40"],
+            ["MAJigsaw77",          "majigsaw",         ".MP4 Video Loader Library (hxvlc)",                        "https://x.com/MAJigsaw77",         "5F5F5F"],
+            ["iFlicky",             "flicky",           "Composer of Psync and Tea Time\nAnd some sound effects",   "https://x.com/flicky_i",           "9E29CF"],
+            ["KadeDev",             "kade",             "Fixed some issues on Chart Editor and Other PRs",          "https://x.com/kade0912",           "64A250"],
+            ["superpowers04",       "superpowers04",    "LUA JIT Fork",                                             "https://x.com/superpowers04",      "B957ED"],
+            ["CheemsAndFriends",    "cheems",           "Creator of FlxAnimate",                                    "https://x.com/CheemsnFriendos",    "E1E1E1"],
 			[""],
 			["Funkin' Crew"],
-			["ninjamuffin99",		"ninjamuffin99",	"Programmer of Friday Night Funkin'",						"https://x.com/ninja_muffin99",		"CF2D2D"],
-			["PhantomArcade",		"phantomarcade",	"Animator of Friday Night Funkin'",							"https://x.com/PhantomArcade3K",	"FADC45"],
-			["evilsk8r",			"evilsk8r",			"Artist of Friday Night Funkin'",							"https://x.com/evilsk8r",			"5ABD4B"],
-			["kawaisprite",			"kawaisprite",		"Composer of Friday Night Funkin'",							"https://x.com/kawaisprite",		"378FC7"],
+            ["ninjamuffin99",       "ninjamuffin99",    "Programmer of Friday Night Funkin'",                       "https://x.com/ninja_muffin99",     "CF2D2D"],
+            ["PhantomArcade",       "phantomarcade",    "Animator of Friday Night Funkin'",                         "https://x.com/PhantomArcade3K",    "FADC45"],
+            ["evilsk8r",            "evilsk8r",         "Artist of Friday Night Funkin'",                           "https://x.com/evilsk8r",           "5ABD4B"],
+            ["kawaisprite",         "kawaisprite",      "Composer of Friday Night Funkin'",                         "https://x.com/kawaisprite",        "378FC7"],
 			[""],
 			["Psych Engine Discord"],
-			["Join the Psych Ward!", "discord", "", "https://discord.gg/2ka77eMXDv", "5165F6"]
+            ["Join the Psych Ward!", "discord", "", "https://discord.gg/2ka77eMXDv", "5165F6"],
+            [""],
+            ["Frozen Engine Creator"],
+            ["Ice_Axe",         "iceaxe",       "Creator of Frozen Engine","https://github.com/TieGao",     "87CEEB"],
+			["Special Thanks"],
+			["FNF-NovaFlare-Engine Team", "novaflare", "Original of KeyboardViewer", "https://github.com/NovaFlare-Engine-Concentration/", "FF69B4"],
+			["MoonChart","","Chart Converter Lib","https://lib.haxe.org/p/moonchart/", "FF69B4"]
 		];
 		
 		for(i in defaultList)
@@ -84,6 +99,14 @@ class CreditsState extends MusicBeatState
 			optionText.targetY = i;
 			optionText.changeX = false;
 			optionText.snapToPosition();
+			
+			// 为可选项目添加鼠标交互
+			if(isSelectable)
+			{
+				optionText.antialiasing = ClientPrefs.data.antialiasing;
+				optionText.ID = i; // 使用ID存储索引
+			}
+			
 			grpOptions.add(optionText);
 
 			if(isSelectable)
@@ -133,13 +156,16 @@ class CreditsState extends MusicBeatState
 		intendedColor = bg.color;
 		changeSelection();
 
-		addTouchPad('UP_DOWN', 'A_B');
+		// 初始化鼠标位置
+		lastMousePosition.set(FlxG.mouse.screenX, FlxG.mouse.screenY);
 
 		super.create();
 	}
 
 	var quitting:Bool = false;
 	var holdTime:Float = 0;
+	var lastCurSelected:Int = -1; // 记录上一帧选中的索引，用于滚轮动画
+	
 	override function update(elapsed:Float)
 	{
 		if (FlxG.sound.music.volume < 0.7)
@@ -149,6 +175,9 @@ class CreditsState extends MusicBeatState
 
 		if(!quitting)
 		{
+			// 鼠标控制
+			handleMouseInput(elapsed);
+			
 			if(creditsStuff.length > 1)
 			{
 				var shiftMult:Int = 1;
@@ -181,10 +210,33 @@ class CreditsState extends MusicBeatState
 				}
 			}
 
+			// 鼠标点击处理 - 左键点击选中，再次点击打开链接
+			if(FlxG.mouse.justPressed && mouseOverItem != null && !unselectableCheck(mouseOverItem.ID))
+			{
+				var newIndex:Int = mouseOverItem.ID;
+				
+				// 如果点击的是当前选中的项目，且该项目有链接，则打开链接
+				if(newIndex == curSelected)
+				{
+					if(creditsStuff[curSelected][3] != null && creditsStuff[curSelected][3].length > 4)
+					{
+						CoolUtil.browserLoad(creditsStuff[curSelected][3]);
+					}
+				}
+				else // 否则选中该项目
+				{
+					curSelected = newIndex - 1; // 临时减1，让changeSelection的+1生效
+					changeSelection(1);
+				}
+			}
+			
+			// 键盘确认打开链接
 			if(controls.ACCEPT && (creditsStuff[curSelected][3] == null || creditsStuff[curSelected][3].length > 4)) {
 				CoolUtil.browserLoad(creditsStuff[curSelected][3]);
 			}
-			if (controls.BACK)
+			
+			// 返回
+			if (controls.BACK || FlxG.mouse.justPressedRight)
 			{
 				FlxG.sound.play(Paths.sound('cancelMenu'));
 				MusicBeatState.switchState(new MainMenuState());
@@ -192,6 +244,10 @@ class CreditsState extends MusicBeatState
 			}
 		}
 		
+		// 更新鼠标悬停效果（透明度）
+		updateMouseHover();
+		
+		// 更新项目位置动画（原来的逻辑）
 		for (item in grpOptions.members)
 		{
 			if(!item.bold)
@@ -209,13 +265,93 @@ class CreditsState extends MusicBeatState
 				}
 			}
 		}
+		
+		// 更新鼠标位置记录
+		lastMousePosition.set(FlxG.mouse.screenX, FlxG.mouse.screenY);
+		
 		super.update(elapsed);
+	}
+	
+	function handleMouseInput(elapsed:Float)
+	{
+		// 鼠标滚轮控制 - 直接调用changeSelection，和键盘共用逻辑
+		if (FlxG.mouse.wheel != 0)
+		{
+			mouseScrollTimer += elapsed;
+			if (mouseScrollTimer >= mouseWheelDelay)
+			{
+				var scrollAmount:Int = -Std.int(FlxG.mouse.wheel); // 反转方向使其更自然
+				changeSelection(scrollAmount);
+				mouseScrollTimer = 0;
+			}
+		}
+		else
+		{
+			mouseScrollTimer = mouseWheelDelay; // 重置计时器
+		}
+		
+		// 如果鼠标移动了，检查鼠标下的项目
+		if (FlxG.mouse.justMoved)
+		{
+			checkMouseOverItem();
+		}
+	}
+	
+	function checkMouseOverItem()
+	{
+		var foundItem:Alphabet = null;
+		
+		// 从后往前遍历，确保最上面的项目被检测到
+		for (i in (grpOptions.members.length - 1)...0)
+		{
+			var item = grpOptions.members[i];
+			if (item != null && !unselectableCheck(i) && item.visible)
+			{
+				// 简单的矩形碰撞检测
+				if (FlxG.mouse.overlaps(item))
+				{
+					foundItem = item;
+					break;
+				}
+			}
+		}
+		
+		// 如果鼠标下的项目改变了
+		if (foundItem != mouseOverItem)
+		{
+			mouseOverItem = foundItem;
+		}
+	}
+	
+	function updateMouseHover()
+	{
+		// 更新所有项目的鼠标悬停效果（透明度）
+		for (i => item in grpOptions.members)
+		{
+			if (!unselectableCheck(i) && item.visible)
+			{
+				// 基础透明度由选中状态决定
+				var targetAlpha:Float = (item.targetY == 0) ? 1.0 : 0.6;
+				
+				// 鼠标悬停时额外增加透明度（变得更亮）
+				if (item == mouseOverItem)
+				{
+					targetAlpha = Math.min(targetAlpha + 0.2, 1.0);
+				}
+				
+				// 平滑过渡透明度
+				item.alpha = FlxMath.lerp(targetAlpha, item.alpha, 0.8);
+			}
+		}
 	}
 
 	var moveTween:FlxTween = null;
 	function changeSelection(change:Int = 0)
 	{
+		// 如果change为0，不播放声音
+		if(change != 0)
 		FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+			
 		do
 		{
 			curSelected = FlxMath.wrap(curSelected + change, 0, creditsStuff.length - 1);
@@ -234,12 +370,7 @@ class CreditsState extends MusicBeatState
 		for (num => item in grpOptions.members)
 		{
 			item.targetY = num - curSelected;
-			if(!unselectableCheck(num)) {
-				item.alpha = 0.6;
-				if (item.targetY == 0) {
-					item.alpha = 1;
-				}
-			}
+			// 透明度现在在updateMouseHover中统一处理
 		}
 
 		descText.text = creditsStuff[curSelected][2];
@@ -255,6 +386,9 @@ class CreditsState extends MusicBeatState
 			descBox.updateHitbox();
 		}
 		else descText.visible = descBox.visible = false;
+		
+		// 重置鼠标悬停项目（避免悬停状态残留）
+		mouseOverItem = null;
 	}
 
 	#if MODS_ALLOWED
@@ -283,5 +417,12 @@ class CreditsState extends MusicBeatState
 
 	private function unselectableCheck(num:Int):Bool {
 		return creditsStuff[num].length <= 1;
+	}
+	
+	override function destroy()
+	{
+		// 清理资源
+		lastMousePosition.put();
+		super.destroy();
 	}
 }

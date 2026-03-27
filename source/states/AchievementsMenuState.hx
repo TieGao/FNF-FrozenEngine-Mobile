@@ -2,6 +2,7 @@ package states;
 
 import flixel.FlxObject;
 import flixel.util.FlxSort;
+import flixel.math.FlxMath;
 import objects.Bar;
 
 #if ACHIEVEMENTS_ALLOWED
@@ -19,6 +20,7 @@ class AchievementsMenuState extends MusicBeatState
 	var camFollow:FlxObject;
 
 	var MAX_PER_ROW:Int = 4;
+
 
 	override function create()
 	{
@@ -128,6 +130,8 @@ class AchievementsMenuState extends MusicBeatState
 		
 		FlxG.camera.follow(camFollow, null, 0.15);
 		FlxG.camera.scroll.y = -FlxG.height;
+
+		FlxG.mouse.visible = true;
 	}
 
 	override function closeSubState() {
@@ -156,7 +160,42 @@ class AchievementsMenuState extends MusicBeatState
 
 	var goingBack:Bool = false;
 	override function update(elapsed:Float) {
-		if(!goingBack && options.length > 1)
+		if(!goingBack && options.length > 0)
+		{
+			// 鼠标控制逻辑
+			if ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed)
+			{
+				FlxG.mouse.visible = true;
+
+				var distItem:Int = -1;
+				var minDist:Float = 999999;
+				
+				// 检查鼠标是否悬停在某个成就图标上
+				for (i in 0...grpOptions.members.length)
+				{
+					var memb:FlxSprite = grpOptions.members[i];
+					if (FlxG.mouse.overlaps(memb))
+					{
+						var distance:Float = Math.sqrt(Math.pow(memb.getGraphicMidpoint().x - FlxG.mouse.screenX, 2) + 
+													   Math.pow(memb.getGraphicMidpoint().y - FlxG.mouse.screenY, 2));
+						if (distance < minDist)
+						{
+							minDist = distance;
+							distItem = i;
+						}
+					}
+				}
+
+				if (distItem != -1 && curSelected != distItem)
+				{
+					curSelected = distItem;
+					_changeSelection();
+				}
+				
+			}
+
+			// 键盘控制逻辑（仅在鼠标未使用时）
+			if (options.length > 1)
 		{
 			var add:Int = 0;
 			if (controls.UI_LEFT_P) add = -1;
@@ -205,19 +244,46 @@ class AchievementsMenuState extends MusicBeatState
 					_changeSelection();
 				}
 			}
+			}
 			
-			if(MusicBeatState.getState().touchPad.buttonC.justPressed || controls.RESET && (options[curSelected].unlocked || options[curSelected].curProgress > 0))
+			// 鼠标点击选择（支持鼠标点击选择）
+			if (FlxG.mouse.justPressed)
+			{
+				for (i in 0...grpOptions.members.length)
+				{
+					var memb:FlxSprite = grpOptions.members[i];
+					if (FlxG.mouse.overlaps(memb) && curSelected != i)
+					{
+						curSelected = i;
+						_changeSelection();
+						break;
+					}
+				}
+			}
+			
+			// 重置成就功能
+			if(controls.RESET && (options[curSelected].unlocked || options[curSelected].curProgress > 0))
 			{
 				removeTouchPad();
 				openSubState(new ResetAchievementSubstate());
 			}
 		}
 
-		if (controls.BACK) {
+		if (controls.BACK || FlxG.mouse.pressedRight) {
 			FlxG.sound.play(Paths.sound('cancelMenu'));
 			MusicBeatState.switchState(new MainMenuState());
 			goingBack = true;
+			FlxG.mouse.visible = false;
 		}
+		
+		// 鼠标点击确认（模拟键盘确认）
+		if (FlxG.mouse.justPressed)
+		{
+			// 这里可以添加点击成就图标后的额外功能
+			// 例如：显示更多信息或播放音效
+			FlxG.sound.play(Paths.sound('scrollMenu'));
+		}
+		
 		super.update(elapsed);
 	}
 
@@ -257,6 +323,7 @@ class AchievementsMenuState extends MusicBeatState
 			spr.alpha = 0.6;
 			if(spr.ID == curSelected) spr.alpha = 1;
 		});
+		
 	}
 }
 
@@ -304,11 +371,37 @@ class ResetAchievementSubstate extends MusicBeatSubstate
 		updateOptions();
 
 		addTouchPad('LEFT_RIGHT', 'A');
+		FlxG.mouse.visible = true;
 	}
 
 	override function update(elapsed:Float)
 	{
-		if(controls.BACK)
+		// 鼠标控制逻辑
+		if ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed)
+		{
+			FlxG.mouse.visible = true;
+
+			// 检查鼠标是否悬停在Yes或No选项上
+			if (checkMouseOverlap(yesText))
+			{
+				if (!onYes)
+				{
+					onYes = true;
+					updateOptions();
+				}
+			}
+			else if (checkMouseOverlap(noText))
+			{
+				if (onYes)
+				{
+					onYes = false;
+					updateOptions();
+				}
+			}
+
+		}
+
+		if(controls.BACK || FlxG.mouse.justPressedRight)
 		{
 			close();
 			controls.isInSubstate = false;
@@ -323,7 +416,7 @@ class ResetAchievementSubstate extends MusicBeatSubstate
 			updateOptions();
 		}
 
-		if(controls.ACCEPT)
+		if(controls.ACCEPT || FlxG.mouse.justPressed )
 		{
 			if(onYes)
 			{
@@ -356,6 +449,18 @@ class ResetAchievementSubstate extends MusicBeatSubstate
 			close();
 			return;
 		}
+	}
+	
+	function checkMouseOverlap(text:Alphabet):Bool
+	{
+		for (letter in text.letters)
+		{
+			if (FlxG.mouse.overlaps(letter))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	function updateOptions() {

@@ -106,11 +106,14 @@ class FreeplayState extends MusicBeatState
         DiscordClient.changePresence("In the Freeplay Menu", null);
         #end
 
+		final accept:String = (controls.mobileC) ? "A" : "ACCEPT";
+		final reject:String = (controls.mobileC) ? "B" : "BACK";
+
         if(WeekData.weeksList.length < 1)
         {
 			FlxTransitionableState.skipNextTransIn = true;
 			persistentUpdate = false;
-			MusicBeatState.switchState(new states.ErrorState("NO WEEKS ADDED FOR FREEPLAY\n\nPress ACCEPT to go to the Week Editor Menu.\nPress BACK to return to Main Menu.",
+			MusicBeatState.switchState(new states.ErrorState("NO WEEKS ADDED FOR FREEPLAY\n\nPress " + accept + " to go to the Week Editor Menu.\nPress " + reject + " to return to Main Menu.",
 			function() MusicBeatState.switchState(new states.editors.WeekEditorState()),
 			function() MusicBeatState.switchState(new states.MainMenuState())));
             return;
@@ -248,7 +251,11 @@ class FreeplayState extends MusicBeatState
         bottomBG.alpha = 0.6;
         add(bottomBG);
 
-        var leText:String = Language.getPhrase("freeplay_tip", "Press SPACE to listen to the Song / Press CTRL to open the Gameplay Changers Menu / Press RESET to Reset your Score and Accuracy.");
+		final space:String = (controls.mobileC) ? "X" : "SPACE";
+		final control:String = (controls.mobileC) ? "C" : "CTRL";
+		final reset:String = (controls.mobileC) ? "Y" : "RESET";
+		
+		var leText:String = Language.getPhrase("freeplay_tip", "Press {1} to listen to the Song / Press {2} to open the Gameplay Changers Menu / Press {3} to Reset your Score and Accuracy.", [space, control, reset]);
         bottomString = leText;
         var size:Int = 16;
         bottomText = new FlxText(bottomBG.x, bottomBG.y + 4, FlxG.width, leText, size);
@@ -294,7 +301,7 @@ class FreeplayState extends MusicBeatState
         
         super.create();
 
-        addTouchPad('LEFT_FULL', 'A_B_C');
+        addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
     }
 
     // 预加载所有歌曲艺术图
@@ -333,6 +340,8 @@ class FreeplayState extends MusicBeatState
         changeSelection(0, false);
         persistentUpdate = true;
         super.closeSubState();
+		removeTouchPad();
+		addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
     }
 
     public function addSong(songName:String, weekNum:Int, songCharacter:String, color:Int)
@@ -622,7 +631,7 @@ class FreeplayState extends MusicBeatState
         // ==========================
 
         var shiftMult:Int = 1;
-        if(FlxG.keys.pressed.SHIFT) shiftMult = 3;
+        if((FlxG.keys.pressed.SHIFT || touchPad.buttonZ.pressed) && !musicPlayer.playingMusic) shiftMult = 3;
 
         if (!musicPlayer.playingMusic && !musicPlayerLegacy.playingMusic)
         {
@@ -713,20 +722,22 @@ class FreeplayState extends MusicBeatState
                 MusicBeatState.switchState(new MainMenuState());
             }
         }
-        else if(FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle && !musicPlayer.playingMusic)
+        else if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
         {
             persistentUpdate = false;
             openSubState(new GameplayChangersSubstate());
+            removeTouchPad();
+
         }
         else if (FlxG.keys.justPressed.ENTER && !musicPlayer.playingMusic)
         {
             selectSong();
         }
-        else if (FlxG.keys.justPressed.SPACE && !ClientPrefs.data.legacymp)
+        else if ((FlxG.keys.justPressed.SPACE || touchPad.buttonX.justPressed) && !ClientPrefs.data.legacymp)
         {
             togglePlaySong();
         }
-        else if (FlxG.keys.justPressed.SPACE && ClientPrefs.data.legacymp)
+        else if ((FlxG.keys.justPressed.SPACE || touchPad.buttonX.justPressed) && ClientPrefs.data.legacymp)
         {
 			if(instPlaying != curSelected && !musicPlayerLegacy.playingMusic)
 			{
@@ -801,17 +812,12 @@ class FreeplayState extends MusicBeatState
 				musicPlayerLegacy.pauseOrResume(!musicPlayerLegacy.playingMusic);
 			}
         }
-
-        else if(controls.RESET && !musicPlayer.playingMusic)
-        {
-            persistentUpdate = false;
-            openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter));
-            FlxG.sound.play(Paths.sound('scrollMenu'));
-        }
-
-        if (touchPad == null) { 
-			addTouchPad('LEFT_FULL', 'A_B_C');
-			addTouchPadCamera();
+		else if((controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
+		{
+			persistentUpdate = false;
+			openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter));
+			removeTouchPad();
+			FlxG.sound.play(Paths.sound('scrollMenu'));
 		}
 
         super.update(elapsed);

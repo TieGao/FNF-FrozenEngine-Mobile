@@ -97,7 +97,10 @@ class TitleState extends MusicBeatState
 
 		FlxG.mouse.visible = false;
 		#if FREEPLAY
+		if (!ClientPrefs.data.oldFreeplay)
 		MusicBeatState.switchState(new FreeplayState());
+		else
+			MusicBeatState.switchState(new OldFreeplayState());
 		#elseif CHARTING
 		MusicBeatState.switchState(new ChartingState());
 		#else
@@ -526,13 +529,11 @@ class TitleState extends MusicBeatState
 				case 5:
 					deleteCoolText();
 				case 6:
-					createCoolText(['Not associated', 'with'], -40);
+					createCoolText(['Frozen Engine Modified ', 'By'], -40);
 				case 8:
-					addMoreText('newgrounds', -40);
-					ngSpr.visible = true;
+					addMoreText('Ice_Axe', -40);
 				case 9:
 					deleteCoolText();
-					ngSpr.visible = false;
 				case 10:
 					createCoolText([curWacky[0]]);
 				case 12:
