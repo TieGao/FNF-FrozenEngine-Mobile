@@ -103,30 +103,45 @@ jobs:
         with:
            name: iOSBuild
            path: ${{ github.workspace }}
-        
+
+      - name: Move iOS File
+        run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
+
       - name: Download Windows Build
         uses: actions/download-artifact@main
         with:
            name: windowsBuild-x86_64
            path: ${{ github.workspace }}
 
+      - name: Pack Windows Build
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/*  
+
       - name: Download Linux Build
         uses: actions/download-artifact@main
         with:
            name: linuxBuild-x86_64
            path: ${{ github.workspace }}
+
+      - name: Pack Linux Build
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/*    
       
       - name: Download macOS x86_64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-x86_64
            path: ${{ github.workspace }}
+
+      - name: Pack macOS x86_64 Build
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/*     
       
       - name: Download macOS ARM64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-arm64
            path: ${{ github.workspace }}
+
+      - name: Pack macOS ARM64 Build
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip ${{ github.workspace }}/*    
 
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
