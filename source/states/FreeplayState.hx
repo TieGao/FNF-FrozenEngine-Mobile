@@ -815,7 +815,7 @@ class FreeplayState extends MusicBeatState
 		else if((controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
 		{
 			persistentUpdate = false;
-			openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter));
+			openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter, -1, songs[curSelected].folder));
 			removeTouchPad();
 			FlxG.sound.play(Paths.sound('scrollMenu'));
 		}
@@ -935,8 +935,8 @@ class FreeplayState extends MusicBeatState
 
         curDifficulty = FlxMath.wrap(curDifficulty + change, 0, Difficulty.list.length-1);
         #if !switch
-        intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty);
-        intendedRating = Highscore.getRating(songs[curSelected].songName, curDifficulty);
+    intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty, songs[curSelected].folder);
+    intendedRating = Highscore.getRating(songs[curSelected].songName, curDifficulty, songs[curSelected].folder);
         #end
 
         lastDifficultyName = Difficulty.getString(curDifficulty, false);
@@ -1233,7 +1233,7 @@ class FreeplayCard extends FlxTypedGroup<FlxSprite>
         var bestRating:Float = 0;
         for (diff in 0...Difficulty.list.length)
         {
-            var rating:Float = Highscore.getRating(songLowercase, diff);
+            var rating:Float = Highscore.getRating(songLowercase, diff, folder);
             if (rating > bestRating)
             {
                 bestRating = rating;

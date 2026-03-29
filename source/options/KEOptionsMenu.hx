@@ -1103,8 +1103,7 @@ class KEOptionsMenu extends MusicBeatState
 	{
 		var options:Array<KEOption> = [];
 		
-		// 添加移动端设置子菜单
-		/*var mobileSettings = KEOption.createSubMenu(
+		var mobileSettings = KEOption.createSubMenu(
 			"Mobile Settings",
 			"Configure mobile-specific settings",
 			[
@@ -1119,7 +1118,7 @@ class KEOptionsMenu extends MusicBeatState
 					"controlsAlpha", 
 					"float", 
 					0.8, 0.001, 1.0, 0.1),
-					
+				#if mobile	
 				KEOption.create("Allow Phone Screensaver",
 					"If checked, the phone will sleep after going inactive for few seconds.\n(The time depends on your phone's options)", 
 					"screensaver", 
@@ -1129,6 +1128,7 @@ class KEOptionsMenu extends MusicBeatState
 					"If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)",
 					"wideScreen", 
 					"bool"),
+				#end
 					
 				KEOption.create("Hitbox Design", 
 					"Choose how your hitbox should look like.", 
@@ -1149,15 +1149,16 @@ class KEOptionsMenu extends MusicBeatState
 			"",
 			"Mobile Settings"
 		);
-		options.push(mobileSettings);*/
 		
 		// 原有的其他选项
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
 		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
-		options.push(KEOption.create("Mobile Settings", "Customize mobile-specific settings", "", "action"));
+		//options.push(KEOption.create("Mobile Settings", "Customize mobile-specific settings", "", "action"));
 		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
+		options.push(mobileSettings);
+		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
 		
 		return options;
 	}

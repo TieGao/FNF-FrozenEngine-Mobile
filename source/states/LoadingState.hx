@@ -62,6 +62,12 @@ class LoadingState extends MusicBeatState
 	var curPercent:Float = 0;
 	var stateChangeDelay:Float = 0;
 
+	// 渐变透明相关变量
+	var fadeOutAlpha:Float = 0;
+	var isFadingOut:Bool = false;
+	var fadeOutDuration:Float = 0.5; // 渐变持续时间（秒）
+	var fadeOutTimer:Float = 0;
+
 	#if PSYCH_WATERMARKS
 	var logo:FlxSprite;
 	var pessy:FlxSprite;
@@ -81,6 +87,7 @@ class LoadingState extends MusicBeatState
 	#if HSCRIPT_ALLOWED
 	var hscript:HScript;
 	#end
+	
 	override function create()
 	{
 		persistentUpdate = true;
@@ -171,6 +178,10 @@ class LoadingState extends MusicBeatState
 		funkay.updateHitbox();
 		addBehindBar(funkay);
 		#end
+		
+		// 设置所有元素初始透明度为1（完全不透明）
+		setAllAlpha(1.0);
+		
 		super.create();
 
 		if (stateChangeDelay <= 0 && checkLoaded())
@@ -183,6 +194,50 @@ class LoadingState extends MusicBeatState
 	function addBehindBar(obj:flixel.FlxBasic)
 	{
 		insert(members.indexOf(barGroup), obj);
+	}
+
+	// 设置所有加载界面元素的透明度
+	function setAllAlpha(alpha:Float)
+	{
+		#if PSYCH_WATERMARKS
+		for (member in members)
+		{
+			if (Std.isOfType(member, FlxSprite))
+			{
+				var sprite:FlxSprite = cast member;
+				sprite.alpha = alpha;
+			}
+			else if (Std.isOfType(member, FlxText))
+			{
+				var text:FlxText = cast member;
+				text.alpha = alpha;
+			}
+			else if (Std.isOfType(member, FlxSpriteGroup))
+			{
+				var group:FlxSpriteGroup = cast member;
+				group.alpha = alpha;
+			}
+		}
+		#else
+		for (member in members)
+		{
+			if (Std.isOfType(member, FlxSprite))
+			{
+				var sprite:FlxSprite = cast member;
+				sprite.alpha = alpha;
+			}
+			else if (Std.isOfType(member, FlxText))
+			{
+				var text:FlxText = cast member;
+				text.alpha = alpha;
+			}
+			else if (Std.isOfType(member, FlxSpriteGroup))
+			{
+				var group:FlxSpriteGroup = cast member;
+				group.alpha = alpha;
+			}
+		}
+		#end
 	}
 
 	var transitioning:Bool = false;
@@ -198,7 +253,8 @@ class LoadingState extends MusicBeatState
 				if(stateChangeDelay <= 0)
 				{
 					transitioning = true;
-					onLoad();
+					// 开始渐变透明效果
+					startFadeOut();
 					return;
 				}
 				else stateChangeDelay = Math.max(0, stateChangeDelay - elapsed);
@@ -213,6 +269,25 @@ class LoadingState extends MusicBeatState
 
 			bar.scale.x = barWidth * curPercent;
 			bar.updateHitbox();
+		}
+		
+		// 处理渐变透明效果
+		if (isFadingOut)
+		{
+			fadeOutTimer += elapsed;
+			fadeOutAlpha = 1 - (fadeOutTimer / fadeOutDuration);
+			
+			if (fadeOutAlpha <= 0)
+			{
+				// 渐变完成，切换到目标状态
+				fadeOutAlpha = 0;
+				isFadingOut = false;
+				onLoad();
+			}
+			else
+			{
+				setAllAlpha(fadeOutAlpha);
+			}
 		}
 		
 		#if HSCRIPT_ALLOWED
@@ -293,6 +368,14 @@ class LoadingState extends MusicBeatState
 			FlxTween.tween(pessy, {y: 10}, 0.65, {ease: FlxEase.quadOut});
 		}
 		#end
+	}
+	
+	// 开始渐变透明效果
+	function startFadeOut()
+	{
+		isFadingOut = true;
+		fadeOutTimer = 0;
+		fadeOutAlpha = 1;
 	}
 
 	#if HSCRIPT_ALLOWED

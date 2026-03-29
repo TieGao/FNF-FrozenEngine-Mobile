@@ -791,10 +791,8 @@ class PlayState extends MusicBeatState
 		grpNoteSplashes.add(splash);
 		splash.alpha = 0.000001; //cant make it invisible or it won't allow precaching
 
-		#if mobile
-		addTouchPad('LEFT_FULL', 'P');
+		addTouchPad('NONE', 'P');
 		addTouchPadCamera();
-		#end
 
 		super.create();
 		rep = new Replay("");
@@ -1083,8 +1081,16 @@ class PlayState extends MusicBeatState
 				videoCutscene.onSkip = onVideoEnd;
 			}
 			if (GameOverSubstate.instance != null && isDead) GameOverSubstate.instance.add(videoCutscene);
-			else if (group == "") add(videoCutscene);
-
+			else if (group == "videoGroup")	
+			{
+				videoCutscene.cameras = [camHUD];
+				videoGroup.add(videoCutscene);
+			}
+			else
+			{
+				videoCutscene.cameras = [FlxG.cameras.list[FlxG.cameras.list.length -1]];
+				add(videoCutscene);
+			}
 			if (playOnLoad)
 				videoCutscene.play();
 			return videoCutscene;
@@ -3139,7 +3145,7 @@ public function proceedToNextState():Void
 		}
             msText.screenCenter();
             msText.x = placement + ClientPrefs.data.comboOffset[0] + 175;
-            msText.y -=  ClientPrefs.data.comboOffset[1];
+            msText.y -= ClientPrefs.data.comboOffset[1];
         }
         
         // ========== 创建或复用Combo精灵 ==========
@@ -3228,7 +3234,7 @@ public function proceedToNextState():Void
             // 从对象池获取或创建新数字精灵（只有combo stacking模式才使用对象池）
             var numScore:FlxSprite;
             
-            if (ClientPrefs.data.comboStacking && showComboNum) {
+            if (ClientPrefs.data.comboStacking) {
                 numScore = cast(comboNumPool.get(), FlxSprite);
                 if (numScore == null) {
                     numScore = new FlxSprite();
@@ -3243,7 +3249,7 @@ public function proceedToNextState():Void
             numScore.loadGraphic(Paths.image(numPath));
 				numScore.screenCenter();
             numScore.x = placement + (43 * i) - 90 + ClientPrefs.data.comboOffset[2];
-				numScore.y += 80 - ClientPrefs.data.comboOffset[3];
+			numScore.y = numScore.y + 80 - ClientPrefs.data.comboOffset[3]; 
 
 			if (!PlayState.isPixelStage) numScore.setGraphicSize(Std.int(numScore.width * 0.5));
 			else numScore.setGraphicSize(Std.int(numScore.width * daPixelZoom));
@@ -3269,10 +3275,10 @@ public function proceedToNextState():Void
             numScore.visible = !ClientPrefs.data.hideHud;
             numScore.antialiasing = antialias;
             
-            if(showComboNum) {
+           
                 comboGroup.insert(comboGroup.length,numScore);
                 createdNumbers.push(numScore);
-            }
+
             
             if(numScore.x > xThing ) xThing = numScore.x;
         }
@@ -4064,7 +4070,7 @@ public function proceedToNextState():Void
 		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyPress);
 		FlxG.stage.removeEventListener(KeyboardEvent.KEY_UP, onKeyRelease);
 
-		FlxG.camera.filters= [];
+		FlxG.camera.filters = [];
 
 		#if FLX_PITCH FlxG.sound.music.pitch = 1; #end
 		FlxG.animationTimeScale = 1;
