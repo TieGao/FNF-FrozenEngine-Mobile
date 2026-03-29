@@ -111,37 +111,37 @@ jobs:
         uses: actions/download-artifact@main
         with:
            name: windowsBuild-x86_64
-           path: ${{ github.workspace }}
+           path: ${{ github.workspace }}/WindowsBuild
 
       - name: Pack Windows Build
-        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/*  
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/WindowsBuild/*  
 
       - name: Download Linux Build
         uses: actions/download-artifact@main
         with:
            name: linuxBuild-x86_64
-           path: ${{ github.workspace }}
+           path: ${{ github.workspace }}/LinuxBuild
 
       - name: Pack Linux Build
-        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/*    
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/LinuxBuild/*    
       
       - name: Download macOS x86_64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-x86_64
-           path: ${{ github.workspace }}
+           path: ${{ github.workspace }}/macOSBuild-x86_64
 
       - name: Pack macOS x86_64 Build
-        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/*     
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/macOSBuild-x86_64/*     
       
       - name: Download macOS ARM64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-arm64
-           path: ${{ github.workspace }}
+           path: ${{ github.workspace }}/macOSBuild-arm64
 
       - name: Pack macOS ARM64 Build
-        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip ${{ github.workspace }}/*    
+        run: zip -j /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip ${{ github.workspace }}/macOSBuild-arm64/*    
 
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
