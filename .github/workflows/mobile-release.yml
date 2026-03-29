@@ -85,86 +85,34 @@ jobs:
         artifactPath: ${{ matrix.artifactPath }}
 
   Releaser:
-  needs: [get-commit-hash, build]
-  runs-on: ubuntu-latest
-  permissions: write-all
-  steps:
-    # 下载所有构建产物
-    - name: Download Android Build
-      uses: actions/download-artifact@main
-      with:
-         name: androidBuild
-         path: ./artifacts
+    needs: [get-commit-hash, build]
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Download Android Build
+        uses: actions/download-artifact@main
+        with:
+           name: androidBuild
+           path: /home/runner
 
-    - name: Download iOS Build
-      uses: actions/download-artifact@main
-      with:
-         name: iOSBuild
-         path: ./artifacts
+      - name: Move Android File
+        run: mv /home/runner/${{ env.PROJECT_NAME }}-release.apk /home/runner/${{ env.PROJECT_NAME }}-Android.apk
 
-    - name: Download Windows Build
-      uses: actions/download-artifact@main
-      with:
-         name: windowsBuild-x86_64
-         path: ./artifacts
+      - name: Download iOS Build
+        uses: actions/download-artifact@main
+        with:
+           name: iOSBuild
+           path: ${{ github.workspace }}
 
-    - name: Download Linux Build
-      uses: actions/download-artifact@main
-      with:
-         name: linuxBuild-x86_64
-         path: ./artifacts
+      - name: Zip iOS Build For Release
+        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-iOS.zip ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa
 
-    - name: Download macOS x86_64 Build
-      uses: actions/download-artifact@main
-      with:
-         name: macOSBuild-x86_64
-         path: ./artifacts
-
-    - name: Download macOS ARM64 Build
-      uses: actions/download-artifact@main
-      with:
-         name: macOSBuild-arm64
-         path: ./artifacts
-
-    # 重命名文件以便发布
-    - name: Rename Android File
-      run: |
-        if [ -f ./artifacts/*.apk ]; then
-          mv ./artifacts/*.apk ./artifacts/${{ env.PROJECT_NAME }}-Android.apk
-        fi
-
-    - name: Zip iOS Build
-      run: |
-        if [ -f ./artifacts/${{ env.PROJECT_NAME }}.ipa ]; then
-          zip -j ./artifacts/${{ env.PROJECT_NAME }}-iOS.zip ./artifacts/${{ env.PROJECT_NAME }}.ipa
-        fi
-
-    - name: Zip Windows Build
-      run: |
-        if [ -d ./artifacts ]; then
-          zip -r ./artifacts/${{ env.PROJECT_NAME }}-Windows.zip ./artifacts/
-        fi
-      # 注意：Windows 构建产物可能是一个文件夹，需要根据实际情况调整
-
-    - name: Zip Linux Build
-      run: |
-        if [ -d ./artifacts ]; then
-          zip -r ./artifacts/${{ env.PROJECT_NAME }}-Linux.zip ./artifacts/
-        fi
-
-    - name: Zip macOS Builds
-      run: |
-        if [ -d ./artifacts ]; then
-          zip -r ./artifacts/${{ env.PROJECT_NAME }}-macOS.zip ./artifacts/
-        fi
-
-    # 发布所有文件
-    - name: Publish The Release
-      uses: softprops/action-gh-release@v2
-      with:
-        name: "DevBuild ${{ needs.get-commit-hash.outputs.commit_hash }}"
-        tag_name: "devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}"
-        prerelease: true
-        files: |
-          ./artifacts/*.apk
-          ./artifacts/*.zip
+      - name: Publish The Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "DevBuild ${{ needs.get-commit-hash.outputs.commit_hash }}"
+          tag_name: "devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}"
+          prerelease: true
+          files: |
+            /home/runner/*.apk
+            /home/runner/*.zip
