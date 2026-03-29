@@ -103,9 +103,45 @@ jobs:
         with:
            name: iOSBuild
            path: ${{ github.workspace }}
+        
+      - name: Download Windows Build
+        uses: actions/download-artifact@main
+        with:
+           name: windowsBuild-x86_64
+           path: ${{ github.workspace }}
+
+      - name: Download Linux Build
+        uses: actions/download-artifact@main
+        with:
+           name: linuxBuild-x86_64
+           path: ${{ github.workspace }}
+      
+      - name: Download macOS x86_64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: macOSBuild-x86_64
+           path: ${{ github.workspace }}
+      
+      - name: Download macOS ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: macOSBuild-arm64
+           path: ${{ github.workspace }}
 
       - name: Zip iOS Build For Release
         run: zip -r /home/runner/${{ env.PROJECT_NAME }}-iOS.zip ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa
+      
+      - name: Zip Windows Build For Release
+        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/windowsBuild-x86_64/*
+      
+      - name: Zip Linux Build For Release
+        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/linuxBuild-x86_64/*
+
+      - name: Zip macOS x86_64 Build For Release
+        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/macOSBuild-x86_64/*
+        
+      - name: Zip macOS ARM64 Build For Release
+        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-ARM64.zip ${{ github.workspace }}/macOSBuild-arm64/*
 
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
