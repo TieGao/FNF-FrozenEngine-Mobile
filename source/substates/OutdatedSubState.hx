@@ -28,7 +28,7 @@ class OutdatedSubState extends MusicBeatSubstate
 		add(bg);
 
 		warnText = new FlxText(0, 0, FlxG.width,
-			'Sup bro, looks like you\'re running an outdated version of\nPsych Engine (${MainMenuState.psychEngineVersion})\n
+			'Sup bro, looks like you\'re running an outdated version of\nPsych Engine (${MainMenuState.frozenEngineVersion})\n
 			-----------------------------------------------\n
 			Press $enter to update to the latest version ${updateVersion}\n
 			Press $back to proceed anyway.\n

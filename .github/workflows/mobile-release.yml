@@ -1,7 +1,5 @@
-name: Mobile + Release
+name: Everything + Release
 on: 
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
