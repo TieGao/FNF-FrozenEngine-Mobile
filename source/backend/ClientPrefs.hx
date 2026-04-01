@@ -154,6 +154,7 @@ import states.TitleState;
 	public var forceNoteSkins:Bool = false;
 	public var forceSplashSkins:Bool = false;
 	public var forceNoteRGB:Bool = false;
+	public var globalspace:Bool = false;
 
 	//FE Mobile Settings
 	public var hitMode:String = "hitbox"; // 0 = right full, 1 = left full, 2 = custom
