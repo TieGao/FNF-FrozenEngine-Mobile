@@ -172,10 +172,16 @@ class HScript extends Iris
 		set('Note', objects.Note);
 		set('CustomSubstate', CustomSubstate);
 		#if (!flash && sys)
-		set('FlxRuntimeShader', flixel.addons.display.FlxRuntimeShader);
-		set('ErrorHandledRuntimeShader', shaders.ErrorHandledShader.ErrorHandledRuntimeShader);
+		if (ClientPrefs.data.shaders)
+		{
+			set('FlxRuntimeShader', flixel.addons.display.FlxRuntimeShader);
+			set('ErrorHandledRuntimeShader', shaders.ErrorHandledShader.ErrorHandledRuntimeShader);
+		}
 		#end
-		set('ShaderFilter', openfl.filters.ShaderFilter);
+		if (ClientPrefs.data.shaders)
+		{
+			set('ShaderFilter', openfl.filters.ShaderFilter);
+		}
 		set('StringTools', StringTools);
 		#if flxanimate
 		set('FlxAnimate', FlxAnimate);
@@ -589,7 +595,6 @@ class CustomInterp extends crowplexus.hscript.Interp
 	}
 
 	override function fcall(o:Dynamic, funcToRun:String, args:Array<Dynamic>):Dynamic {
-        // 特别处理 setFilters 调用
         if (funcToRun == "setFilters") {
             return handleSetFilters(o, args);
         }
@@ -612,7 +617,7 @@ class CustomInterp extends crowplexus.hscript.Interp
     
 private function handleSetFilters(obj:Dynamic, args:Array<Dynamic>):Dynamic {
 //    trace('[DEBUG] handleSetFilters called: obj=$obj, args=$args, args.length=${args.length}');
-    
+    if (!ClientPrefs.data.shaders)return null; // 如果不支持或未启用着色器，直接返回
     // 处理没有参数的情况（清空所有滤镜）
     if (args.length == 0) {
 //        trace('[DEBUG] No arguments provided, clearing filters');
