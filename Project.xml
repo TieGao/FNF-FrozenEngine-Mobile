@@ -117,8 +117,6 @@
 	<haxelib name="tjson" version="1.4.0"/>
 
 	<!--Psych stuff needed-->
-	<lime version="8.3.1"/>
-	<haxelib name= "openfl" version="9.5.0"/>
 	<haxelib name="linc_luajit" if="LUA_ALLOWED"/>
 	<haxelib name="hscript-iris" if="HSCRIPT_ALLOWED"/>
 	<haxelib name="hxvlc" if="VIDEOS_ALLOWED"/>
