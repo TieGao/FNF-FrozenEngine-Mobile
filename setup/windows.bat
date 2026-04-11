@@ -6,6 +6,7 @@ echo This might take a few moments depending on your internet speed.
 haxelib git hxcpp https://github.com/TieGao/hxcpp --quiet
 haxelib git lime https://github.com/openfl/lime
 haxelib git openfl https://github.com/openfl/openfl
+haxelib install format
 haxelib install flixel 6.1.0 --quiet
 haxelib install flixel-addons 4.0.1 --quiet
 haxelib install flixel-tools 1.5.1 --quiet
