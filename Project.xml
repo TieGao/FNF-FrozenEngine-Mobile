@@ -123,6 +123,8 @@
 	<haxelib name="hxdiscord_rpc" if="DISCORD_ALLOWED"/>
 	<haxelib name="flxanimate"/>
 	<haxelib name="moonchart"/>
+	<lime version="8.3.0"/>
+	
 
 	<!--Mobile Required (Lime 8.1.2 FUCK U)-->
 	<haxelib name="extension-androidtools" if="android"/>
