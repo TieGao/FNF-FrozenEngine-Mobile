@@ -214,7 +214,7 @@
 	<icon path="art/icons/iconOG.png" />
 
 	<android if="android"
-    gradle-version="8.10.2">
+    gradle-version="8.14.3">
     <!-- Gradle JVM 内存配置 -->
 </android>
 
