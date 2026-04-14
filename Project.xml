@@ -229,6 +229,6 @@
 
 <!-- Android 权限配置 -->
 <config:android if="android">
-	<gradle-properties org.gradle.jvmargs='-Xmx16384m "-XX:MaxMetaspaceSize=384m"' />
+	<gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
 </config:android>
 </project>
