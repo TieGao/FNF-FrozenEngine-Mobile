@@ -112,7 +112,7 @@
 
 	<!-- _______________________________ Libraries ______________________________ -->
 
-	<haxelib name="flixel" version="5.8.0"/>
+	<haxelib name="flixel" version="5.9.0"/>
 	<haxelib name="flixel-addons" version="3.3.2"/>
 	<haxelib name="tjson" version="1.4.0"/>
 
@@ -123,8 +123,7 @@
 	<haxelib name="hxdiscord_rpc" if="DISCORD_ALLOWED"/>
 	<haxelib name="flxanimate"/>
 	<haxelib name="moonchart"/>
-	<lime version="8.3.0"/>
-	
+
 
 	<!--Mobile Required (Lime 8.1.2 FUCK U)-->
 	<haxelib name="extension-androidtools" if="android"/>
