@@ -9,7 +9,6 @@ import backend.StageData;
 
 import objects.BiosDateDisplay;
 
-import shaders.ParticleBeamShader;
 #if !flash
 #end
 
@@ -278,6 +277,8 @@ class KEOptionsMenu extends MusicBeatState
 			self.onLanguageReload();
 		};
 		backend.Language.addReloadCallback(langReloadCb);
+
+		addTouchPad('LEFT_FULL', 'A_B_C');
 	}
 	
 	// 语言重载回调函数
@@ -1144,31 +1145,71 @@ class KEOptionsMenu extends MusicBeatState
 	// Controls 选项
 	function getControlsOptions():Array<KEOption>
 	{
-		return [
-			KEOption.create("Open Note Colors", "Customize note colors", "", "action"),
-			KEOption.create("Open Controls", "Customize key bindings", "", "action"),
-			KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"),
-			KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"),   
-			KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"),
-		];
+		var options:Array<KEOption> = [];
+		
+		var mobileSettings = KEOption.createSubMenu(
+			"Mobile Settings",
+			"Configure mobile-specific settings",
+			[
+				KEOption.create("Extra Controls", 
+					"Select how many extra buttons you prefer to have?\nThey can be used for mechanics with LUA or HScript.", 
+					"extraButtons", 
+					"string", 
+					["NONE", "SINGLE", "DOUBLE"]),
+					
+				KEOption.create("Mobile Controls Opacity",
+					"Selects the opacity for the mobile buttons (careful not to put it at 0 and lose track of your buttons).", 
+					"controlsAlpha", 
+					"float", 
+					0.8, 0.001, 1.0, 0.1),
+				#if mobile	
+				KEOption.create("Allow Phone Screensaver",
+					"If checked, the phone will sleep after going inactive for few seconds.\n(The time depends on your phone's options)", 
+					"screensaver", 
+					"bool"),
+					
+				KEOption.create("Wide Screen Mode",
+					"If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)",
+					"wideScreen", 
+					"bool"),
+				#end
+					
+				KEOption.create("Hitbox Design", 
+					"Choose how your hitbox should look like.", 
+					"hitboxType", 
+					"string", 
+					["No Gradient", "No Gradient (Old)", "Gradient", "Hidden"]),
+					
+				KEOption.create("Hitbox Position", 
+					"If checked, the hitbox will be put at the bottom of the screen, otherwise will stay at the top.",
+					"hitboxPos", 
+					"bool"),
+					
+				KEOption.create("Dynamic Controls Color",
+					"If checked, the mobile controls color will be set to the notes color in your settings.\n(have effect during gameplay only)",
+					"dynamicColors", 
+					"bool")
+			],
+			"",
+			"Mobile Settings"
+		);
+		
+		// 原有的其他选项
+		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
+		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
+		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
+		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
+		//options.push(KEOption.create("Mobile Settings", "Customize mobile-specific settings", "", "action"));
+		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
+		options.push(mobileSettings);
+		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
+		
+		return options;
 	}
 
 	// Advanced 选项
 	function getAdvancedOptions():Array<KEOption>
 	{
-		var optionsparticle = KEOption.createSubMenu(
-			"Options Particle",
-			"Edit Particle Effects in Menu",
-			[
-				KEOption.create("Show Particle In Option", "Show particle effect in options menu", "particle", "bool"),
-				KEOption.create("Particle Amount", "Amount of particles", "particleAmount", "float", 50, 0, 200, 0.1),
-				KEOption.create("Particle Speed", "Speed of particles", "particleSpeed", "float", 1.0, 0.1, 5.0, 0.1),
-				KEOption.create("Particle Trail Length", "Length of particle trails", "particleTrail", "int", 2, 0, 50, 1)
-			],
-			"",
-			"Particle"
-		);
-
 		return [
 			KEOption.create("Check Updates", "Check for game updates", "checkForUpdates", "bool"),
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
@@ -1182,8 +1223,6 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Legacy Music Player", "Use Psych Engine Default Music Player", "legacymp", "bool"),
 			KEOption.create("Reset Settings", "Reset all settings to default [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
 			KEOption.create("Reset Scores", "Clear all high scores [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
-			KEOption.create("Mirror Notes", "Mirror all notes in current chart", "mirrorNotes", "action"),
-			optionsparticle,
 			KEOption.create("Use Default Mouse Cursor", "Use ur system's default mouse cursor in game", "useSystemCursor", "bool")
 		];
 	}
