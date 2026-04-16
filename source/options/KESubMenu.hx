@@ -37,9 +37,6 @@ class KESubMenu extends MusicBeatSubstate
 	var holdDownTime:Float = 0;
 	var scrollHoldTime:Float = 0;
 	
-	// 游戏手柄支持
-	var gamepad:flixel.input.gamepad.FlxGamepad;
-	
 	// 点击保护
 	var optionClickCooldown:Float = 0;
 	var optionClickProtected:Bool = false;
@@ -55,6 +52,7 @@ class KESubMenu extends MusicBeatSubstate
 	var bgAlpha:Float;
 	var optionAlpha:Float;
 	var descAlpha:Float;
+	
 	
 	public function new(parentOption:KEOption)
 	{
@@ -105,7 +103,6 @@ class KESubMenu extends MusicBeatSubstate
 	{
 		super.create();
 		
-
 		// 计算内容区域
 		var contentStartY:Int = marginTop;
 		var contentHeight:Int = screenHeight - marginTop - marginBottom;
@@ -202,7 +199,7 @@ class KESubMenu extends MusicBeatSubstate
 		// 显示鼠标
 		FlxG.mouse.visible = true;
 		
-		// 退出检测
+		// 使用 Controls 的 BACK 退出检测
 		if (controls.BACK || FlxG.mouse.justPressedRight)
 		{
 			closeMenu();
@@ -379,9 +376,7 @@ class KESubMenu extends MusicBeatSubstate
 			}
 		}
 		#end
-		
-		// 键盘和手柄控制
-		gamepad = FlxG.gamepads.lastActive;
+
 		
 		var accept = controls.ACCEPT;
 		var right = controls.UI_RIGHT_P;

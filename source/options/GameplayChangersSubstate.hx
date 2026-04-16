@@ -13,6 +13,11 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	private var grpOptions:FlxTypedGroup<Alphabet>;
 	private var checkboxGroup:FlxTypedGroup<CheckboxThingie>;
 	private var grpTexts:FlxTypedGroup<AttachedText>;
+	
+	// 鼠标控制相关变量
+	var allowMouse:Bool = true;
+	var timeNotMoving:Float = 0;
+	var mouseOverItem:Int = -1;
 
 	private var curOption(get, never):GameplayOption;
 	function get_curOption() return optionsArray[curSelected]; //shorter lol
@@ -142,6 +147,9 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 		changeSelection();
 		reloadCheckboxes();
+		
+		// 初始隐藏鼠标
+		FlxG.mouse.visible = false;
 	}
 
 	var nextAccept:Int = 5;
@@ -149,23 +157,206 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	var holdValue:Float = 0;
 	override function update(elapsed:Float)
 	{
-		if (controls.UI_UP_P)
-			changeSelection(-1);
+		
+		// 鼠标控制逻辑 - 简化版
+		if (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0)
+		{
+			FlxG.mouse.visible = true;
+			timeNotMoving = 0;
+			
+			// 检查鼠标悬停
+			checkMouseOver();
+		}
+		
+		// 鼠标滚轮逻辑
+		if (FlxG.mouse.wheel != 0)
+		{
+			FlxG.mouse.visible = true;
+			timeNotMoving = 0;
+			
+			if (mouseOverItem != -1 && mouseOverItem == curSelected)
+			{
+				// 鼠标悬停在当前选中的选项上：调整数值
+				var usesCheckbox:Bool = (curOption.type == BOOL);
+				if (!usesCheckbox && nextAccept <= 0)
+				{
+					var wheelValue:Float = FlxG.mouse.wheel * (FlxG.keys.pressed.SHIFT ? 3 : 1);
+					
+					switch(curOption.type)
+					{
+						case INT, FLOAT, PERCENT:
+							var add:Dynamic = wheelValue * curOption.changeValue;
+							holdValue = curOption.getValue() + add;
+							if(holdValue < curOption.minValue) holdValue = curOption.minValue;
+							else if (holdValue > curOption.maxValue) holdValue = curOption.maxValue;
 
-		if (controls.UI_DOWN_P)
-			changeSelection(1);
+							switch(curOption.type)
+							{
+								case INT:
+									holdValue = Math.round(holdValue);
+									curOption.setValue(holdValue);
 
-		if (controls.BACK)
+								case FLOAT, PERCENT:
+									holdValue = FlxMath.roundDecimal(holdValue, curOption.decimals);
+									curOption.setValue(holdValue);
+
+								default:
+							}
+							FlxG.sound.play(Paths.sound('scrollMenu'));
+
+						case STRING:
+							var num:Int = curOption.curOption;
+							if(wheelValue < 0) --num;
+							else num++;
+
+							if(num < 0)
+								num = curOption.options.length - 1;
+							else if(num >= curOption.options.length)
+								num = 0;
+
+							curOption.curOption = num;
+							curOption.setValue(curOption.options[num]);
+							
+							if (curOption.name == "Scroll Type")
+							{
+								var oOption:GameplayOption = getOptionByName("Scroll Speed");
+								if (oOption != null)
+								{
+									if (curOption.getValue() == "constant")
+									{
+										oOption.displayFormat = "%v";
+										oOption.maxValue = 6;
+									}
+									else
+									{
+										oOption.displayFormat = "%vX";
+										oOption.maxValue = 3;
+										if(oOption.getValue() > 3) oOption.setValue(3);
+									}
+									updateTextFrom(oOption);
+								}
+							}
+							FlxG.sound.play(Paths.sound('scrollMenu'));
+
+						default:
+					}
+					updateTextFrom(curOption);
+					curOption.change();
+				}
+			}
+			else
+			{
+				// 鼠标不在选项上或不在当前选中的选项上：上下滚动选择
+				var shiftMult:Int = FlxG.keys.pressed.SHIFT ? 3 : 1;
+				changeSelection(-shiftMult * FlxG.mouse.wheel);
+			}
+		}
+
+		// 保留原来的键盘控制逻辑
+		if(optionsArray.length > 1)
+		{
+			var shiftMult:Int = 1;
+			if(FlxG.keys.pressed.SHIFT) shiftMult = 3;
+
+			var upP = controls.UI_UP_P;
+			var downP = controls.UI_DOWN_P;
+
+			if (upP)
+			{
+				changeSelection(-shiftMult);
+				holdTime = 0;
+			}
+			if (downP)
+			{
+				changeSelection(shiftMult);
+				holdTime = 0;
+			}
+
+			if(controls.UI_DOWN || controls.UI_UP)
+			{
+				var checkLastHold:Int = Math.floor((holdTime - 0.5) * 10);
+				holdTime += elapsed;
+				var checkNewHold:Int = Math.floor((holdTime - 0.5) * 10);
+
+				if(holdTime > 0.5 && checkNewHold - checkLastHold > 0)
+				{
+					changeSelection((checkNewHold - checkLastHold) * (controls.UI_UP ? -shiftMult : shiftMult));
+				}
+			}
+		}
+		
+		// 鼠标点击选择选项 - 修复版
+		if (FlxG.mouse.justPressed)
+		{
+			// 先检查鼠标悬停状态
+			checkMouseOver();
+			
+			if (mouseOverItem != -1)
+			{
+				if (curSelected != mouseOverItem)
+				{
+					// 左键点击未选中的选项：选择它
+					curSelected = mouseOverItem;
+					changeSelection();
+				}
+				else
+				{
+					// 左键点击已选中的选项：如果是复选框则切换
+					var usesCheckbox:Bool = (curOption.type == BOOL);
+					if (usesCheckbox && nextAccept <= 0)
+					{
+						FlxG.sound.play(Paths.sound('scrollMenu'));
+						curOption.setValue((curOption.getValue() == true) ? false : true);
+						curOption.change();
+						reloadCheckboxes();
+					}
+				}
+			}
+		}
+
+		if (controls.BACK || FlxG.mouse.justPressedRight)
 		{
 			close();
 			ClientPrefs.saveSettings();
 			controls.isInSubstate = false;
 			FlxG.sound.play(Paths.sound('cancelMenu'));
 		}
+		
+		// 鼠标拖动调整数值（非布尔类型）- 简化版
+		if (FlxG.mouse.pressed && mouseOverItem != -1 && mouseOverItem == curSelected && !(curOption.type == BOOL) && curOption.type != STRING && nextAccept <= 0)
+		{
+			var mouseDelta:Float = FlxG.mouse.deltaScreenX;
+			if (Math.abs(mouseDelta) > 2) // 提高灵敏度阈值
+			{
+				var add:Dynamic = mouseDelta * curOption.changeValue ; // 降低灵敏度
+				holdValue = curOption.getValue() + add;
+				if(holdValue < curOption.minValue) holdValue = curOption.minValue;
+				else if (holdValue > curOption.maxValue) holdValue = curOption.maxValue;
+
+				switch(curOption.type)
+				{
+					case INT:
+						holdValue = Math.round(holdValue);
+						curOption.setValue(holdValue);
+
+					case FLOAT, PERCENT:
+						holdValue = FlxMath.roundDecimal(holdValue, curOption.decimals);
+						curOption.setValue(holdValue);
+
+					default:
+				}
+				
+				updateTextFrom(curOption);
+				curOption.change();
+				
+				timeNotMoving = 0; // 重置不活动时间
+			}
+		}
 
 		if(nextAccept <= 0)
 		{
 			var usesCheckbox:Bool = (curOption.type == BOOL);
+			
 			if(usesCheckbox)
 			{
 				if(controls.ACCEPT)
@@ -316,6 +507,82 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		}
 		super.update(elapsed);
 	}
+	
+	// 检查鼠标悬停
+	function checkMouseOver():Void
+	{
+		var newMouseOverItem:Int = -1;
+		
+		// 简单检查：只检查选项文本
+		for (i in 0...grpOptions.length)
+		{
+			var item:Alphabet = grpOptions.members[i];
+			if (item != null && FlxG.mouse.overlaps(item))
+			{
+				newMouseOverItem = i;
+				break;
+			}
+		}
+		
+		// 如果没找到，检查复选框
+		if (newMouseOverItem == -1)
+		{
+			for (checkbox in checkboxGroup)
+			{
+				if (checkbox != null && FlxG.mouse.overlaps(checkbox))
+				{
+					newMouseOverItem = checkbox.ID;
+					break;
+				}
+			}
+		}
+		
+		// 如果还没找到，检查值文本
+		if (newMouseOverItem == -1)
+		{
+			for (text in grpTexts)
+			{
+				if (text != null && FlxG.mouse.overlaps(text))
+				{
+					newMouseOverItem = text.ID;
+					break;
+				}
+			}
+		}
+		
+		if (newMouseOverItem != mouseOverItem)
+		{
+			mouseOverItem = newMouseOverItem;
+			updateMouseHover();
+			timeNotMoving = 0; // 重置不活动时间
+		}
+	}
+	
+	function updateMouseHover()
+	{
+		for (num => item in grpOptions.members)
+		{
+			if (item != null)
+			{
+				item.alpha = 0.6;
+				if (item.targetY == 0)
+					item.alpha = 1;
+				else if (mouseOverItem == num)
+					item.alpha = 0.8;
+			}
+		}
+		for (text in grpTexts)
+		{
+			if (text != null)
+			{
+				text.alpha = 0.6;
+				if(text.ID == curSelected)
+					text.alpha = 1;
+				else if(mouseOverItem == text.ID)
+					text.alpha = 0.8;
+			}
+		}
+	}
 
 	function updateTextFrom(option:GameplayOption) {
 		var text:String = option.displayFormat;
@@ -338,23 +605,37 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		curSelected = FlxMath.wrap(curSelected + change, 0, optionsArray.length - 1);
 		for (num => item in grpOptions.members)
 		{
-			item.targetY = num - curSelected;
-			item.alpha = 0.6;
-			if (item.targetY == 0)
-				item.alpha = 1;
+			if (item != null)
+			{
+				item.targetY = num - curSelected;
+				item.alpha = 0.6;
+				if (item.targetY == 0)
+					item.alpha = 1;
+			}
 		}
 		for (text in grpTexts)
 		{
-			text.alpha = 0.6;
-			if(text.ID == curSelected)
-				text.alpha = 1;
+			if (text != null)
+			{
+				text.alpha = 0.6;
+				if(text.ID == curSelected)
+					text.alpha = 1;
+			}
 		}
+		
+		// 重置鼠标悬停状态
+		mouseOverItem = -1;
+		updateMouseHover();
+		
 		FlxG.sound.play(Paths.sound('scrollMenu'));
 	}
 
 	function reloadCheckboxes() {
 		for (checkbox in checkboxGroup) {
-			checkbox.daValue = (optionsArray[checkbox.ID].getValue() == true);
+			if (checkbox != null)
+			{
+				checkbox.daValue = (optionsArray[checkbox.ID].getValue() == true);
+			}
 		}
 	}
 }

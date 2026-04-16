@@ -6,6 +6,7 @@ import backend.StageData;
 import backend.WeekData;
 import backend.Song;
 import backend.Rating;
+import backend.SpritePool;
 
 import flixel.FlxBasic;
 import flixel.FlxObject;
@@ -266,6 +267,8 @@ class PlayState extends MusicBeatState
 	 private var ratingPool:SpritePool;
     private var comboNumPool:SpritePool;
     private var comboSpritePool:SpritePool;
+    private var splashPool:SpritePool;
+    private var notePool:SpritePool;
 
     private var maxPoolSize:Int = 15;
 
@@ -325,16 +328,18 @@ class PlayState extends MusicBeatState
 	public var keyboardViewer:KeyboardViewer;
 	public var strumGuideLine:StrumGuideLine;
 
-	private var numScoreTweenScaleX:FlxTween;
-	private var numScoreTweenScaleY:FlxTween;
-	private var numScoreTweenAlpha:FlxTween;
-	private var ratingTweenScaleX:FlxTween;
-	private var ratingTweenScaleY:FlxTween;
-	private var ratingTweenAlpha:FlxTween;
-	private var ratingTweenDestroy:FlxTween;
-	private var comboTweenScaleX:FlxTween;
-	private var comboTweenScaleY:FlxTween;
-	private var comboTweenAlpha:FlxTween;
+		// 新增 - 非combo stacking模式
+		var numAlpha:Array<FlxTween> = [];        // 数字淡出tween
+		var numScaleX:Array<FlxTween> = [];       // 数字X轴缩放tween
+		var numScaleY:Array<FlxTween> = [];       // 数字Y轴缩放tween
+
+		var ratingAlpha:FlxTween;                 // 评级淡出tween
+		var ratingScaleX:FlxTween;                // 评级X轴缩放tween
+		var ratingScaleY:FlxTween;                // 评级Y轴缩放tween+
+
+		var comboSprAlpha:FlxTween;               // Combo淡出tween
+		var comboSprScaleX:FlxTween;              // Combo X轴缩放tween
+		var comboSprScaleY:FlxTween;              // Combo Y轴缩放tween
 
 	override public function create()
 	{
@@ -608,11 +613,9 @@ class PlayState extends MusicBeatState
 		uiGroup.add(timeTxt);
 
 		strumGuideLine = new StrumGuideLine();
-		noteGroup.add(strumGuideLine);
+		uiGroup.insert(0,strumGuideLine);
 		noteGroup.add(strumLineNotes);
 
-		noteHoldCover = new NoteHoldCover();
-		noteGroup.add(noteHoldCover);
 		if(ClientPrefs.data.timeBarType == 'Song Name')
 		{
 			timeTxt.size = 24;
@@ -787,7 +790,15 @@ class PlayState extends MusicBeatState
 		stagesFunc(function(stage:BaseStage) stage.createPost());
 		callOnScripts('onCreatePost');
 		
-		var splash:NoteSplash = new NoteSplash();
+		splashPool = new SpritePool(maxPoolSize);
+		NoteSplash.pool = splashPool;
+		for (i in 0...maxPoolSize) {
+			var preloadSplash:NoteSplash = new NoteSplash();
+			splashPool.put(preloadSplash);
+		}
+
+		var splash:NoteSplash = cast splashPool.get();
+		if (splash == null) splash = new NoteSplash();
 		grpNoteSplashes.add(splash);
 		splash.alpha = 0.000001; //cant make it invisible or it won't allow precaching
 
@@ -1576,6 +1587,10 @@ class PlayState extends MusicBeatState
 
 		notes = new FlxTypedGroup<Note>();
 		noteGroup.add(notes);
+		notePool = new SpritePool(maxPoolSize);
+
+		noteHoldCover = new NoteHoldCover();
+		noteGroup.add(noteHoldCover);
 
 		try
 		{
@@ -1628,7 +1643,12 @@ class PlayState extends MusicBeatState
 					}
 				}
 
-				var swagNote:Note = new Note(spawnTime, noteColumn, oldNote);
+				var swagNote:Note = cast notePool.get();
+				if (swagNote != null)
+					swagNote.reuse(spawnTime, noteColumn, oldNote);
+				else
+					swagNote = new Note(spawnTime, noteColumn, oldNote);
+
 				var isAlt: Bool = section.altAnim && !gottaHitNote;
 				swagNote.gfNote = (section.gfSection && gottaHitNote == section.mustHitSection);
 				swagNote.animSuffix = isAlt ? "-alt" : "";
@@ -1647,7 +1667,11 @@ class PlayState extends MusicBeatState
 					{
 						oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
 
-						var sustainNote:Note = new Note(spawnTime + (curStepCrochet * susNote), noteColumn, oldNote, true);
+						var sustainNote:Note = cast notePool.get();
+						if (sustainNote != null)
+							sustainNote.reuse(spawnTime + (curStepCrochet * susNote), noteColumn, oldNote, true);
+						else
+							sustainNote = new Note(spawnTime + (curStepCrochet * susNote), noteColumn, oldNote, true);
 						sustainNote.animSuffix = swagNote.animSuffix;
 						sustainNote.mustPress = swagNote.mustPress;
 						sustainNote.gfNote = swagNote.gfNote;
@@ -2137,8 +2161,22 @@ class PlayState extends MusicBeatState
 		if (healthTextObj != null) healthTextObj.refresh();
 		if (judgementCounterObj != null) judgementCounterObj.refresh();
 
+		recycleDeadSplashes();
 		setOnScripts('botPlay', cpuControlled);
 		callOnScripts('onUpdatePost', [elapsed]);
+	}
+
+	private function recycleDeadSplashes():Void {
+		if (splashPool == null || grpNoteSplashes == null) return;
+		var i:Int = grpNoteSplashes.length - 1;
+		while (i >= 0) {
+			var splash:NoteSplash = grpNoteSplashes.members[i];
+			if (splash != null && !splash.exists) {
+				grpNoteSplashes.remove(splash, false);
+				splashPool.put(splash);
+			}
+			--i;
+		}
 	}
 
 	// Health icon updaters
@@ -2725,7 +2763,8 @@ class PlayState extends MusicBeatState
 		// 只在非回放模式下保存分数
 		if (!loadRep && !inReplay)
 		{
-			Highscore.saveScore(Song.loadedSongName, songScore, storyDifficulty, percent);
+			var mode:String = null;
+				Highscore.saveScore(Song.loadedSongName, songScore, storyDifficulty, percent, Mods.currentModDirectory, mode);
 		}
 			#end
 		
@@ -2874,7 +2913,7 @@ public function proceedToNextState():Void
 					// if ()
 					if(!ClientPrefs.getGameplaySetting('practice') && !ClientPrefs.getGameplaySetting('botplay')) {
 						StoryMenuState.weekCompleted.set(WeekData.weeksList[storyWeek], true);
-						Highscore.saveWeekScore(WeekData.getWeekFileName(), campaignScore, storyDifficulty);
+				Highscore.saveWeekScore(WeekData.getWeekFileName(), campaignScore, storyDifficulty, Mods.currentModDirectory);
 
 						FlxG.save.data.weekCompleted = StoryMenuState.weekCompleted;
 						FlxG.save.flush();
@@ -3002,18 +3041,6 @@ public function proceedToNextState():Void
 	private function popUpScore(note:Note = null):Void
 	{
         if (combo >= highestCombo) highestCombo = combo;
-        if (ClientPrefs.data.showCombo && combo > 9)
-		{
-			showComboNum = true;
-		}
-		else if (!ClientPrefs.data.showCombo)
-		{
-			showComboNum = true;
-		}
-		else if (ClientPrefs.data.showCombo && combo <= 9)
-		{
-			showComboNum = false;
-	}
         // 计算时间差
 	var rawNoteDiff:Float = note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
 	var noteDiff:Float = Math.abs(rawNoteDiff);
@@ -3344,21 +3371,33 @@ public function proceedToNextState():Void
         } else {
     // 非combo stacking模式 - 保持原有销毁逻辑
     // 数字动画 - 参考popUpScore中数字的动画方式
-    for (numScore in createdNumbers) {
+    for (i in 0...createdNumbers.length) {
+        var numScore = createdNumbers[i];
         // 保存原始缩放
         var originalScaleX:Float = numScore.scale.x;
         var originalScaleY:Float = numScore.scale.y;
         
         // 先瞬间放大（与popUpScore中的 scale + 0.07 效果一致）
-        numScore.scale.x = originalScaleX + 0.07;
-        numScore.scale.y = originalScaleY + 0.07;
+        numScore.scale.x += 0.07;
+        numScore.scale.y += 0.07;
+        
+        // 打断已有的tween
+        if (numScaleX[i] != null) {
+            numScaleX[i].cancel();
+        }
+        if (numScaleY[i] != null) {
+            numScaleY[i].cancel();
+        }
+        if (numAlpha[i] != null) {
+            numAlpha[i].cancel();
+        }
         
         // 回缩动画（与popUpScore中的0.2秒动画一致）
-        FlxTween.tween(numScore.scale, {x: originalScaleX}, 0.2 / playbackRate);
-        FlxTween.tween(numScore.scale, {y: originalScaleY}, 0.2 / playbackRate);
+        numScaleX[i] = FlxTween.tween(numScore.scale, {x: originalScaleX}, 0.2 / playbackRate);
+        numScaleY[i] = FlxTween.tween(numScore.scale, {y: originalScaleY}, 0.2 / playbackRate);
         
         // 淡出并销毁（与popUpScore中的延迟淡出一致）
-				FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
+        numAlpha[i] = FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
             onComplete: function(tween:FlxTween) {
                 if (comboGroup.members.contains(numScore)) {
                     comboGroup.remove(numScore);
@@ -3374,15 +3413,26 @@ public function proceedToNextState():Void
     var ratingOriginalScaleY:Float = rating.scale.y;
     
     // 先瞬间放大
-    rating.scale.x = ratingOriginalScaleX + 0.07;
-    rating.scale.y = ratingOriginalScaleY + 0.07;
+    rating.scale.x += 0.07;
+    rating.scale.y += 0.07;
+    
+    // 打断已有的tween
+    if (ratingScaleX != null) {
+        ratingScaleX.cancel();
+    }
+    if (ratingScaleY != null) {
+        ratingScaleY.cancel();
+    }
+    if (ratingAlpha != null) {
+        ratingAlpha.cancel();
+    }
     
     // 回缩动画
-    FlxTween.tween(rating.scale, {x: ratingOriginalScaleX}, 0.2 / playbackRate);
-    FlxTween.tween(rating.scale, {y: ratingOriginalScaleY}, 0.2 / playbackRate);
+    ratingScaleX = FlxTween.tween(rating.scale, {x: ratingOriginalScaleX}, 0.2 / playbackRate);
+    ratingScaleY = FlxTween.tween(rating.scale, {y: ratingOriginalScaleY}, 0.2 / playbackRate);
     
     // 淡出动画
-			FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
+    ratingAlpha = FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
 				startDelay: Conductor.crochet * 0.001 / playbackRate
 			});
 
@@ -3395,12 +3445,23 @@ public function proceedToNextState():Void
         comboSpr.scale.x = comboOriginalScaleX + 0.07;
         comboSpr.scale.y = comboOriginalScaleY + 0.07;
         
+        // 打断已有的tween
+        if (comboSprScaleX != null) {
+            comboSprScaleX.cancel();
+        }
+        if (comboSprScaleY != null) {
+            comboSprScaleY.cancel();
+        }
+        if (comboSprAlpha != null) {
+            comboSprAlpha.cancel();
+        }
+        
         // 回缩动画
-        FlxTween.tween(comboSpr.scale, {x: comboOriginalScaleX}, 0.2 / playbackRate);
-        FlxTween.tween(comboSpr.scale, {y: comboOriginalScaleY}, 0.2 / playbackRate);
+        comboSprScaleX = FlxTween.tween(comboSpr.scale, {x: comboOriginalScaleX}, 0.2 / playbackRate);
+        comboSprScaleY = FlxTween.tween(comboSpr.scale, {y: comboOriginalScaleY}, 0.2 / playbackRate);
         
         // 淡出并销毁
-			FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
+        comboSprAlpha = FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
             onComplete: function(tween:FlxTween) {
                 if (comboGroup.members.contains(comboSpr)) {
                     comboGroup.remove(comboSpr);
@@ -3415,8 +3476,16 @@ public function proceedToNextState():Void
 				startDelay: Conductor.crochet * 0.002 / playbackRate
 	});
     } else {
-        // rating已经在上面处理了淡出，这里只做延迟销毁
-        FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
+        // rating已经在上面处理了淡出，这里只需要在淡出完成后销毁rating
+        // 注意：需要确保rating的淡出动画完成后销毁，避免重复销毁
+        
+        // 打断之前的销毁tween（如果有）
+        if (ratingAlpha != null) {
+            ratingAlpha.cancel();
+        }
+        
+        // 重新创建淡出动画，确保销毁逻辑
+        ratingAlpha = FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
             onComplete: function(tween:FlxTween) {
                 if (comboGroup.members.contains(rating)) {
                     comboGroup.remove(rating);
@@ -3426,6 +3495,7 @@ public function proceedToNextState():Void
             startDelay: Conductor.crochet * 0.002 / playbackRate
         });
     }
+
     
     // MS文本动画
     if (msText != null) {
@@ -4012,6 +4082,9 @@ public function proceedToNextState():Void
 	public function invalidateNote(note:Note):Void {
 		//if(!ClientPrefs.data.lowQuality || !cpuControlled) note.kill();
 		notes.remove(note, true);
+		if (notePool != null)
+			notePool.put(note);
+		else
 		note.destroy();
 	}
 
@@ -4024,7 +4097,8 @@ public function proceedToNextState():Void
 	}
 
 	public function spawnNoteSplash(x:Float = 0, y:Float = 0, ?data:Int = 0, ?note:Note, ?strum:StrumNote) {
-		var splash:NoteSplash = grpNoteSplashes.recycle(NoteSplash);
+		var splash:NoteSplash = cast splashPool != null ? splashPool.get() : null;
+		if (splash == null) splash = new NoteSplash();
 		splash.babyArrow = strum;
 		splash.spawnSplashNote(x, y, data, note);
 		grpNoteSplashes.add(splash);
@@ -4098,6 +4172,8 @@ public function proceedToNextState():Void
 		}
 
 		clearObjectPools();
+
+		keyboardViewer.save();
 		super.destroy();
 	}
 
@@ -5194,6 +5270,9 @@ private function applyStageVelocity(sprite:FlxSprite, multiplier:Float = 1.0):Vo
         if (ratingPool != null) ratingPool.clear();
         if (comboNumPool != null) comboNumPool.clear();
         if (comboSpritePool != null) comboSpritePool.clear();
+        if (splashPool != null) splashPool.clear();
+        if (notePool != null) notePool.clear();
+        NoteSplash.pool = null;
     }
 
 	  // 预创建池对象
@@ -5219,53 +5298,4 @@ private function applyStageVelocity(sprite:FlxSprite, multiplier:Float = 1.0):Vo
         }
     }
 
-}
-//对象池V2.0，增加了重置对象状态的功能，并且改为队列结构（FIFO）, 还有Funkin Team我早密码
-class SpritePool {
-    private var pool:Array<FlxSprite> = [];
-    private var maxSize:Int;
-    
-    public function new(maxSize:Int = 20) {
-        this.maxSize = maxSize;
-    }
-    
-    public function get():FlxSprite {
-    if (pool.length > 0) {
-        var obj = pool.shift();
-        return obj;
-    }
-    return null;
-}
-
-    public function put(obj:FlxSprite):Void {
-        if (pool.length < maxSize) {
-            resetObject(obj);
-            pool.push(obj); // 加入队列末尾
-        } else {
-            obj.destroy();
-        }
-    }
-    
-    private function resetObject(obj:FlxSprite):Void {
-        // 重置基本属性
-        obj.alpha = 1;
-        obj.visible = true;
-        obj.active = true;
-        obj.velocity.set(0, 0);
-        obj.acceleration.set(0, 0);
-        obj.scale.set(1, 1);
-        obj.color = 0xFFFFFF; // 重置颜色
-        
-        // 取消所有动画
-        FlxTween.cancelTweensOf(obj);
-
-    }
-    
-    public function clear():Void {
-        while (pool.length > 0) {
-            var obj = pool.shift();
-            if (obj != null) obj.destroy();
-        }
-        pool = [];
-}
 }

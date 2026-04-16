@@ -56,6 +56,7 @@ typedef ReplayJSON =
     public var sf:Int;
     public var sm:Bool;
     public var ana:Analysis;
+    public var opponentMode:String; // 新增：游戏模式 (player/opponent/coop)
     // 已移除 playerName
     public var accuracy:Float;
     public var score:Int;
@@ -98,6 +99,7 @@ class Replay
             sf: 10,
             ana: new Analysis(),
             songJudgements: [],
+            opponentMode: "player", // 新增：默认玩家模式
             // 已移除 playerName
             accuracy: 0.0,
             score: 0,
@@ -232,6 +234,17 @@ class Replay
                     trace('Warning: Replay version mismatch. Replay: ${repl.replayGameVer}, Current: $version');
                 }
                 
+                // 补齐可能缺失的字段，避免调用处出现空指针
+                if (replay.songNotes == null) replay.songNotes = [];
+                if (replay.songJudgements == null) replay.songJudgements = [];
+                if (replay.ana == null) replay.ana = new Analysis();
+                if (replay.timestamp == null) replay.timestamp = Date.now();
+                if (replay.modDirectory == null) replay.modDirectory = "";
+                if (replay.songName == null) replay.songName = "Unknown";
+                if (replay.difficultyName == null) replay.difficultyName = "Normal";
+                if (replay.rating == null) replay.rating = "N/A";
+                if (replay.ratingFC == null) replay.ratingFC = "N/A";
+                
                 // 初始化播放索引
                 currentIndex = 0;
                 judgementIndex = 0;
@@ -364,10 +377,10 @@ class Replay
     
     public function isValid():Bool
     {
-        return replay != null && 
-               replay.songName != null && 
-               replay.songName != "No Song Found" &&
-               replay.songNotes.length > 0;
+         return replay != null && 
+             replay.songName != null && 
+             replay.songName != "No Song Found" &&
+             replay.songNotes != null && replay.songNotes.length > 0;
     }
     
     public function getReplay():ReplayJSON

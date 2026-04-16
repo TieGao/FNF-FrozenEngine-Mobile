@@ -41,8 +41,8 @@ class PauseSubState extends MusicBeatSubstate
 	
 	// 点击判定区域偏移量（可调试）
 	// 正数向下/向右偏移，负数向上/向左偏移
-	private var clickHitboxOffsetX:Float = 200;   // 水平偏移（如果需要）
-	private var clickHitboxOffsetY:Float = 180;  // 垂直偏移
+	private var clickHitboxOffsetX:Float = 0;   // 水平偏移（如果需要）
+	private var clickHitboxOffsetY:Float = 0;  // 垂直偏移
 
 	override function create()
 	{
@@ -339,7 +339,7 @@ class PauseSubState extends MusicBeatSubstate
 				var originalY:Float = item.y;
 				item.x += clickHitboxOffsetX;
 				item.y += clickHitboxOffsetY;
-				var overlaps:Bool = FlxG.mouse.overlaps(item);
+				var overlaps:Bool = FlxG.mouse.overlaps(item, cameras[0]);
 				item.x = originalX;
 				item.y = originalY;
 				
@@ -443,6 +443,7 @@ class PauseSubState extends MusicBeatSubstate
 
 				menuItems = menuItemsOG;
 				regenMenu();
+			return;
 			}
 
 			switch (daSelected)

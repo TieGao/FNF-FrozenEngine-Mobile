@@ -1,6 +1,5 @@
 package options;
 
-import openfl.utils.Assets;
 
 class LanguageSubState extends MusicBeatSubstate
 {
@@ -25,7 +24,7 @@ class LanguageSubState extends MusicBeatSubstate
 		var directories:Array<String> = Mods.directoriesWithFile(Paths.getSharedPath(), 'data/');
 		for (directory in directories)
 		{
-			for (file in Paths.readDirectory(directory))
+			for (file in FileSystem.readDirectory(directory))
 			{
 				if(file.toLowerCase().endsWith('.lang'))
 				{
@@ -101,6 +100,15 @@ class LanguageSubState extends MusicBeatSubstate
 	{
 		super.update(elapsed);
 
+		#if !mobile
+    if (FlxG.mouse.justPressedRight)
+    {
+        FlxG.sound.play(Paths.sound('cancelMenu'));
+        close();
+        return;
+    }
+    #end
+
 		var mult:Int = (FlxG.keys.pressed.SHIFT) ? 4 : 1;
 		if(controls.UI_UP_P)
 			changeSelected(-1 * mult);
@@ -109,7 +117,7 @@ class LanguageSubState extends MusicBeatSubstate
 		if(FlxG.mouse.wheel != 0)
 			changeSelected(FlxG.mouse.wheel * mult);
 
-		if(controls.BACK)
+		if(controls.BACK || FlxG.mouse.justPressedRight)
 		{
 			if(changedLanguage)
 			{

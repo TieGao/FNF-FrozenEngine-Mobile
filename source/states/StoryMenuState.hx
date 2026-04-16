@@ -15,6 +15,8 @@ import substates.ResetScoreSubState;
 
 import backend.StageData;
 
+import objects.WeekBGDisplay;
+
 class StoryMenuState extends MusicBeatState
 {
 	public static var weekCompleted:Map<String, Bool> = new Map<String, Bool>();
@@ -46,12 +48,14 @@ class StoryMenuState extends MusicBeatState
 	var rightArrow:FlxSprite;
 
 	var loadedWeeks:Array<WeekData> = [];
-
+	
 	// 鼠标控制相关变量
 	var allowMouse:Bool = true;
 	var mouseOverWeek:Int = -1;
 	var mouseOverLeftArrow:Bool = false;
 	var mouseOverRightArrow:Bool = false;
+
+	var weekBGDisplay:WeekBGDisplay;
 
 	override function create()
 	{
@@ -61,6 +65,9 @@ class StoryMenuState extends MusicBeatState
 		persistentUpdate = persistentDraw = true;
 		PlayState.isStoryMode = true;
 		WeekData.reloadWeekFiles(true);
+
+		backend.WeekBGConfig.loadAllConfigs();
+    	//trace('WeekBGConfig loaded, has config for week 0: ' + backend.WeekBGConfig.hasConfig(0));
 
 		#if DISCORD_ALLOWED
 		// Updating Discord Rich Presence
@@ -74,7 +81,7 @@ class StoryMenuState extends MusicBeatState
 		{
 			FlxTransitionableState.skipNextTransIn = true;
 			persistentUpdate = false;
-			MusicBeatState.switchState(new states.ErrorState("NO WEEKS ADDED FOR STORY MODE\n\nPress " + accept + " to go to the Week Editor Menu.\nPress " + reject + " to return to Main Menu.",
+			MusicBeatState.switchState(new states.ErrorState("NO WEEKS ADDED FOR STORY MODE\n\nPress ACCEPT to go to the Week Editor Menu.\nPress BACK to return to Main Menu.",
 				function() MusicBeatState.switchState(new states.editors.WeekEditorState()),
 				function() MusicBeatState.switchState(new states.MainMenuState())));
 			return;
@@ -103,12 +110,15 @@ class StoryMenuState extends MusicBeatState
         starsFG.alpha = 0;
         add(starsFG);
 
+		weekBGDisplay = new WeekBGDisplay();
+		add(weekBGDisplay);
+
         if (ClientPrefs.data.globalspace)
         {
             space.alpha = 1;
             starsBG.alpha = 1;
             starsFG.alpha = 1;
-		}
+        }
 
 		if(curWeek >= WeekData.weeksList.length) curWeek = 0;
 
@@ -227,7 +237,7 @@ class StoryMenuState extends MusicBeatState
 
 		changeWeek();
 		changeDifficulty();
-
+		
 		addTouchPad('LEFT_FULL', 'A_B_X_Y');
 
 		FlxG.mouse.visible = true;
@@ -253,7 +263,7 @@ class StoryMenuState extends MusicBeatState
 
 		if(WeekData.weeksList.length < 1)
 		{
-			if ((controls.BACK || FlxG.mouse.justPressedRight )&& !movedBack && !selectedWeek)
+			if ((controls.BACK || FlxG.mouse.justPressedRight) && !movedBack && !selectedWeek)
 			{
 				FlxG.sound.play(Paths.sound('cancelMenu'));
 				movedBack = true;
@@ -517,6 +527,7 @@ class StoryMenuState extends MusicBeatState
 			LoadingState.prepareToSong();
 			new FlxTimer().start(1, function(tmr:FlxTimer)
 			{
+				FlxTransitionableState.skipNextTransOut = true; // 跳过退出渐变，直接进入LoadingState
 				#if !SHOW_LOADING_SCREEN FlxG.sound.music.stop(); #end
 				LoadingState.loadAndSwitchState(new PlayState(), true);
 				OldFreeplayState.destroyFreeplayVocals();
@@ -610,6 +621,15 @@ class StoryMenuState extends MusicBeatState
 			curDifficulty = Math.round(Math.max(0, Difficulty.defaultList.indexOf(Difficulty.getDefault())));
 		else
 			curDifficulty = 0;
+
+		if (ClientPrefs.data.ImpStory)
+		{
+			// 使用 fileName 作为唯一标识
+			var weekKey:String = leWeek.fileName;
+			trace('Switching week background for: ' + weekKey);
+			var modFolder:String = Mods.currentModDirectory;
+			weekBGDisplay.switchToWeek(weekKey, modFolder, true);
+		}
 
 		var newPos:Int = Difficulty.list.indexOf(lastDifficultyName);
 		//trace('Pos of ' + lastDifficultyName + ' is ' + newPos);

@@ -214,6 +214,11 @@
 	<icon path="art/icons/icon64.png" size='64'/>
 	<icon path="art/icons/iconOG.png" />
 
+	<android if="android"
+    gradle-version=" 8.14.4">
+    <!-- Gradle JVM 内存配置 -->
+</android>
+
 <config:android permission="android.permission.ACCESS_FINE_LOCATION" />
 <config:android permission="android.permission.WRITE_EXTERNAL_STORAGE" />
 <config:android permission="android.permission.READ_EXTERNAL_STORAGE" />
@@ -224,7 +229,7 @@
 <config:android permission="android.permission.READ_MEDIA_AUDIO" />
 
 <!-- Android 权限配置 -->
-<android if="android" gradle-version="8.14.3">
+<config:android if="android">
     <gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
-</android>
+</config:android>
 </project>

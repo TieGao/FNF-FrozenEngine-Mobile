@@ -3,7 +3,6 @@ package options;
 import backend.Language;
 
 import flixel.FlxG;
-import flixel.math.FlxMath;
 import flixel.util.FlxColor;
 
 class KEOption
@@ -251,7 +250,7 @@ class KEOption
 					return false;  
 				case "Mobile Settings":
 					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
-					return false;
+					return false;  
 				case "Reset KeyBinds":
 					ClientPrefs.resetKeys();
 					ClientPrefs.saveSettings();

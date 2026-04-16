@@ -1,19 +1,16 @@
 package options;
 
 import flixel.math.FlxRect;
-import flixel.input.gamepad.FlxGamepad;
-import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxTimer;
 import states.MainMenuState;
 import backend.MusicBeatState;
 import backend.StageData;
-import backend.Controls;
 
 import objects.BiosDateDisplay;
 
+import shaders.ParticleBeamShader;
 #if !flash
-import openfl.filters.ShaderFilter;
 #end
 
 class KEOptionsMenu extends MusicBeatState
@@ -32,6 +29,10 @@ class KEOptionsMenu extends MusicBeatState
 	public static var visibleRange:Array<Int> = [164, 640];
 	public static var onPlayState:Bool = false;
 	public static var onMainMenuState:Bool = false;
+
+	var space:FlxSprite;
+    var starsBG:FlxBackdrop;
+    var starsFG:FlxBackdrop;
 
 	public var dateDisplay:BiosDateDisplay;
 
@@ -80,6 +81,8 @@ class KEOptionsMenu extends MusicBeatState
 	public static var OPTION_ALPHA:Float = 0.6; // 选项透明度
 	public static var DESC_ALPHA:Float = 0.8; // 描述文本透明度
 
+	var beamShader:ParticleBeamShader = new ParticleBeamShader();
+
 
 	public function new(pauseMenu:Bool = false)
 	{
@@ -96,8 +99,6 @@ class KEOptionsMenu extends MusicBeatState
 	override function create()
 	{
 		super.create();
-
-
 		// 创建横向铺满的选项卡
 		options = [
 			new KEOptionCata(0, MARGIN_TOP, "Basics", getControlsOptions()),
@@ -122,6 +123,36 @@ class KEOptionsMenu extends MusicBeatState
 		optionBg.antialiasing = ClientPrefs.data.antialiasing;
 		optionBg.screenCenter();
 		add(optionBg);
+
+		space = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
+        space.antialiasing = ClientPrefs.data.antialiasing;
+        space.updateHitbox();
+        space.scrollFactor.set();
+        space.alpha = 0;
+        add(space);
+
+        starsBG = new FlxBackdrop(Paths.image('starBG'));
+        starsBG.setPosition(111.3, 67.95);
+        starsBG.antialiasing = true;
+        starsBG.updateHitbox();
+        starsBG.scrollFactor.set();
+        starsBG.alpha = 0;
+        add(starsBG);
+
+        starsFG = new FlxBackdrop(Paths.image('starFG'));
+        starsFG.setPosition(54.3, 59.45);
+        starsFG.updateHitbox();
+        starsFG.antialiasing = true;
+        starsFG.scrollFactor.set();
+        starsFG.alpha = 0;
+        add(starsFG);
+
+		if (ClientPrefs.data.globalspace)
+		{
+			space.alpha = 1; 
+			starsBG.alpha = 1;
+			starsFG.alpha = 1;
+		}
 
 		// 主内容区域背景 - 从选项卡下方开始，覆盖整个内容区域
 		var contentStartY:Int = MARGIN_TOP + CATEGORY_HEIGHT;
@@ -196,8 +227,6 @@ class KEOptionsMenu extends MusicBeatState
 		var nextColorIndex:Int = 1;
 		var colorTransitionTime:Float = 2.5;
 
-		// 设置选项区域背景的初始颜色
-
 		// 开始颜色渐变循环
 		function startColorCycle():Void
 		{
@@ -249,8 +278,6 @@ class KEOptionsMenu extends MusicBeatState
 			self.onLanguageReload();
 		};
 		backend.Language.addReloadCallback(langReloadCb);
-
-		addTouchPad('LEFT_FULL', 'A_B_C');
 	}
 	
 	// 语言重载回调函数
@@ -423,7 +450,7 @@ class KEOptionsMenu extends MusicBeatState
 			optionText.y = contentStartY + 10 +(46 * displayIndex);
 			
 			// X坐标：左侧100像素处
-			optionText.screenCenter(X);
+			optionText.x = OPTION_LEFT_MARGIN;
 			
 			// 判断是否在可见区域内
 			var isVisible = (displayIndex >= 0 && displayIndex < VISIBLE_OPTIONS);
@@ -496,7 +523,25 @@ class KEOptionsMenu extends MusicBeatState
 	// 更新函数
 	override function update(elapsed:Float)
 	{
+		starsBG.x -= 0.05;
+        starsFG.x -= 0.15;
+        
+        if (starsBG.x < -starsBG.width) starsBG.x = 0;
+        if (starsFG.x < -starsFG.width) starsFG.x = 0;
+
 		super.update(elapsed);
+		
+		if (beamShader != null) 
+		{
+			beamShader.update(elapsed * ClientPrefs.data.particleSpeed);
+			beamShader.setParams(
+			ClientPrefs.data.particleSpeed, // speed
+			ClientPrefs.data.particleTrail, // trail
+			0.004, // size
+			1.0, // intensity
+			ClientPrefs.data.particleAmount // particleCount
+		);
+		}
 	
 		// 更新点击保护计时器
 		if (optionClickCooldown > 0) {
@@ -510,7 +555,7 @@ class KEOptionsMenu extends MusicBeatState
 		FlxG.mouse.visible = true;
 		FlxG.mouse.useSystemCursor = ClientPrefs.data.useSystemCursor;
 
-		// 退出检测 - 添加鼠标右键支持
+		// 使用 Controls 的 BACK 退出检测 - 添加鼠标右键支持
 		if (!isClosing && (controls.BACK || FlxG.mouse.justPressedRight))
 		{
 			if(onMainMenuState && !onPlayState)
@@ -678,11 +723,7 @@ class KEOptionsMenu extends MusicBeatState
 		updateOptionPositions();
 		#end
 
-		
-		var gamepad:FlxGamepad = FlxG.gamepads.lastActive;
-
-		changedOption = false;
-
+		// 使用 Controls 获取输入状态
 		var accept = controls.ACCEPT;
 		var right = controls.UI_RIGHT_P;
 		var left = controls.UI_LEFT_P;
@@ -694,7 +735,7 @@ class KEOptionsMenu extends MusicBeatState
 		var downPressed = controls.UI_DOWN;
 
 		changedOption = false;
-		
+
 		// 鼠标点击分类标签切换分类
 		for (i in 0...options.length)
 		{
@@ -954,7 +995,7 @@ class KEOptionsMenu extends MusicBeatState
 		}
 	}
 
-		// 在 KEOptionsMenu 类的 getGameplayOptions 函数中，添加二级菜单示例：
+	// 在 KEOptionsMenu 类的 getGameplayOptions 函数中，添加二级菜单示例：
 	function getGameplayOptions():Array<KEOption>
 	{
 		// 创建一个窗口设置二级菜单
@@ -1021,7 +1062,7 @@ class KEOptionsMenu extends MusicBeatState
 			"Configure hit error bar display",
 			[
 				KEOption.create("Hit Error Bar", "Show hit error bar", "hitErrorBarVisible", "bool"),
-				KEOption.create("Hit Bar Lines", "Number of lines on hit error bar", "hitBarLines", "int", 5, 0, 20, 1),
+				KEOption.create("Hit Bar Lines", "Number of lines on hit error bar", "hitBarLines", "int", 5, 0, 200, 1),
 				KEOption.create("Hit Bar Line Time", "Time (in seconds) each line represents", "hitBarLineTime", "float", 2.0, 0.1, 5.0, 0.1),
 				KEOption.create("Hit Error Bar Offset X", "Horizontal position of hit error bar", "hitErrorBarOffsetX", "int", 0, -500, 500, 10),
 				KEOption.create("Hit Error Bar Offset Y", "Vertical position of hit error bar", "hitErrorBarOffsetY", "int", 0, -300, 300, 10)
@@ -1078,6 +1119,9 @@ class KEOptionsMenu extends MusicBeatState
 			hitErrorSettings, // 命中误差条二级菜单
 			keyboardDisplayOptions,
 			charthelperOptions,
+			KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "globalspace", "bool"),
+			KEOption.create("Space Back Ground EveryWhere", "Show space background everywhere", "globalspace", "bool"),
+			KEOption.create("Impostor V3 Story Mode BG", "Use Impostor V3 Story Mode Background", "ImpStory", "bool")
 		];
 	}
 
@@ -1090,88 +1134,47 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Shaders", "Enable shader effects", "shaders", "bool"),
 			KEOption.create("GPU Caching", "Use GPU for texture caching", "cacheOnGPU", "bool"),
 			KEOption.create("FPS Counter", "Show FPS counter", "showFPS", "bool"),
-			KEOption.create("Framerate", "Target framerate", "framerate", "int", 60, 60, 240, 1),
+			KEOption.create("Framerate", "Target framerate", "framerate", "int", 60, 60, 480, 1),
 			KEOption.create("Show OS", "Show operating system in FPS Counter", "showOS", "bool"),
-			KEOption.create("FPS Rework", "Make ur game more smooth", "fpsRework", "bool"),
+			KEOption.create("FPS Rework", "Make ur game more smooth", "fpsRework", "bool")
 			//KEOption.create("New Freeplay", "Enable New Freeplay", "newFreeplay", "bool"),
-			//KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "freeplayspace", "bool")
 		];
 	}
 
-		// Controls 选项
+	// Controls 选项
 	function getControlsOptions():Array<KEOption>
 	{
-		var options:Array<KEOption> = [];
-		
-		var mobileSettings = KEOption.createSubMenu(
-			"Mobile Settings",
-			"Configure mobile-specific settings",
-			[
-				KEOption.create("Extra Controls", 
-					"Select how many extra buttons you prefer to have?\nThey can be used for mechanics with LUA or HScript.", 
-					"extraButtons", 
-					"string", 
-					["NONE", "SINGLE", "DOUBLE"]),
-					
-				KEOption.create("Mobile Controls Opacity",
-					"Selects the opacity for the mobile buttons (careful not to put it at 0 and lose track of your buttons).", 
-					"controlsAlpha", 
-					"float", 
-					0.8, 0.001, 1.0, 0.1),
-				#if mobile	
-				KEOption.create("Allow Phone Screensaver",
-					"If checked, the phone will sleep after going inactive for few seconds.\n(The time depends on your phone's options)", 
-					"screensaver", 
-					"bool"),
-					
-				KEOption.create("Wide Screen Mode",
-					"If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)",
-					"wideScreen", 
-					"bool"),
-				#end
-					
-				KEOption.create("Hitbox Design", 
-					"Choose how your hitbox should look like.", 
-					"hitboxType", 
-					"string", 
-					["No Gradient", "No Gradient (Old)", "Gradient", "Hidden"]),
-					
-				KEOption.create("Hitbox Position", 
-					"If checked, the hitbox will be put at the bottom of the screen, otherwise will stay at the top.",
-					"hitboxPos", 
-					"bool"),
-					
-				KEOption.create("Dynamic Controls Color",
-					"If checked, the mobile controls color will be set to the notes color in your settings.\n(have effect during gameplay only)",
-					"dynamicColors", 
-					"bool")
-			],
-			"",
-			"Mobile Settings"
-		);
-		
-		// 原有的其他选项
-		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
-		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
-		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
-		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
-		//options.push(KEOption.create("Mobile Settings", "Customize mobile-specific settings", "", "action"));
-		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
-		options.push(mobileSettings);
-		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
-		
-		return options;
+		return [
+			KEOption.create("Open Note Colors", "Customize note colors", "", "action"),
+			KEOption.create("Open Controls", "Customize key bindings", "", "action"),
+			KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"),
+			KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"),   
+			KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"),
+		];
 	}
 
 	// Advanced 选项
 	function getAdvancedOptions():Array<KEOption>
 	{
+		var optionsparticle = KEOption.createSubMenu(
+			"Options Particle",
+			"Edit Particle Effects in Menu",
+			[
+				KEOption.create("Show Particle In Option", "Show particle effect in options menu", "particle", "bool"),
+				KEOption.create("Particle Amount", "Amount of particles", "particleAmount", "float", 50, 0, 200, 0.1),
+				KEOption.create("Particle Speed", "Speed of particles", "particleSpeed", "float", 1.0, 0.1, 5.0, 0.1),
+				KEOption.create("Particle Trail Length", "Length of particle trails", "particleTrail", "int", 2, 0, 50, 1)
+			],
+			"",
+			"Particle"
+		);
+
 		return [
 			KEOption.create("Check Updates", "Check for game updates", "checkForUpdates", "bool"),
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
 			KEOption.create("Enable LUA Debug Printer", "Uncheck it if u dont want to see them ", "luadebugPrint", "bool"),
 			KEOption.create("Discord RPC", "Enable Discord Rich Presence", "discordRPC", "bool"),
-			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN']),
+			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']),
 			KEOption.create("Replay", "[Score Menu and Replay Required]", "saveReplays", "bool"),
 			KEOption.create("Replay Manager", "Manage and view ur Replays", "", "action"),
 			KEOption.create("NewOptions", "Disable it if u dont like current options menu", "keOptions", "bool"),
@@ -1179,6 +1182,8 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Legacy Music Player", "Use Psych Engine Default Music Player", "legacymp", "bool"),
 			KEOption.create("Reset Settings", "Reset all settings to default [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
 			KEOption.create("Reset Scores", "Clear all high scores [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
+			KEOption.create("Mirror Notes", "Mirror all notes in current chart", "mirrorNotes", "action"),
+			optionsparticle,
 			KEOption.create("Use Default Mouse Cursor", "Use ur system's default mouse cursor in game", "useSystemCursor", "bool")
 		];
 	}

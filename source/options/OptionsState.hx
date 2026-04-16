@@ -112,14 +112,30 @@ class OptionsState extends MusicBeatState
 
 	var exiting = false;
 	override function update(elapsed:Float) {
-		super.update(elapsed);
+    super.update(elapsed);
+    FlxG.mouse.visible = true;
 
-		if(!exiting) {
-			if (controls.UI_UP_P)
-				changeSelection(-1);
-			if (controls.UI_DOWN_P)
-				changeSelection(1);
-			
+	  #if !mobile
+    if (FlxG.mouse.justPressedRight)
+    {
+        FlxG.sound.play(Paths.sound('cancelMenu'));
+        if(onPlayState)
+        {
+            StageData.loadDirectory(PlayState.SONG);
+            LoadingState.loadAndSwitchState(new PlayState());
+            FlxG.sound.music.volume = 0;
+        }
+        else MusicBeatState.switchState(new MainMenuState());
+        return;
+    }
+    #end
+    
+    // 键盘控制
+    if (controls.UI_UP_P)
+        changeSelection(-1);
+    if (controls.UI_DOWN_P)
+        changeSelection(1);
+
 			if (touchPad.buttonC.justPressed || FlxG.keys.justPressed.CONTROL && controls.mobileC)
 			{
 				persistentUpdate = false;
@@ -127,20 +143,92 @@ class OptionsState extends MusicBeatState
 			}
 
 			if (controls.BACK)
-			{
+    {
 				exiting = true;
-				FlxG.sound.play(Paths.sound('cancelMenu'));
-				if(onPlayState)
-				{
-					StageData.loadDirectory(PlayState.SONG);
-					LoadingState.loadAndSwitchState(new PlayState());
-					FlxG.sound.music.volume = 0;
-				}
-				else MusicBeatState.switchState(new MainMenuState());
-			}
-			else if (controls.ACCEPT) openSelectedSubstate(options[curSelected]);
-		}
-	}
+        FlxG.sound.play(Paths.sound('cancelMenu'));
+        if(onPlayState)
+        {
+            StageData.loadDirectory(PlayState.SONG);
+            LoadingState.loadAndSwitchState(new PlayState());
+            FlxG.sound.music.volume = 0;
+        }
+        else MusicBeatState.switchState(new MainMenuState());
+    }
+    else if (controls.ACCEPT) openSelectedSubstate(options[curSelected]);
+    
+    // 鼠标支持
+    #if !mobile
+    // 鼠标滚轮支持
+    if (FlxG.mouse.wheel != 0)
+    {
+        if (FlxG.mouse.wheel > 0)
+        {
+            changeSelection(-1);
+        }
+        else if (FlxG.mouse.wheel < 0)
+        {
+            changeSelection(1);
+        }
+    }
+    
+    // 鼠标点击选项 - 直接打开菜单
+    if (FlxG.mouse.justPressed)
+    {
+        var mousePos = FlxG.mouse.getScreenPosition();
+        
+        for (i in 0...grpOptions.length)
+        {
+            var optionText = grpOptions.members[i];
+            if (optionText == null) continue;
+            
+            // 检查鼠标是否悬停在选项上
+            if (FlxG.mouse.overlaps(optionText))
+            {
+                // 直接打开对应的子菜单
+                FlxG.sound.play(Paths.sound('confirmMenu'));
+                openSelectedSubstate(options[i]);
+                break;
+            }
+        }
+    }
+    
+    // 修复悬停效果
+    var hoveredIndex = -1;
+    for (i in 0...grpOptions.length)
+    {
+        var optionText = grpOptions.members[i];
+        if (optionText != null && FlxG.mouse.overlaps(optionText))
+        {
+            hoveredIndex = i;
+            break;
+        }
+    }
+    
+    // 更新所有选项的透明度
+    for (i in 0...grpOptions.length)
+    {
+        var optionText = grpOptions.members[i];
+        if (optionText != null)
+        {
+            if (i == curSelected)
+            {
+                // 当前选中项：完全可见
+                optionText.alpha = 1;
+            }
+            else if (i == hoveredIndex)
+            {
+                // 鼠标悬停项：半透明
+                optionText.alpha = 0.8;
+            }
+            else
+            {
+                // 其他项：更透明
+                optionText.alpha = 0.6;
+            }
+        }
+    }
+    #end
+}
 	
 	function changeSelection(change:Int = 0)
 	{

@@ -2,12 +2,10 @@ package states;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
-import flixel.FlxSubState;
 import flixel.text.FlxText;
 import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
 import flixel.util.FlxColor;
-import flixel.math.FlxMath;
 import flixel.sound.FlxSound;
 
 import backend.Replay;
@@ -87,7 +85,6 @@ class ResultsScreen extends MusicBeatSubstate
             case REPLAY_PREVIEW:
                 text.text = "REPLAY PREVIEW";
                 text.color = FlxColor.CYAN;
-                loadReplayPreviewData();
                 
             case REPLAY_END:
                 text.text = "REPLAY FINISHED";
@@ -142,11 +139,17 @@ class ResultsScreen extends MusicBeatSubstate
         var totalNotesHit = marvelous + sicks + goods + bads + shits;
         var totalNotes = totalNotesHit + misses;
         var accuracy:Float = PlayState.instance.ratingPercent * 100;
+        var songScore = playState.songScore;
+        var songName = PlayState.SONG.song;
+        var difficulty = Difficulty.getString();
+        var isFullCombo = (misses == 0);
+        var isPerfectClear = (misses == 0 && shits == 0 && bads == 0);
+        var difficultyIndex = getDifficultyIndex(difficulty);
         
         // 保存游戏统计数据
         gameStats = {
-            songName: PlayState.SONG.song,
-            score: playState.songScore,
+            songName: songName,
+            score: songScore,
             accuracy: accuracy,
             marvelous: marvelous,
             sicks: sicks,
@@ -160,8 +163,81 @@ class ResultsScreen extends MusicBeatSubstate
             ratingName: playState.ratingName,
             ratingFC: playState.ratingFC,
             playbackRate: playState.playbackRate,
-            difficultyName: Difficulty.getString()
+            difficultyName: difficulty,
+            isFullCombo: isFullCombo,
+            isPerfectClear: isPerfectClear
         };
+        
+        if (mode == REPLAY_END) return;
+        // ========== 保存统计数据到 ClientPrefs ==========
+        saveGameStatsToClientPrefs();
+    }
+
+    function getDifficultyIndex(difficulty:String):Int
+    {
+        var diffLower = difficulty.toLowerCase();
+        if (diffLower.indexOf('easy') >= 0) return 0;
+        if (diffLower.indexOf('normal') >= 0) return 1;
+        if (diffLower.indexOf('hard') >= 0) return 2;
+        return 1; // 默认 Normal
+    }
+
+    function saveGameStatsToClientPrefs():Void
+    {
+        if (gameStats == null) return;
+        
+        var stats = gameStats;
+        
+        // 累计总分
+        ClientPrefs.data.totalScore += stats.score;
+        
+        // 总游玩次数
+        ClientPrefs.data.totalPlays++;
+        
+        // 通关次数（只有通关才算，游戏结束不算）
+        ClientPrefs.data.totalSongsCleared++;
+        
+        // 累计各种判定
+        ClientPrefs.data.totalMarvelous += stats.marvelous;
+        ClientPrefs.data.totalSicks += stats.sicks;
+        ClientPrefs.data.totalGoods += stats.goods;
+        ClientPrefs.data.totalBads += stats.bads;
+        ClientPrefs.data.totalShits += stats.shits;
+        ClientPrefs.data.totalMisses += stats.misses;
+        
+        // 历史最高分（单曲）
+        if (stats.score > ClientPrefs.data.highestScore) {
+            ClientPrefs.data.highestScore = stats.score;
+        }
+        
+        // 历史最高连击
+        if (stats.highestCombo > ClientPrefs.data.highestCombo) {
+            ClientPrefs.data.highestCombo = stats.highestCombo;
+        }
+        
+        // 历史最高准确率
+        if (stats.accuracy > ClientPrefs.data.bestAccuracy) {
+            ClientPrefs.data.bestAccuracy = stats.accuracy;
+        }
+        
+        // 完美通关
+        if (stats.isPerfectClear) {
+            ClientPrefs.data.perfectClears++;
+        }
+        
+        // Full Combo（无Miss）
+        if (stats.isFullCombo) {
+            ClientPrefs.data.fullComboCount++;
+        }
+        
+        // 各难度通关次数
+        var diffIndex = getDifficultyIndex(stats.difficultyName);
+        ClientPrefs.data.songsByDifficulty[diffIndex]++;
+        
+        // 保存到文件
+        ClientPrefs.saveSettings();
+        
+        trace('Game stats saved! Total Score: ${ClientPrefs.data.totalScore}, Total Plays: ${ClientPrefs.data.totalPlays}');
     }
     
     function createCommonUI():Void
@@ -240,7 +316,7 @@ class ResultsScreen extends MusicBeatSubstate
         super.create();
         
         addTouchPad('NONE', 'A_B_C');
-
+        
         // 根据模式加载数据
         switch(mode) {
             case REPLAY_PREVIEW:
@@ -495,13 +571,31 @@ class ResultsScreen extends MusicBeatSubstate
         for (i in 0...rep.songNotes.length)
         {
             var obj = rep.songNotes[i];
-            var obj2 = rep.songJudgements[i];
-            
-            var diff = obj[3];
-            var judge = obj2;
-            var time = obj[0];
-            
-            if (obj[1] != -1) {
+            if (obj == null) continue;
+
+            // safe-get judgement
+            var obj2:Dynamic = "";
+            if (rep.songJudgements != null && i < rep.songJudgements.length) obj2 = rep.songJudgements[i];
+
+            // ensure types and defaults
+            var diff:Float = 0;
+            var time:Float = 0;
+            var judge:String = "";
+
+            try {
+                if (obj.length > 3 && obj[3] != null) diff = Std.parseFloat(Std.string(obj[3]));
+            } catch(e:Dynamic) { diff = 0; }
+
+            try {
+                if (obj.length > 0 && obj[0] != null) time = Std.parseFloat(Std.string(obj[0]));
+            } catch(e:Dynamic) { time = 0; }
+
+            if (obj2 != null) {
+                try { judge = Std.string(obj2); } catch(e:Dynamic) { judge = ""; }
+            }
+
+            // only add if note is not a special -1 sustain marker
+            if (obj.length > 1 && obj[1] != -1) {
                 graph.addToHistory(diff / playbackRate, judge, time / playbackRate);
             }
         }
@@ -640,7 +734,7 @@ class ResultsScreen extends MusicBeatSubstate
     }
 
     function finishClose()
-    {
+    {        
         if (pauseMusic != null) {
             pauseMusic.stop();
         }
@@ -648,11 +742,9 @@ class ResultsScreen extends MusicBeatSubstate
         
         switch(mode) {
             case REPLAY_PREVIEW:
-                // 回放预览模式：直接关闭，返回回放库
                 close();
                 
             case NORMAL, REPLAY_END:
-                // 游戏模式：继续游戏流程
                 var playState = PlayState.instance;
                 if (playState != null) {
                     playState.proceedToNextState();

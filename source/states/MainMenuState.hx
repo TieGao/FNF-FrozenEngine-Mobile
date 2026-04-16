@@ -7,6 +7,7 @@ import states.editors.MasterEditorMenu;
 import options.OptionsState;
 import options.KEOptionsMenu;
 import backend.Highscore;
+import substates.StatsSubState;
 
 enum MainMenuColumn {
 	LEFT;
@@ -16,7 +17,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var frozenEngineVersion:String = '0.4.7 Mobile';
+	public static var frozenEngineVersion:String = '0.4.7 V2 Mobile';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -48,6 +49,8 @@ class MainMenuState extends MusicBeatState
 	override function create()
 	{
 		super.create();
+
+		Highscore.load();
 
 		#if MODS_ALLOWED
 		Mods.pushGlobalMods();
@@ -209,6 +212,12 @@ class MainMenuState extends MusicBeatState
 			if (controls.UI_DOWN_P)
 				changeItem(1);
 
+		    if (FlxG.keys.justPressed.F3 ||  touchPad.buttonF.justPressed )
+    		{
+				persistentUpdate = false;
+				openSubState(new substates.StatsSubState());
+    		}
+
 			var allowMouse:Bool = allowMouse;
 			if (allowMouse && ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed)) //FlxG.mouse.deltaScreenX/Y checks is more accurate than FlxG.mouse.justMoved
 			{
@@ -275,7 +284,6 @@ class MainMenuState extends MusicBeatState
 			else
 			{
 				timeNotMoving += elapsed;
-				if(timeNotMoving > 2) FlxG.mouse.visible = false;
 			}
 
 			switch(curColumn)
