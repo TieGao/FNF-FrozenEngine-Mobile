@@ -80,7 +80,7 @@ class KEOptionsMenu extends MusicBeatState
 	public static var OPTION_ALPHA:Float = 0.6; // 选项透明度
 	public static var DESC_ALPHA:Float = 0.8; // 描述文本透明度
 
-	var beamShader:ParticleBeamShader = new ParticleBeamShader();
+//	var beamShader:ParticleBeamShader = new ParticleBeamShader();
 
 
 	public function new(pauseMenu:Bool = false)
@@ -531,18 +531,7 @@ class KEOptionsMenu extends MusicBeatState
         if (starsFG.x < -starsFG.width) starsFG.x = 0;
 
 		super.update(elapsed);
-		
-		if (beamShader != null) 
-		{
-			beamShader.update(elapsed * ClientPrefs.data.particleSpeed);
-			beamShader.setParams(
-			ClientPrefs.data.particleSpeed, // speed
-			ClientPrefs.data.particleTrail, // trail
-			0.004, // size
-			1.0, // intensity
-			ClientPrefs.data.particleAmount // particleCount
-		);
-		}
+	
 	
 		// 更新点击保护计时器
 		if (optionClickCooldown > 0) {
