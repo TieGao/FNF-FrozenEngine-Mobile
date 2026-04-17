@@ -28,16 +28,13 @@ class KEOptionCata extends FlxSprite
 		optionObjects = new FlxTypedGroup<FlxText>();
 		var localizedTitle = Language.getPhrase(title, title);
 		
-		// 使用屏幕宽度计算居中位置
-		var screenWidth:Int = 1280;
-		
-		titleObject = new FlxText((middleType ? screenWidth / 2 : x), y + (middleType ? 0 : 8), 0, localizedTitle);
+titleObject = new FlxText((middleType ? 0 : x), y + (middleType ? 0 : 8), 0, localizedTitle);
 		titleObject.setFormat(Paths.font("vcr.ttf"), 28, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK); // 字体稍微减小
 		titleObject.borderSize = 2; // 边框减小
 
 		if (middleType)
 		{
-			titleObject.x = 50 + ((screenWidth / 2) - (titleObject.fieldWidth / 2));
+			titleObject.screenCenter(X);
 		}
 		else
 		{
@@ -51,12 +48,7 @@ class KEOptionCata extends FlxSprite
 		for (i in 0...options.length)
 		{
 			var opt = options[i];
-			// 使用屏幕宽度计算选项位置
-			var text = new FlxText((middleType ? screenWidth / 2 : 72), 120 + 54 + (46 * i), 0, opt.getValue());
-			if (middleType)
-			{
-				text.screenCenter(X);
-			}
+			var text = new FlxText(0, 120 + 54 + (46 * i), 0, opt.getValue());
 			text.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK); // 字体大小
 			text.borderSize = 2;
 			text.borderQuality = 1;

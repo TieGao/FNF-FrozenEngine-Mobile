@@ -245,16 +245,19 @@ class FreeplayState extends MusicBeatState
         difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
         add(difficultyRatingText);
 
-        topBar = new FlxSprite(0, 0 ).loadGraphic(Paths.image('freeplay/topBar'));
+        topBar = new FlxSprite(0, 0).loadGraphic(Paths.image('freeplay/topBar'));
+        topBar.setGraphicSize(FlxG.width, topBar.height);
+        topBar.updateHitbox();
         topBar.alpha = 0.8;
+        topBar.scrollFactor.set();
         add(topBar);
 
         // 添加搜索框到topBar中
-        searchInput = new SearchBar(0, 50, Std.int(topBar.width * 0.3));
+        searchInput = new SearchBar(0, 50, Std.int(FlxG.width * 0.3));
         searchInput.onChange = function(oldText:String, newText:String) {
             filterTimer = 0.75; // 延迟0.3秒过滤
         };
-        searchInput.x = (topBar.width - searchInput.fieldWidth) / 2;
+        searchInput.x = Std.int((FlxG.width - searchInput.fieldWidth) / 2);
         add(searchInput);
 
         // 确保进入时焦点不在搜索框上
@@ -812,7 +815,7 @@ class FreeplayState extends MusicBeatState
         }
         else if (PsychUIInputText.focusOn == null)
         {
-            if(FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle && !musicPlayer.playingMusic)
+            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
         {
             persistentUpdate = false;
             openSubState(new GameplayChangersSubstate());
@@ -904,7 +907,7 @@ class FreeplayState extends MusicBeatState
         }
         }
 
-        if (PsychUIInputText.focusOn == null && controls.RESET && !musicPlayer.playingMusic)
+        if (PsychUIInputText.focusOn == null && (controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
 		{
 			persistentUpdate = false;
 			openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter, -1, songs[curSelected].folder));

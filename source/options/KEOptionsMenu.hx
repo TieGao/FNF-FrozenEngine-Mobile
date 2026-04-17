@@ -98,6 +98,10 @@ class KEOptionsMenu extends MusicBeatState
 	override function create()
 	{
 		super.create();
+		SCREEN_WIDTH = FlxG.width;
+		SCREEN_HEIGHT = FlxG.height;
+		CATEGORY_WIDTH = Std.int(SCREEN_WIDTH / CATEGORY_COUNT);
+		OPTION_WIDTH = SCREEN_WIDTH - (OPTION_LEFT_MARGIN * 2);
 		// 创建横向铺满的选项卡
 		options = [
 			new KEOptionCata(0, MARGIN_TOP, "Basics", getControlsOptions()),
@@ -184,9 +188,8 @@ class KEOptionsMenu extends MusicBeatState
 			cat.alpha = TAB_ALPHA; // 选项卡透明度
 			
 			// 调整标题位置
-			cat.titleObject.x = cat.x + (CATEGORY_WIDTH / 2) - (cat.titleObject.fieldWidth / 2);
-			cat.titleObject.y = cat.y + (CATEGORY_HEIGHT / 2) - (cat.titleObject.height / 2);
-			cat.titleObject.alpha = 1.0; // 标题文字完全不透明
+		cat.titleObject.x = cat.x + (CATEGORY_WIDTH - cat.titleObject.width) / 2;
+		cat.titleObject.y = cat.y + (CATEGORY_HEIGHT - cat.titleObject.height) / 2;
 			
 			add(cat);
 			add(cat.titleObject);
@@ -301,7 +304,7 @@ class KEOptionsMenu extends MusicBeatState
 			if (cat.titleObject != null) cat.titleObject.setFormat(Paths.font("vcr.ttf"), 28, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 			for (j in 0...cat.optionObjects.members.length) {
 				var txt = cat.optionObjects.members[j];
-				if (txt != null) txt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK); // 改为左对齐
+				if (txt != null) txt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK); // 改为居中对齐
 			}
 		}
 
@@ -315,6 +318,7 @@ class KEOptionsMenu extends MusicBeatState
 			descText.text = selectedOption.getDescription();
 			descText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		}
+		updateOptionPositions();
 	}
 	
 	
@@ -449,9 +453,9 @@ class KEOptionsMenu extends MusicBeatState
 			// 计算Y坐标：选项卡下方开始
 			var contentStartY = MARGIN_TOP + CATEGORY_HEIGHT;
 			optionText.y = contentStartY + 10 +(46 * displayIndex);
-			
+		
 			// X坐标：左侧100像素处
-			optionText.x = OPTION_LEFT_MARGIN;
+			optionText.screenCenter(X);
 			
 			// 判断是否在可见区域内
 			var isVisible = (displayIndex >= 0 && displayIndex < VISIBLE_OPTIONS);

@@ -95,7 +95,7 @@ class StoryMenuState extends MusicBeatState
         add(space);
 
         starsBG = new FlxBackdrop(Paths.image('starBG'));
-        starsBG.setPosition(111.3, 67.95);
+        starsBG.setPosition(FlxG.width * 0.08, FlxG.height * 0.095);
         starsBG.antialiasing = true;
         starsBG.updateHitbox();
         starsBG.scrollFactor.set();
@@ -103,7 +103,7 @@ class StoryMenuState extends MusicBeatState
         add(starsBG);
 
         starsFG = new FlxBackdrop(Paths.image('starFG'));
-        starsFG.setPosition(54.3, 59.45);
+        starsFG.setPosition(FlxG.width * 0.04, FlxG.height * 0.08);
         starsFG.updateHitbox();
         starsFG.antialiasing = true;
         starsFG.scrollFactor.set();
@@ -125,7 +125,7 @@ class StoryMenuState extends MusicBeatState
 		scoreText = new FlxText(10, 10, 0, Language.getPhrase('week_score', 'WEEK SCORE: {1}', [lerpScore]), 36);
 		scoreText.setFormat(Paths.font("vcr.ttf"), 32);
 
-		txtWeekTitle = new FlxText(FlxG.width * 0.7, 10, 0, "", 32);
+		txtWeekTitle = new FlxText(FlxG.width - 40, 10, 0, "", 32);
 		txtWeekTitle.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, RIGHT);
 		txtWeekTitle.alpha = 0.7;
 
@@ -191,7 +191,8 @@ class StoryMenuState extends MusicBeatState
 		difficultySelectors = new FlxGroup();
 		add(difficultySelectors);
 
-		leftArrow = new FlxSprite(850, grpWeekText.members[0].y + 10);
+		var selectorX:Float = FlxG.width - 476;
+		leftArrow = new FlxSprite(selectorX, grpWeekText.members[0].y + 10);
 		leftArrow.antialiasing = ClientPrefs.data.antialiasing;
 		leftArrow.frames = ui_tex;
 		leftArrow.animation.addByPrefix('idle', "arrow left");
@@ -206,7 +207,7 @@ class StoryMenuState extends MusicBeatState
 		}
 		curDifficulty = Math.round(Math.max(0, Difficulty.defaultList.indexOf(lastDifficultyName)));
 		
-		sprDifficulty = new FlxSprite(0, leftArrow.y);
+		sprDifficulty = new FlxSprite(leftArrow.x + 180, leftArrow.y);
 		sprDifficulty.antialiasing = ClientPrefs.data.antialiasing;
 		difficultySelectors.add(sprDifficulty);
 
@@ -222,12 +223,12 @@ class StoryMenuState extends MusicBeatState
 		add(bgSprite);
 		add(grpWeekCharacters);
 
-		var tracksSprite:FlxSprite = new FlxSprite(FlxG.width * 0.07 + 100, bgSprite.y + 425).loadGraphic(Paths.image('Menu_Tracks'));
+		var tracksSprite:FlxSprite = new FlxSprite(FlxG.width * 0.1, bgSprite.y + 425).loadGraphic(Paths.image('Menu_Tracks'));
 		tracksSprite.antialiasing = ClientPrefs.data.antialiasing;
-		tracksSprite.x -= tracksSprite.width/2;
+		tracksSprite.x -= tracksSprite.width / 2;
 		add(tracksSprite);
 
-		txtTracklist = new FlxText(FlxG.width * 0.05, tracksSprite.y + 60, 0, "", 32);
+		txtTracklist = new FlxText(FlxG.width * 0.1, tracksSprite.y + 60, FlxG.width * 0.8, "", 32);
 		txtTracklist.alignment = CENTER;
 		txtTracklist.font = Paths.font("vcr.ttf");
 		txtTracklist.color = 0xFFe55777;

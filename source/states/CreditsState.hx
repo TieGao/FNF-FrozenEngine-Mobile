@@ -51,7 +51,7 @@ class CreditsState extends MusicBeatState
         add(space);
 
         starsBG = new FlxBackdrop(Paths.image('starBG'));
-        starsBG.setPosition(111.3, 67.95);
+        starsBG.setPosition(FlxG.width * 0.08, FlxG.height * 0.095);
         starsBG.antialiasing = true;
         starsBG.updateHitbox();
         starsBG.scrollFactor.set();
@@ -59,7 +59,7 @@ class CreditsState extends MusicBeatState
         add(starsBG);
 
         starsFG = new FlxBackdrop(Paths.image('starFG'));
-        starsFG.setPosition(54.3, 59.45);
+        starsFG.setPosition(FlxG.width * 0.04, FlxG.height * 0.08);
         starsFG.updateHitbox();
         starsFG.antialiasing = true;
         starsFG.scrollFactor.set();
@@ -179,7 +179,7 @@ class CreditsState extends MusicBeatState
 		descBox.alpha = 0.6;
 		add(descBox);
 
-		descText = new FlxText(50, FlxG.height + offsetThing - 25, 1180, "", 32);
+		descText = new FlxText(50, FlxG.height + offsetThing - 25, FlxG.width - 100, "", 32);
 		descText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER/*, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK*/);
 		descText.scrollFactor.set();
 		//descText.borderSize = 2.4;
@@ -192,6 +192,8 @@ class CreditsState extends MusicBeatState
 
 		// 初始化鼠标位置
 		lastMousePosition.set(FlxG.mouse.screenX, FlxG.mouse.screenY);
+
+		addTouchPad('UP_DOWN', 'A_B');
 
 		super.create();
 	}

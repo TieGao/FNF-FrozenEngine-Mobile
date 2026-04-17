@@ -82,6 +82,9 @@ class TouchPad extends MobileInputManager implements IMobileControls
 	{
 		super();
 
+		var scaleX:Float = FlxG.width / 1280;
+		var scaleY:Float = FlxG.height / 720;
+
 		if (DPad != "NONE")
 		{
 			if (!MobileData.dpadModes.exists(DPad))
@@ -90,7 +93,7 @@ class TouchPad extends MobileInputManager implements IMobileControls
 			for (buttonData in MobileData.dpadModes.get(DPad).buttons)
 			{
 				Reflect.setField(this, buttonData.button,
-					createButton(buttonData.x, buttonData.y, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
+					createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
 						Reflect.getProperty(this, buttonData.button).IDs));
 				add(Reflect.field(this, buttonData.button));
 			}
@@ -104,7 +107,7 @@ class TouchPad extends MobileInputManager implements IMobileControls
 			for (buttonData in MobileData.actionModes.get(Action).buttons)
 			{
 				Reflect.setField(this, buttonData.button,
-					createButton(buttonData.x, buttonData.y, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
+					createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
 						Reflect.getProperty(this, buttonData.button).IDs));
 				add(Reflect.field(this, buttonData.button));
 			}

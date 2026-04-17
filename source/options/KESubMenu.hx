@@ -85,14 +85,14 @@ class KESubMenu extends MusicBeatSubstate
 			optionAlpha = KEOptionsMenu.OPTION_ALPHA;
 			descAlpha = KEOptionsMenu.DESC_ALPHA;
 		} else {
-			// 如果主菜单不存在，使用默认值（与主菜单保持一致）
-			screenWidth = 1280;
-			screenHeight = 720;
-			marginTop = 80;
-			marginBottom = 80;
-			categoryHeight = 40;
-			optionLeftMargin = 100;
-			optionWidth = 500;
+			// 如果主菜单不存在，使用当前屏幕尺寸作为后备
+			screenWidth = FlxG.width;
+			screenHeight = FlxG.height;
+			marginTop = 60;
+			marginBottom = 100;
+			categoryHeight = 50;
+			optionLeftMargin = 20;
+			optionWidth = screenWidth - (optionLeftMargin * 2);
 			bgAlpha = 0.7;
 			optionAlpha = 0.6;
 			descAlpha = 0.8;
