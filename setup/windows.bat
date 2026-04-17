@@ -4,8 +4,8 @@ cd ..
 echo Installing dependencies...
 echo This might take a few moments depending on your internet speed.
 haxelib git hxcpp https://github.com/TieGao/hxcpp --quiet
-haxelib git lime https://github.com/TieGao/lime
-haxelib git openfl https://github.com/TieGao/openfl
+haxelib install lime 8.2.3
+haxelib install openfl 9.5.0
 haxelib install flixel 5.9.0 --quiet
 haxelib install flixel-addons 3.3.2 --quiet
 haxelib install flixel-tools 1.5.1 --quiet
