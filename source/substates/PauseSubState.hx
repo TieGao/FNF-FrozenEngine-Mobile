@@ -228,7 +228,7 @@ class PauseSubState extends MusicBeatSubstate
 			var originalY:Float = skipTimeTracker.y;
 			skipTimeTracker.x += clickHitboxOffsetX;
 			skipTimeTracker.y += clickHitboxOffsetY;
-			var overlaps:Bool = FlxG.mouse.overlaps(skipTimeTracker);
+			var overlaps:Bool = FlxG.mouse.overlaps(skipTimeTracker, cameras[0]);
 			skipTimeTracker.x = originalX;
 			skipTimeTracker.y = originalY;
 			
