@@ -1100,7 +1100,7 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Custom Color", "Color most things by opponent", "customColor", "bool"),
 			KEOption.create("Gradient TimeBar", "Gradient colored timebar", "gradientTimeBar", "bool"),
 			KEOption.create("Score Zoom", "Grow score text on hit", "scoreZoom", "bool"),
-			KEOption.create('Time Bar:',"What should the Time Bar display?","timeBarType","string",['Time Left', 'Time Elapsed', 'Song Name', 'Disabled']),
+			KEOption.create('Time Bar',"What should the Time Bar display?","timeBarType","string",['Time Left', 'Time Elapsed', 'Song Name', 'Disabled']),
 			KEOption.create("Pause Music", "Choose pause screen music", "pauseMusic", "string", pauseMusicList),
 			KEOption.create("Health Bar Alpha", "Health bar transparency", "healthBarAlpha", "float", 1, 0, 1, 0.1),
 			KEOption.create("Combo Stacking", "Stack combo numbers", "comboStacking", "bool"),
@@ -1113,7 +1113,7 @@ class KEOptionsMenu extends MusicBeatState
 			hitErrorSettings, // 命中误差条二级菜单
 			keyboardDisplayOptions,
 			charthelperOptions,
-			KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "globalspace", "bool"),
+			KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "freeplayspace", "bool"),
 			KEOption.create("Space Back Ground EveryWhere", "Show space background everywhere", "globalspace", "bool"),
 			KEOption.create("Impostor V3 Story Mode BG", "Use Impostor V3 Story Mode Background", "ImpStory", "bool")
 		];
@@ -1214,8 +1214,8 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("NewOptions", "Disable it if u dont like current options menu", "keOptions", "bool"),
 			KEOption.create("Old Freeplay Menu", "Use Psych Engine Default Freeplay Menu", "oldFreeplay", "bool"),
 			KEOption.create("Legacy Music Player", "Use Psych Engine Default Music Player", "legacymp", "bool"),
-			KEOption.create("Reset Settings", "Reset all settings to default [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
-			KEOption.create("Reset Scores", "Clear all high scores [DO NOT APPLY IT UNLESS YOU KNOW WHAT YOU ARE DOING]", "", "action"),
+			KEOption.createResetOption("Reset Settings", "settings"),
+			KEOption.createResetOption("Reset Scores", "scores"),
 			KEOption.create("Use Default Mouse Cursor", "Use ur system's default mouse cursor in game", "useSystemCursor", "bool")
 		];
 	}

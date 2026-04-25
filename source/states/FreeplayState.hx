@@ -25,6 +25,7 @@ import flixel.text.FlxText;
 import flixel.tweens.FlxTween;
 import flixel.FlxG;
 
+import shaders.MosaicEffect;
 
 import haxe.Json;
 
@@ -46,11 +47,15 @@ class FreeplayState extends MusicBeatState
 	private static var lastDifficultyName:String = Difficulty.getDefault();
     
     var space:FlxSprite;
+    var basicBG:FlxSprite;
     var starsBG:FlxBackdrop;
     var starsFG:FlxBackdrop;
     
     var menuBg:FlxSprite;
     var intendedColor:Int;
+    
+    var bgEffect:MosaicEffect;
+    var bgEffectTween:FlxTween;
     
     var cornerGlow:FlxSprite;
     
@@ -85,6 +90,8 @@ class FreeplayState extends MusicBeatState
     var stopMusicPlay:Bool = false;
     
     var mouseOverCard:Int = -1;
+    var visibleCardMin:Int = 0;
+    var visibleCardMax:Int = -1;
     
     var musicPlayer:NewMusicPlayer;
     var musicPlayerLegacy:MusicPlayerLegacy;
@@ -98,7 +105,7 @@ class FreeplayState extends MusicBeatState
     var filterTimer:Float = -1; // -1表示不需要过滤
         
     var updateTimer:Float = 0;
-    var updateInterval:Float = 0.016;
+    var updateInterval:Float = 0.033;
 
     override function create()
     {
@@ -163,12 +170,30 @@ class FreeplayState extends MusicBeatState
         // 预加载所有歌曲艺术图
         preloadConfiguredArts();
 
+        if (songs.length == 0)
+        {
         menuBg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
+        }
+        else
+        {
+            if (curSelected >= songs.length || curSelected < 0)
+                curSelected = 0;
+
+            var menuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(songs[curSelected].folder);
+            menuBg = new FlxSprite().loadGraphic(menuBgGraphic);
+        }
+
         menuBg.antialiasing = ClientPrefs.data.antialiasing;
-        menuBg.alpha = 0.4;
+        menuBg.alpha = 1;
         add(menuBg);
         menuBg.screenCenter();
+
+        bgEffect = new MosaicEffect();
+        menuBg.shader = bgEffect.shader;
+
         // 背景层
+        if (ClientPrefs.data.freeplayspace)
+        {
         space = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
         space.antialiasing = ClientPrefs.data.antialiasing;
         space.updateHitbox();
@@ -201,7 +226,7 @@ class FreeplayState extends MusicBeatState
         cornerGlow.x = FlxG.width - cornerGlow.width + 100;
         cornerGlow.y = FlxG.height - cornerGlow.height + 120;
         add(cornerGlow);
-        
+        }
         characterArtDisplay = new CharacterArtDisplay();
         add(characterArtDisplay);
 
@@ -252,19 +277,25 @@ class FreeplayState extends MusicBeatState
         difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
         add(difficultyRatingText);
 
-        topBar = new FlxSprite(0, 0).loadGraphic(Paths.image('freeplay/topBar'));
-        topBar.setGraphicSize(FlxG.width, topBar.height);
-        topBar.updateHitbox();
+        if (ClientPrefs.data.freeplayspace)
+        {
+        topBar = new FlxSprite(0, 0 ).loadGraphic(Paths.image('freeplay/topBar'));
         topBar.alpha = 0.8;
-        topBar.scrollFactor.set();
         add(topBar);
+        }
+        else
+        {
+        topBar = new FlxSprite(0, 0).makeGraphic(FlxG.width, 85, 0xFF000000);
+        topBar.alpha = 0.75;
+        add(topBar);
+        }
 
         // 添加搜索框到topBar中
-        searchInput = new SearchBar(0, 50, Std.int(FlxG.width * 0.3));
+        searchInput = new SearchBar(0, 50, Std.int(topBar.width * 0.3));
         searchInput.onChange = function(oldText:String, newText:String) {
-            filterTimer = 0.75; // 延迟0.3秒过滤
+            filterTimer = 0.3; // 延迟0.3秒过滤
         };
-        searchInput.x = Std.int((FlxG.width - searchInput.fieldWidth) / 2);
+        searchInput.x = (topBar.width - searchInput.fieldWidth) / 2;
         add(searchInput);
 
         // 确保进入时焦点不在搜索框上
@@ -556,6 +587,29 @@ class FreeplayState extends MusicBeatState
         #end
     }
 
+    private function getMenuDesatGraphicForFolder(folder:String):Dynamic
+    {
+        #if MODS_ALLOWED
+        var oldModDir:String = Mods.currentModDirectory;
+        if (folder == null || folder == "base")
+            Mods.currentModDirectory = null;
+        else
+            Mods.currentModDirectory = folder;
+
+        var graphic:Dynamic = Paths.image('menuDesat');
+        if (graphic == null)
+        {
+            Mods.currentModDirectory = null;
+            graphic = Paths.image('menuDesat');
+        }
+
+        Mods.currentModDirectory = oldModDir;
+        return graphic;
+        #else
+        return Paths.image('menuDesat');
+        #end
+    }
+
     function weekIsLocked(name:String):Bool
     {
         var leWeek:WeekData = WeekData.weeksLoaded.get(name);
@@ -570,14 +624,59 @@ class FreeplayState extends MusicBeatState
         }
     }
 
-    function updateCardsPosition()
+    inline function computeVisibleCardRange():Void
     {
-        for (card in cards)
+        if (cards.length == 0)
+        {
+            visibleCardMin = 0;
+            visibleCardMax = -1;
+            return;
+        }
+
+         for (card in cards)
         {
             var distance = Math.abs(card.targetY - lerpSelected);
             var isVisible = distance <= 5;
             card.updatePosition(lerpSelected, isVisible);
         }
+
+        visibleCardMin = Std.int(Math.floor(lerpSelected - 5));
+        if (visibleCardMin < 0) visibleCardMin = 0;
+        visibleCardMax = Std.int(Math.ceil(lerpSelected + 5));
+        if (visibleCardMax >= cards.length) visibleCardMax = cards.length - 1;
+    }
+
+    function updateCardsPosition()
+    {
+        if (cards.length == 0) return;
+
+        var oldMin = visibleCardMin;
+        var oldMax = visibleCardMax;
+        computeVisibleCardRange();
+
+        if (oldMax < 0)
+        {
+            for (i in 0...visibleCardMin)
+                cards[i].updatePosition(lerpSelected, false);
+            for (i in visibleCardMax + 1...cards.length)
+                cards[i].updatePosition(lerpSelected, false);
+        }
+        else
+        {
+            if (visibleCardMin > oldMin)
+            {
+                for (i in oldMin...visibleCardMin)
+                    cards[i].updatePosition(lerpSelected, false);
+            }
+            if (visibleCardMax < oldMax)
+            {
+                for (i in visibleCardMax + 1...oldMax + 1)
+                    cards[i].updatePosition(lerpSelected, false);
+            }
+        }
+
+        for (i in visibleCardMin...visibleCardMax + 1)
+            cards[i].updatePosition(lerpSelected, true);
     }
 
     function updateTexts()
@@ -753,12 +852,14 @@ class FreeplayState extends MusicBeatState
     {
         if(WeekData.weeksList.length < 1)
             return;
-
+        if (ClientPrefs.data.freeplayspace)
+        {
         starsBG.x -= 0.05;
         starsFG.x -= 0.15;
         
         if (starsBG.x < -starsBG.width) starsBG.x = 0;
         if (starsFG.x < -starsFG.width) starsFG.x = 0;
+        }
 
         if (FlxG.sound.music.volume < 0.7 && !musicPlayer.playingMusic)
             FlxG.sound.music.volume += 0.5 * elapsed;
@@ -794,6 +895,7 @@ class FreeplayState extends MusicBeatState
 
         if (!musicPlayer.playingMusic)
         {
+            if (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0 || FlxG.mouse.justPressed || FlxG.mouse.wheel != 0)
             updateMouseInteraction();
         }
 
@@ -919,7 +1021,6 @@ class FreeplayState extends MusicBeatState
             {
                 persistentUpdate = false;
                 openSubState(new GameplayChangersSubstate());
-            removeTouchPad();
 
             }
             else if (FlxG.keys.justPressed.ENTER && !musicPlayer.playingMusic)
@@ -1007,7 +1108,7 @@ class FreeplayState extends MusicBeatState
         }
         }
 
-        if (PsychUIInputText.focusOn == null && (controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
+        if (PsychUIInputText.focusOn == null && controls.RESET || touchPad.buttonY.justPressed && !musicPlayer.playingMusic)
         {
             persistentUpdate = false;
             openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter, -1, songs[curSelected].folder));
@@ -1020,11 +1121,13 @@ class FreeplayState extends MusicBeatState
     
     function updateMouseInteraction()
     {
+        if (cards.length == 0) return;
+
+        computeVisibleCardRange();
         var newMouseOverCard:Int = -1;
-        for (i in 0...cards.length)
+        for (i in visibleCardMin...visibleCardMax + 1)
         {
-            var distance = Math.abs(cards[i].targetY - curSelected);
-            if (distance <= 5 && cards[i].checkMouseOver())
+            if (cards[i].checkMouseOver())
             {
                 newMouseOverCard = i;
                 break;
@@ -1159,15 +1262,14 @@ class FreeplayState extends MusicBeatState
 {
     if (songs.length == 0) return; // 防止在无歌曲时崩溃
     
-    var oldModDir = Mods.currentModDirectory;
+    var previousFolder:String = Mods.currentModDirectory;
 
      difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
     
+    curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
     Mods.currentModDirectory = songs[curSelected].folder;
     if (musicPlayer.playingMusic)
         return;
-
-    curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
     _updateSongLastDifficulty(); // 先保存当前歌曲的最后使用难度
     
     if(playSound) FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
@@ -1181,6 +1283,15 @@ class FreeplayState extends MusicBeatState
     }
 
     updateCornerGlow();
+
+    if (songs[curSelected].folder != previousFolder)
+    {
+        var newMenuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(songs[curSelected].folder);
+        if (newMenuBgGraphic != null && newMenuBgGraphic != menuBg.graphic)
+        {
+            changeBackgroundWithFade(newMenuBgGraphic);
+        }
+    }
     
     // 设置周目录并加载难度
     PlayState.storyWeek = songs[curSelected].week;
@@ -1266,6 +1377,49 @@ class FreeplayState extends MusicBeatState
 	
 	// 更新模组文件夹显示
 	modFolderText.text = "Mod: " + songs[curSelected].folder;
+}
+
+function changeBackgroundWithFade(newGraphic:Dynamic)
+{
+    if (newGraphic == null || newGraphic == menuBg.graphic) return;
+    
+    if (bgEffectTween != null) bgEffectTween.cancel();
+    
+    // 确保 shader 已经应用
+    if (menuBg.shader == null)
+    {
+        //trace("ERROR: bgEffect shader is not applied to menuBg!");
+        bgEffect = new MosaicEffect();
+        menuBg.shader = bgEffect.shader;
+    }
+    
+    //trace("Starting mosaic transition - strength from " + MosaicEffect.DEFAULT_STRENGTH + " to 48");
+    
+    // 第一阶段：增加马赛克强度
+    bgEffectTween = FlxTween.num(MosaicEffect.DEFAULT_STRENGTH, 48, 0.25, {type: ONESHOT, ease: FlxEase.quadIn}, function(v:Float)
+    {
+        bgEffect.setStrength(v, v);
+        //trace("Mosaic strength: " + v); // 查看强度变化
+    });
+    
+    bgEffectTween.onComplete = function(twn:FlxTween)
+    {
+       // trace("Switching background at max strength");
+        menuBg.loadGraphic(newGraphic);
+        menuBg.screenCenter();
+        
+        bgEffectTween = FlxTween.num(48, MosaicEffect.DEFAULT_STRENGTH, 0.35, {type: ONESHOT, ease: FlxEase.quadOut}, function(v:Float)
+        {
+            bgEffect.setStrength(v, v);
+           // trace("Mosaic strength: " + v);
+        });
+        
+        bgEffectTween.onComplete = function(twn2:FlxTween)
+        {
+           //trace("Transition complete");
+            bgEffectTween = null;
+        };
+    };
 }
 
     // 显示艺术图

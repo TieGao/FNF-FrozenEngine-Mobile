@@ -3038,12 +3038,12 @@ public function proceedToNextState():Void
 	}
 	}
 
-	private function popUpScore(note:Note = null):Void
+	private function popUpScore(note:Note = null, rawNoteDiff:Null<Float> = null):Void 
 	{
         if (combo >= highestCombo) highestCombo = combo;
         // 计算时间差
-	var rawNoteDiff:Float = note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
-	var noteDiff:Float = Math.abs(rawNoteDiff);
+var effectiveNoteDiff:Float = (rawNoteDiff != null) ? rawNoteDiff : note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+	var noteDiff:Float = Math.abs(effectiveNoteDiff);
 		vocals.volume = 1;
 
         // 清理旧的显示（非combo stacking模式保持原有逻辑）
@@ -3157,7 +3157,7 @@ public function proceedToNextState():Void
             msText = new FlxText(0, 0, 0, "", 16);
             msText.setFormat(Paths.font('pixel-latin.ttf'), 16, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		
-            var msTiming:Float = Math.round(rawNoteDiff * 100) / 100;
+            var msTiming:Float = Math.round(effectiveNoteDiff * 100) / 100;
             msText.text = (msTiming >= 0 ? "+" : "") + msTiming + "ms";
 		
 		if (ClientPrefs.data.customColor)
@@ -3925,7 +3925,7 @@ public function proceedToNextState():Void
 		if (!note.isSustainNote) invalidateNote(note);
 	}
 
-	public function goodNoteHit(note:Note):Void
+	public function goodNoteHit(note:Note, replayRawNoteDiff:Null<Float> = null):Void
 	{
 		if(note.wasGoodHit) return;
 		if(cpuControlled && note.ignoreNote) return;
@@ -3956,6 +3956,11 @@ public function proceedToNextState():Void
 				{
 					char = gf;
 					animCheck = 'cheer';
+				}
+				else if (!note.mustPress)
+				{
+					char = dad;
+					animCheck = 'hey';
 				}
 
 				if(char != null)
@@ -3995,7 +4000,7 @@ public function proceedToNextState():Void
 			{
 				combo++;
 				if(combo > 9999) combo = 9999;
-				popUpScore(note);
+				popUpScore(note, replayRawNoteDiff);
 			}
 			var gainHealth:Bool = true; // prevent health gain, *if* sustains are treated as a singular note
 			if (guitarHeroSustains && note.isSustainNote) gainHealth = false;
@@ -4038,22 +4043,21 @@ public function proceedToNextState():Void
 		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('goodNoteHit', [note]);
 		if(!note.isSustainNote) invalidateNote(note);
 
-		var diff = note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+		var rawNoteDiff:Float = (replayRawNoteDiff != null) ? replayRawNoteDiff : note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
 
 		if (ClientPrefs.data.hitErrorBarVisible) {
 		if (hitErrorBar != null && (!isSus )) {
-			var hitTime:Float = -diff;
+			var hitTime:Float = -rawNoteDiff;
 			hitErrorBar.registerHit(hitTime);
 		}
 		}	
 
 		if (rep != null && !loadRep && !cpuControlled && !practiceMode && !inReplay)
 		{
-			// 如果是长箭头，不记录 diff（或记录为0，后续在 HitGraph 中过滤）
-			var diffToRecord = diff;
+			// 记录真实击打时差，sustain note 也应保留实际偏移
+			var diffToRecord = rawNoteDiff;
 			if (isSus)
 			{
-				diffToRecord = 0; // 或者 -9999，表示长箭头
 				var judge = "";
 				rep.judgementRecording.push(judge);
 				rep.noteRecording.push([note.strumTime, note.sustainLength, note.noteData, diffToRecord]);
@@ -4061,7 +4065,7 @@ public function proceedToNextState():Void
 			
 			if (!isSus)
 			{
-				var absDiff = Math.abs(diff);
+				var absDiff = Math.abs(rawNoteDiff);
 				var judge = "marvelous";
 				var marvelousWindow:Float = ClientPrefs.data.marvelousWindow;
 				var sickWindow:Float = ClientPrefs.data.sickWindow;
@@ -4074,7 +4078,7 @@ public function proceedToNextState():Void
 				else judge = "shit";
 				
 				rep.judgementRecording.push(judge);			
-				rep.noteRecording.push([note.strumTime, note.sustainLength, note.noteData, diff]);
+				rep.noteRecording.push([note.strumTime, note.sustainLength, note.noteData, rawNoteDiff]);
 			}
 		}
 	}
@@ -4911,58 +4915,43 @@ private function processReplayNotes(elapsed:Float):Void
     
     // 处理所有到期的回放音符
     var processedCount:Int = 0;
-    while (repNoteIndex < replayNoteQueue.length && processedCount < 100) // 每帧最多处理10个音符
+    while (repNoteIndex < replayNoteQueue.length && processedCount < 100)
     {
         var replayNote:Array<Dynamic> = replayNoteQueue[repNoteIndex];
-        
         if (replayNote == null || replayNote.length < 6) {
             repNoteIndex++;
             continue;
         }
-        var time:Float = spawnTime * playbackRate;
-        // 关键：使用实际应该击打的时间（原始strumTime + diff）
-        var noteStrTime:Float = replayNote[0]; // 音符的原始出现时间
-        var diff:Float = replayNote[3];        // 实际击打时间与音符时间的差值
-        var actualHitTime:Float = noteStrTime + diff; // 实际应该在什么时候击打
+
+        var noteStrTime:Float = replayNote[0];
+        var diff:Float = replayNote[3];
+        var actualHitTime:Float = noteStrTime + diff;
         var isMiss:Bool = replayNote[4];
         var processed:Bool = replayNote[5];
         
-        // 如果已经处理过，跳过
         if (processed) {
             repNoteIndex++;
             continue;
         }
         
-        // 关键修改：应该基于实际击打时间来触发
-        // 如果击打时间还没到，等待
-        if (actualHitTime > realCurrentTime) { // 提前10ms准备
+        // 先根据实际击打时间决定是否继续处理
+        if (actualHitTime > realCurrentTime + 2) {
             break;
         }
         
-        // 如果击打时间过期太多，跳过
         if (realCurrentTime - actualHitTime > Conductor.safeZoneOffset) {
-            trace('Skipping too late note: noteTime=${noteStrTime}, hitTime=${actualHitTime}, current=${realCurrentTime}');
             replayNoteQueue[repNoteIndex][5] = true;
             repNoteIndex++;
             continue;
         }
         
-        // 处理音符
-        try {
             if (!isMiss) {
                 processReplayHit(replayNote, realCurrentTime);
             }
             
-            // 标记为已处理
             replayNoteQueue[repNoteIndex][5] = true;
-            processedCount++;
-            
-        } catch (e:Dynamic) {
-            trace('ERROR processing replay note at ${noteStrTime}: $e');
-            trace('Stack: ${e.stack}');
-        }
-        
         repNoteIndex++;
+            processedCount++;
     }
     
     // 如果没有更多音符，结束回放
@@ -4982,42 +4971,26 @@ private function processReplayHit(replayNote:Array<Dynamic>, currentTime:Float):
 	var sustainLength:Float = replayNote[1];
     var column:Int = replayNote[2];
     var diff:Float = replayNote[3];
-    var actualHitTime:Float = noteStrTime + diff;
+	var actualHitTime:Float = noteStrTime - diff;
     
-   // trace('Processing replay HIT: noteTime=$noteStrTime, col=$column, diff=$diff, actualHit=$actualHitTime, current=$currentTime');
-    var time:Float = spawnTime * playbackRate;
-    // 1. 播放按键动画
     var strum:StrumNote = playerStrums.members[column];
     if (strum != null)
     {
-        var spr = playerStrums.members[column];
 		strumPlayAnim(false, Std.int(Math.abs(column)), Conductor.stepCrochet * 1.25 / 1000 / playbackRate);
-        
     }
     
-    // 2. 查找并击中对应的游戏音符
-    // 关键修改：基于音符的原始出现时间来查找
     var targetNote:Note = findNoteAtOriginalTime(noteStrTime, column);
     if (targetNote != null)
     {
         var timeDiff:Float = currentTime - targetNote.strumTime;
-        
-        // 如果时间差在安全区内，正常击中
         if (Math.abs(timeDiff) < Conductor.safeZoneOffset)
         {
-            goodNoteHit(targetNote);
+			goodNoteHit(targetNote, diff);
         }
         else
         {
-            trace('WARNING: Time diff too large: $timeDiff, forcing hit');
-            // 强制击中，但可能会影响评分
-            goodNoteHit(targetNote);
-            // 也可以手动设置状态
-            targetNote.wasGoodHit = true;
-            targetNote.canBeHit = false;
+			goodNoteHit(targetNote, diff);
         }
-        
-        // 如果需要，处理长条音符
         if (sustainLength > 0)
         {
             processSustainNotes(targetNote, replayNote);
@@ -5025,9 +4998,6 @@ private function processReplayHit(replayNote:Array<Dynamic>, currentTime:Float):
     }
     else
     {
-       // trace('WARNING: No target note found for replay hit at $noteStrTime');
-        
-        // 如果没有找到对应音符，至少播放动画
         var animName:String = singAnimations[column];
         if (boyfriend != null && boyfriend.hasAnimation(animName))
         {
@@ -5043,11 +5013,10 @@ private function processReplayHit(replayNote:Array<Dynamic>, currentTime:Float):
 private function findNoteAtOriginalTime(targetTime:Float, column:Int):Note
 {
     var bestNote:Note = null;
-    var minTimeDiff:Float = 10; // 允许10ms的误差
+    var minTimeDiff:Float = 9999;
     
     notes.forEachAlive(function(daNote:Note)
     {
-        // 检查音符是否符合条件
         if (!daNote.mustPress || 
             daNote.wasGoodHit || 
             daNote.tooLate || 
@@ -5055,10 +5024,7 @@ private function findNoteAtOriginalTime(targetTime:Float, column:Int):Note
             daNote.noteData != column)
             return;
         
-        // 计算原始时间的差值
         var timeDiff:Float = Math.abs(daNote.strumTime - targetTime);
-        
-        // 找到时间最接近的音符
         if (timeDiff < minTimeDiff)
         {
             minTimeDiff = timeDiff;
@@ -5066,11 +5032,9 @@ private function findNoteAtOriginalTime(targetTime:Float, column:Int):Note
         }
     });
     
-    // 如果没找到精确匹配，放宽条件
     if (bestNote == null)
     {
-        var fallbackDiff:Float = 45; // 放宽到45ms
-        
+        var fallbackDiff:Float = Conductor.safeZoneOffset;
         notes.forEachAlive(function(daNote:Note)
         {
             if (!daNote.mustPress || 
@@ -5086,10 +5050,6 @@ private function findNoteAtOriginalTime(targetTime:Float, column:Int):Note
                 bestNote = daNote;
             }
         });
-    }
-    
-    if (bestNote != null) {
-        //trace('Found note: expected=${targetTime}, actual=${bestNote.strumTime}, diff=${bestNote.strumTime - targetTime}');
     }
     
     return bestNote;
