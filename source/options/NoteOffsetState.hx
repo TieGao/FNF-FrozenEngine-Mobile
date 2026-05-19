@@ -1,8 +1,7 @@
 package options;
 
-import backend.StageData;
 import objects.Character;
-import objects.Bar;
+import objects.DraggableBar;  // 改为导入 DraggableBar
 import flixel.addons.display.shapes.FlxShapeCircle;
 
 import states.stages.StageWeek1 as BackgroundStage;
@@ -25,7 +24,7 @@ class NoteOffsetState extends MusicBeatState
 	var barPercent:Float = 0;
 	var delayMin:Int = -500;
 	var delayMax:Int = 500;
-	var timeBar:Bar;
+	var timeBar:DraggableBar;  // 改为 DraggableBar
 	var timeTxt:FlxText;
 	var beatText:Alphabet;
 	var beatTween:FlxTween;
@@ -124,21 +123,45 @@ class NoteOffsetState extends MusicBeatState
 		add(beatText);
 		
 		timeTxt = new FlxText(0, 600, FlxG.width, "", 32);
-		timeTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		timeTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		timeTxt.scrollFactor.set();
 		timeTxt.borderSize = 2;
 		timeTxt.visible = false;
 		timeTxt.cameras = [camHUD];
 
 		barPercent = ClientPrefs.data.noteOffset;
-		updateNoteDelay();
-		
-		timeBar = new Bar(0, timeTxt.y + (timeTxt.height / 3), 'healthBar', function() return barPercent, delayMin, delayMax);
+
+		timeBar = new DraggableBar(0, timeTxt.y + (timeTxt.height / 3), 'healthBar', function() return barPercent, delayMin, delayMax);
 		timeBar.scrollFactor.set();
 		timeBar.screenCenter(X);
 		timeBar.visible = false;
 		timeBar.cameras = [camHUD];
 		timeBar.leftBar.color = FlxColor.LIME;
+
+		// 设置值变化回调
+		timeBar.onValueChanged = function(percentValue:Float) {
+			// percentValue 是 0~100，需要转换回 delayMin~delayMax
+			var newOffset = Math.round(FlxMath.lerp(delayMin, delayMax, percentValue / 100));
+			if (barPercent != newOffset) {
+				barPercent = newOffset;
+				updateNoteDelay();
+			}
+		};
+
+		// 可选：显示数值的文本
+		timeBar.valueText = new FlxText(0, timeTxt.y + timeTxt.height + 10, FlxG.width, "", 24);
+		timeBar.valueText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		timeBar.valueText.scrollFactor.set();
+		timeBar.valueText.visible = false;
+		timeBar.valueText.cameras = [camHUD];
+		add(timeBar.valueText);
+
+		add(timeBar);
+		add(timeTxt);
+
+		// 设置初始百分比位置
+		var initialPercent = (barPercent - delayMin) / (delayMax - delayMin) * 100;
+		timeBar.setPercent(initialPercent, false);
 
 		add(timeBar);
 		add(timeTxt);
@@ -190,6 +213,10 @@ class NoteOffsetState extends MusicBeatState
 			else
 				addNum = 3;
 		}
+
+		#if !mobile
+
+		#end
 
 		if(FlxG.gamepads.anyJustPressed(ANY)) controls.controllerMode = true;
 		else if(FlxG.mouse.justPressed) controls.controllerMode = false;
@@ -357,17 +384,22 @@ class NoteOffsetState extends MusicBeatState
 		}
 		else
 		{
+			// DraggableBar 现在会自己处理鼠标拖拽
+			// 但仍然保留键盘/手柄控制作为辅助
+			
 			if(controls.UI_LEFT_P)
 			{
 				holdTime = 0;
 				barPercent = Math.max(delayMin, Math.min(ClientPrefs.data.noteOffset - 1, delayMax));
 				updateNoteDelay();
+				updateDraggableBarPosition();
 			}
 			else if(controls.UI_RIGHT_P)
 			{
 				holdTime = 0;
 				barPercent = Math.max(delayMin, Math.min(ClientPrefs.data.noteOffset + 1, delayMax));
 				updateNoteDelay();
+				updateDraggableBarPosition();
 			}
 
 			var mult:Int = 1;
@@ -382,6 +414,7 @@ class NoteOffsetState extends MusicBeatState
 				barPercent += 100 * addNum * elapsed * mult;
 				barPercent = Math.max(delayMin, Math.min(barPercent, delayMax));
 				updateNoteDelay();
+				updateDraggableBarPosition();
 			}
 
 			if(controls.RESET || touchPad.buttonC.justPressed)
@@ -389,6 +422,7 @@ class NoteOffsetState extends MusicBeatState
 				holdTime = 0;
 				barPercent = 0;
 				updateNoteDelay();
+				updateDraggableBarPosition();
 			}
 		}
 
@@ -426,6 +460,17 @@ class NoteOffsetState extends MusicBeatState
 
 		Conductor.songPosition = FlxG.sound.music.time;
 		super.update(elapsed);
+	}
+
+	// 添加辅助函数：同步 DraggableBar 的显示位置
+	function updateDraggableBarPosition():Void
+	{
+		if (timeBar != null)
+		{
+			// 将 barPercent (实际偏移量) 转换为 0~1 的百分比
+			var percentValue = (barPercent - delayMin) / (delayMax - delayMin);
+			timeBar.setPercent(percentValue * 100, true);
+		}
 	}
 
 	var zoomTween:FlxTween;
@@ -487,7 +532,7 @@ class NoteOffsetState extends MusicBeatState
 		for (i in 0...4)
 		{
 			var text:FlxText = new FlxText(10, 48 + (i * 30), 0, '', 24);
-			text.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			text.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 			text.scrollFactor.set();
 			text.borderSize = 2;
 			dumbTexts.add(text);
@@ -528,6 +573,8 @@ class NoteOffsetState extends MusicBeatState
 		
 		timeBar.visible = !onComboMenu;
 		timeTxt.visible = !onComboMenu;
+		if (timeBar.valueText != null)
+			timeBar.valueText.visible = !onComboMenu;
 		beatText.visible = !onComboMenu;
 
 		controllerPointer.visible = false;

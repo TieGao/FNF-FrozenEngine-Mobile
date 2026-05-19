@@ -263,7 +263,10 @@ class KEOption
 					KEOptionsMenu.instance.openSubState(new options.KEKeyBindMenu());
 					return false;   
 				case "Replay Manager":
-					MusicBeatState.switchState(new states.LoadReplayState());
+//					MusicBeatState.switchState(new states.LoadReplayState());
+					return false;  
+				case "Mobile Settings":
+					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
 					return false;  
 				case "Reset KeyBinds":
 					ClientPrefs.resetKeys();
@@ -281,6 +284,9 @@ class KEOption
 					return true;
 				case "Adjust Delay and Combo":
 					MusicBeatState.switchState(new options.NoteOffsetState());
+					return false;
+				case "Customize Mobile Controls":
+					KEOptionsMenu.instance.openSubState(new mobile.substates.MobileControlSelectSubState());
 					return false;
 			}
 			return true;

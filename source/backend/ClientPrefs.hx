@@ -41,6 +41,9 @@ import states.TitleState;
 	public var shaders:Bool = true;
 	public var cacheOnGPU:Bool = #if !switch false #else true #end; // GPU Caching made by Raltyro
 	public var framerate:Int = 60;
+	public var updaterate:Int = 60;
+	public var unlimitedFPS:Bool = false;
+	public var devideDrawAndUpdate:Bool = false;
 	public var camZooms:Bool = true;
 	public var hideHud:Bool = false;
 	public var showMS:Bool = true;
@@ -76,13 +79,21 @@ import states.TitleState;
 	public var healthText:Bool = true;
 	public var songText:Bool = true;
 	public var ImpStory:Bool = false;
-	public var freeplayspace:Bool = true;
+	public var freeplayspace:Bool = false;
+	public var globalspace:Bool = false;
 	public var scoreScreen:Bool = true;
 	public var keOptions:Bool = true;
 	public var gradientTimeBar:Bool = true;
 	public var guideLineAlpha:Float = 0.0;
 	public var modInfoBox:Bool = true;
+	public var toolBar:Bool = false;
 	public var charmPause:Bool = false;
+	public var legacyMouseWheelScroll:Bool = false; //是否启用旧版鼠标滚轮行为（滚轮滚动数值选项时改变数值，滚轮滚动选项列表时滚动列表）
+	public var forceSplashSkin:Bool = false;
+	public var forceNoteSkin:Bool = false;
+	public var forceRGBShader:Bool = false;
+
+	public var msInErrorBar:Bool = false; // 是否在误差条上显示ms文本
 
 	public var totalPlaytime:Float = 0;        // 累计总时长（秒）
     public var sessionStartTime:Float = 0;     // 本次会话开始时间（毫秒时间戳）
@@ -154,7 +165,6 @@ import states.TitleState;
 	public var forceNoteSkins:Bool = false;
 	public var forceSplashSkins:Bool = false;
 	public var forceNoteRGB:Bool = false;
-	public var globalspace:Bool = false;
 
 	// 新增统计变量
 	public var totalScore:Int = 0;             // 累计总分
@@ -309,17 +319,39 @@ class ClientPrefs {
 
 		if (data.fpsRework)
 			FlxG.stage.window.frameRate = data.framerate;
-		else
+		else if (!data.fpsRework && data.devideDrawAndUpdate)
 		{
+			var fps = Std.int(FlxMath.bound(data.framerate, 60, 480));
+			var tps = data.updaterate;
 			if (data.framerate > FlxG.drawFramerate)
 			{
-				FlxG.updateFramerate = data.framerate;
-				FlxG.drawFramerate = data.framerate;
+				FlxG.drawFramerate = fps;
 			}
 			else
 			{
-				FlxG.drawFramerate = data.framerate;
-				FlxG.updateFramerate = data.framerate;
+				FlxG.drawFramerate = fps;
+			}
+			if (data.updaterate > FlxG.updateFramerate)
+			{
+				FlxG.updateFramerate = tps;
+			}
+			else
+			{
+				FlxG.updateFramerate = tps;
+			}
+		}
+		else
+		{
+			var fps = Std.int(FlxMath.bound(data.framerate, 60, 480));
+			if (fps > FlxG.drawFramerate)
+			{
+				FlxG.updateFramerate = fps;
+				FlxG.drawFramerate = fps;
+			}
+			else
+			{
+				FlxG.drawFramerate = fps;
+				FlxG.updateFramerate = fps;
 			}
 		}
 
