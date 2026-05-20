@@ -155,12 +155,12 @@ class ToolBar extends FlxSpriteGroup
         add(timeText);
         
         // 进度条背景
-        progressBar = new FlxSprite(0, centerY + 30).makeGraphic(300, 6, 0xFF444444);
+        progressBar = new FlxSprite(0, centerY + 30).makeGraphic(300, 20, 0xFF444444);
         progressBar.scrollFactor.set();
         add(progressBar);
         
         // 进度条填充
-        progressFill = new FlxSprite(0, centerY + 30).makeGraphic(300, 6, 0xFF88FF88);
+        progressFill = new FlxSprite(0, centerY + 30).makeGraphic(300, 20, 0xFF88FF88);
         progressFill.scrollFactor.set();
         add(progressFill);
         
