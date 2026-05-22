@@ -75,8 +75,8 @@ class KEOptionsMenu extends MusicBeatState
 	static var VISIBLE_OPTIONS:Int = 11;
 
 	// 新增：布局变量
-	public static var SCREEN_WIDTH:Int = 1280;
-	public static var SCREEN_HEIGHT:Int = 720;
+	public static var SCREEN_WIDTH:Int = FlxG.width;
+	public static var SCREEN_HEIGHT:Int = FlxG.height;
 	public static var MARGIN_TOP:Int = 60; // 上边距
 	public static var MARGIN_BOTTOM:Int = 100; // 下边距
 	public static var CATEGORY_COUNT:Int = 5;

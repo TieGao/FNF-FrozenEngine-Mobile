@@ -87,8 +87,8 @@ class KESubMenu extends MusicBeatSubstate
 			optionAlpha = KEOptionsMenu.OPTION_ALPHA;
 			descAlpha = KEOptionsMenu.DESC_ALPHA;
 		} else {
-			screenWidth = 1280;
-			screenHeight = 720;
+			screenWidth = FlxG.width;
+			screenHeight = FlxG.height;
 			marginTop = 80;
 			marginBottom = 80;
 			bgAlpha = 0.7;

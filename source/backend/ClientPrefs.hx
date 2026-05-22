@@ -166,6 +166,10 @@ import states.TitleState;
 	public var forceSplashSkins:Bool = false;
 	public var forceNoteRGB:Bool = false;
 
+	public var showTPS:Bool = false;
+	public var showMEMPeak:Bool = false;
+	public var showApi:Bool = false;
+
 	// 新增统计变量
 	public var totalScore:Int = 0;             // 累计总分
 	public var totalPlays:Int = 0;             // 总游玩次数
