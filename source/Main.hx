@@ -195,6 +195,7 @@ class Main extends Sprite
 		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
 
 		// 应用保存的渲染分辨率（如果设置）并尝试改善字体清晰度
+		#if !mobile
 		#if (cpp || hl)
 		try {
 			var resIdx:Int = ClientPrefs.data.renderResolution;
@@ -228,6 +229,7 @@ class Main extends Sprite
 				} catch(e:Dynamic) {}
 			}
 		} catch(e:Dynamic) {}
+		#end
 		#end
 
 		fpsVar = new FPSCounter(10, 3, 0xFFFFFF);
