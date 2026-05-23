@@ -11,7 +11,7 @@ haxelib git hxcpp https://github.com/TieGao/hxcpp --quiet
 haxelib install lime 8.3.2 --quiet
 haxelib git openfl https://github.com/TieGao/openfl
 haxelib git flixel https://github.com/TieGao/flixel --quiet
-haxelib install flixel-addons 3.3.2 --quiet
+haxelib git flixel-addons https://github.com/TieGao/flixel-addons --skip-dependencies
 haxelib install flixel-tools 1.5.1 --quiet
 haxelib install hscript-iris 1.1.3 --quiet
 haxelib install tjson 1.4.0 --quiet
