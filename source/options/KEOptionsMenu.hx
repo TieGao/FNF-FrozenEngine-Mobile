@@ -163,9 +163,6 @@ class KEOptionsMenu extends MusicBeatState
 		_lastResolution = index;
 	}
 
-	var beamShader:ParticleBeamShader = new ParticleBeamShader();
-
-
 	public function new(pauseMenu:Bool = false)
 	{
 		super();
