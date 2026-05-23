@@ -11,7 +11,7 @@ import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
 import flixel.ui.FlxButton;
 import flixel.math.FlxRect;
-import flixel.system.FlxSound;
+import flixel.sound.FlxSound;
 import flixel.util.FlxStringUtil;
 import backend.Paths;
 import options.GameplayChangersSubstate;
