@@ -96,6 +96,20 @@ class Main extends Sprite
 
 	private function setupGame():Void
 	{
+		// 从 1.0.1 保留的自动缩放计算
+		var stageWidth:Int = Lib.current.stage.stageWidth;
+		var stageHeight:Int = Lib.current.stage.stageHeight;
+
+		if (game.zoom == -1.0)
+		{
+			var ratioX:Float = stageWidth / game.width;
+			var ratioY:Float = stageHeight / game.height;
+			game.zoom = Math.min(ratioX, ratioY);
+			game.width = Math.ceil(stageWidth / game.zoom);
+			game.height = Math.ceil(stageHeight / game.zoom);
+		}
+
+		// 从 1.0.4 保留的初始化代码（但移到 setupGame 中）
 		#if VIDEOS_ALLOWED
 		hxvlc.util.Handle.init(#if (hxvlc >= "1.8.0")  ['--no-lua'] #end);
 		#end
@@ -108,19 +122,6 @@ class Main extends Sprite
 		FlxG.save.bind('funkin', CoolUtil.getSavePath());
 		Highscore.load();
 
-		// ========== 关键修复：自动缩放计算 ==========
-		var stageWidth:Int = Lib.current.stage.stageWidth;
-		var stageHeight:Int = Lib.current.stage.stageHeight;
-
-		if (game.zoom == -1.0)
-		{
-			var ratioX:Float = stageWidth / game.width;
-			var ratioY:Float = stageHeight / game.height;
-			game.zoom = Math.min(ratioX, ratioY);
-			game.width = Math.ceil(stageWidth / game.zoom);
-			game.height = Math.ceil(stageHeight / game.zoom);
-		}
-		// ===========================================
 
 		#if HSCRIPT_ALLOWED
 		Iris.warn = function(x, ?pos:haxe.PosInfos) {
@@ -192,6 +193,42 @@ class Main extends Sprite
 		
 		// 使用计算后的 width/height 和 zoom
 		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
+
+		// 应用保存的渲染分辨率（如果设置）并尝试改善字体清晰度
+		#if (cpp || hl)
+		try {
+			var resIdx:Int = ClientPrefs.data.renderResolution;
+			var _resolutions = [
+				[1280, 720],
+				[1600, 900],
+				[1920, 1080],
+				[2560, 1440],
+				[3840, 2160]
+			];
+			if (resIdx >= 0 && resIdx < _resolutions.length) {
+				var w:Int = _resolutions[resIdx][0];
+				var h:Int = _resolutions[resIdx][1];
+				var window = Lib.current.stage.window;
+				window.resize(w, h);
+				var displayBounds = window.display.bounds;
+				window.x = Std.int(displayBounds.x + (displayBounds.width - w) / 2);
+				window.y = Std.int(displayBounds.y + (displayBounds.height - h) / 2);
+				flixel.FlxG.resizeGame(w, h);
+				flixel.FlxG.scaleMode = new flixel.system.scaleModes.RatioScaleMode(false);
+				// 提高舞台质量以减少字体缩放模糊
+				try { Lib.current.stage.quality = openfl.display.StageQuality.BEST; } catch(e:Dynamic) {}
+				// 刷新缓存以确保文本/精灵使用新的分辨率渲染更清晰
+				try {
+					if (flixel.FlxG.cameras != null) {
+						for (cam in flixel.FlxG.cameras.list) {
+							try { resetSpriteCache(cam.flashSprite); } catch(e:Dynamic) {}
+						}
+					}
+					try { resetSpriteCache(flixel.FlxG.game); } catch(e:Dynamic) {}
+				} catch(e:Dynamic) {}
+			}
+		} catch(e:Dynamic) {}
+		#end
 
 		fpsVar = new FPSCounter(10, 3, 0xFFFFFF);
 		addChild(fpsVar);
