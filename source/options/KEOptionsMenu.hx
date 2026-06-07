@@ -592,7 +592,7 @@ function updateOptionPositions()
         optionText.y = contentStartY + (46 * displayIndex);
         
         // X坐标
-        optionText.x = OPTION_LEFT_MARGIN;
+        optionText.screenCenter(X);
         
         // 判断是否在可见区域内
         var isVisible = (displayIndex >= 0 && displayIndex < VISIBLE_OPTIONS);
