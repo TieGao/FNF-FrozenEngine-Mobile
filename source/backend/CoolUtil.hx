@@ -12,7 +12,9 @@ class CoolUtil
 {
 	public static function checkForUpdates(url:String = null):String {
 		if (url == null || url.length == 0)
-			url = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitVersion.txt";
+			url = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitBeta.txt";
+			else
+				url = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitVersion.txt";
 		var version:String = states.MainMenuState.frozenEngineVersion.trim();
 		if(ClientPrefs.data.checkForUpdates) {
 			trace('checking for updates...');

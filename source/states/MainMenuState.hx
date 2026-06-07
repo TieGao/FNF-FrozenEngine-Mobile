@@ -17,7 +17,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var frozenEngineVersion:String = '0.4.7 V4 Mobile';
+	public static var frozenEngineVersion:String = '0.4.11';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -137,7 +137,7 @@ class MainMenuState extends MusicBeatState
 			rightItem.x -= rightItem.width;
 		}
 
-		var frozenVer:FlxText = new FlxText(12, FlxG.height - 64, 0, "Frozen Engine v" + frozenEngineVersion, 12);
+		var frozenVer:FlxText = new FlxText(12, FlxG.height - 64, 0, "Frozen Engine Mobile v" + frozenEngineVersion, 12);
 		frozenVer.scrollFactor.set();
 		frozenVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		add(frozenVer);

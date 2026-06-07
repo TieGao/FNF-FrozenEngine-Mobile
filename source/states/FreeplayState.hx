@@ -413,8 +413,14 @@ class FreeplayState extends MusicBeatState
         
         // 显示鼠标
         FlxG.mouse.visible = true;
-        
-        addTouchPad('NONE', 'A_B');
+        if (ClientPrefs.data.toolBar)
+        {
+            addTouchPad('NONE', 'A_B');
+        }
+        else
+        {
+            addTouchPad('LEFT_FULL', 'A_B');
+        }
 
         super.create();
     }
@@ -780,12 +786,19 @@ class FreeplayState extends MusicBeatState
     
     function updateCornerGlow()
     {
-        if (cornerGlow != null)
+        if (cornerGlow == null) return;
+
+        // 如果当前没有可用歌曲或选择无效，则隐藏发光并退出
+        if (songs == null || songs.length == 0 || curSelected < 0 || curSelected >= songs.length)
         {
+            FlxTween.cancelTweensOf(cornerGlow);
+            cornerGlow.alpha = 0;
+            return;
+        }
+
             var targetColor = songs[curSelected].color;
             FlxTween.cancelTweensOf(cornerGlow);
             FlxTween.color(cornerGlow, 0.5, cornerGlow.color, targetColor);
-        }
     }
 
     // 获取当前模式对应的难度评分
@@ -832,6 +845,19 @@ class FreeplayState extends MusicBeatState
     // 更新歌曲信息文本（note数量和难度评级）
     function updateSongInfoTexts()
     {
+        // 防御性检查：确保有歌曲并且选择有效
+        if (songs == null || songs.length == 0 || curSelected < 0 || curSelected >= songs.length)
+        {
+            if (noteCountText != null)
+                noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
+            if (difficultyRatingText != null)
+            {
+                difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
+                difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
+            }
+            return;
+        }
+
         var currentSong = songs[curSelected];
         var currentDiffName = Difficulty.getString(curDifficulty, false);
         
@@ -1042,7 +1068,94 @@ public function nextSong():Void
             filterTimer -= elapsed;
             if (filterTimer <= 0)
             {
+                // 捕获过滤时的异常，避免搜索导致程序崩溃
+                try
+            {
                 filterSongs((searchInput != null ? searchInput.text : ""));
+                }
+                catch(e:Dynamic)
+                {
+                    var searchStr = (searchInput != null ? searchInput.text : "");
+                    var origCount = (originalSongs != null ? originalSongs.length : 0);
+                    var beforeCount = (songs != null ? songs.length : 0);
+                    var errMsg = Std.string(e);
+                    // 尝试读取堆栈信息（如果可用）
+                    var stackInfo:String = "";
+                    try { if (e != null && Reflect.field(e, 'stack') != null) stackInfo = Reflect.field(e, 'stack'); } catch(_){ }
+                    try { if (stackInfo == "" && e != null && Reflect.field(e, 'stackTrace') != null) stackInfo = Reflect.field(e, 'stackTrace'); } catch(_){ }
+
+                    trace('Error while filtering songs: ' + errMsg + ' search="' + searchStr + '" originalSongs=' + origCount + ' songsBefore=' + beforeCount + ' stack=' + stackInfo);
+                    // 回退到完整歌曲列表以保持可用性
+                    if (originalSongs != null)
+                        songs = originalSongs.copy();
+
+                    // 重新构建卡片映射，确保 UI 与数据一致
+                    var cardMap:Map<String, FreeplayCard> = new Map<String, FreeplayCard>();
+                    for (card in allCards)
+                        cardMap.set(card.folder + '|' + card.songName, card);
+
+                    // 隐藏所有卡片，之后只激活匹配项
+                    cards = [];
+                    for (card in allCards)
+                    {
+                        card.visible = false;
+                        card.active = false;
+                    }
+
+                    if (songs != null)
+                    {
+                        for (i in 0...songs.length)
+                        {
+                            var key2:String = songs[i].folder + '|' + songs[i].songName;
+                            var c:FreeplayCard = cardMap.get(key2);
+                            if (c != null)
+                            {
+                                c.targetY = i;
+                                c.visible = true;
+                                c.active = true;
+                                cards.push(c);
+                            }
+                        }
+                    }
+
+                    // 复位选择与 UI
+                    if (songs == null || songs.length == 0)
+                    {
+                        curSelected = -1;
+                        lerpSelected = -1;
+                        if (songArtDisplay != null) songArtDisplay.visible = false;
+                        if (characterArtDisplay != null) characterArtDisplay.visible = false;
+                        scoreText.text = "";
+                        diffText.text = "";
+                        noteCountText.text = "";
+                        difficultyRatingText.text = "";
+                        if (cornerGlow != null) cornerGlow.alpha = 0;
+                    }
+                    else
+                    {
+                        curSelected = 0;
+                        lerpSelected = 0;
+                        cardScrollPos = 0;
+                        if (cardScroller != null)
+                        {
+                            cardScroller.moveLimit = [0, Math.max(0, (songs.length - 1) * CARD_SPACING)];
+                            cardScroller.tweenData = 0;
+                        }
+                        menuBg.color = songs[curSelected].color;
+                        intendedColor = menuBg.color;
+                        changeDiff();
+                        showArtForIndex(curSelected, false);
+                        showCharacterForIndex(curSelected, false);
+                        updateCornerGlow();
+                        updateCardsPosition();
+                        updateCardsRating();
+                    }
+
+                    missingText.text = 'Search error';
+                    missingText.screenCenter(Y);
+                    missingText.visible = true;
+                    missingTextBG.visible = true;
+                }
                 filterTimer = -1;
             }
         }
@@ -1096,6 +1209,15 @@ public function nextSong():Void
         {
             FlxG.sound.play(Paths.sound('confirmMenu'), 0.7); // 播放确认音效
             MusicBeatState.switchState(new LoadReplayState()); // 切换回放菜单
+        }
+
+        // 点击 Personal Best 区域切换难度（等同于 RIGHT 控制）
+        if (FlxG.mouse.justPressed && FlxG.mouse.overlaps(diffText))
+        {
+            changeDiff(1);
+            _updateSongLastDifficulty();
+            updateCardDifficultyInfo();
+            FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
         }
         // ==========================
 
@@ -1192,6 +1314,13 @@ public function nextSong():Void
             }
             else if (FlxG.keys.justPressed.SPACE && ClientPrefs.data.legacymp)
             {
+            // 防御性检查：确保当前存在选中歌曲
+            if (curSelected < 0 || curSelected >= songs.length)
+            {
+                FlxG.sound.play(Paths.sound('cancelMenu'));
+            }
+            else
+            {
 			if(instPlaying != curSelected && !musicPlayer.playingMusic)
 			{
 				destroyFreeplayVocals();
@@ -1263,15 +1392,24 @@ public function nextSong():Void
 			else if (instPlaying == curSelected && musicPlayer.playingMusic)
 			{
 				musicPlayer.pauseOrResume(!musicPlayer.playingMusic);
+                }
 			}
         }
         }
 
         if (PsychUIInputText.focusOn == null && controls.RESET && !musicPlayer.playingMusic)
         {
+            // 防御性检查：确保有有效选择后再打开重置分数子状态
+            if (curSelected < 0 || curSelected >= songs.length)
+            {
+                FlxG.sound.play(Paths.sound('cancelMenu'));
+            }
+            else
+        {
             persistentUpdate = false;
             openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter, -1, songs[curSelected].folder));
             FlxG.sound.play(Paths.sound('scrollMenu'));
+            }
         }
 
         if (ClientPrefs.data.toolBar && toolBar != null)
@@ -1673,14 +1811,38 @@ function filterSongs(searchText:String):Void
     {
         // 过滤歌曲
         songs = [];
+
+                // 防御性：确保 originalSongs 有效
+        if (originalSongs == null) originalSongs = new Array<NewSongMetaData>();
+
+        var idx:Int = 0;
         for (song in originalSongs)
         {
-            var songName = song.songName.toLowerCase();
+            // 防御性检查：跳过空条目或缺少名称的条目
+            if (song == null)
+            {
+                trace('filterSongs: skipped null song at index ' + idx);
+                idx++;
+                continue;
+            }
+
+            // 使用 Std.string 将任意类型安全转换为字符串，避免对非字符串调用 toLowerCase 导致异常
+            var snameDyn:Dynamic = song.songName;
+            if (snameDyn == null)
+            {
+                trace('filterSongs: skipped song with null name (folder=' + song.folder + ') at index ' + idx);
+                idx++;
+                continue;
+            }
+            var sname:String = Std.string(snameDyn);
+            var songName = sname.toLowerCase();
             songName = StringTools.replace(songName, " ", "");
-            if (songName.indexOf(searchText) != -1)
+            // 防御性：确保 songName 有效后再查找
+            if (songName != null && songName.indexOf(searchText) != -1)
             {
                 songs.push(song);
             }
+            idx++;
         }
         
         // 如果搜索无结果，显示提示信息
@@ -1700,26 +1862,76 @@ function filterSongs(searchText:String):Void
     
     // 复用卡片对象，避免每次搜索都销毁重建
     var cardMap:Map<String, FreeplayCard> = new Map<String, FreeplayCard>();
-    for (card in allCards)
-        cardMap.set(card.folder + '|' + card.songName, card);
 
-    cards = [];
-    for (card in allCards)
+    // 建立从 key -> card 的映射（防御性处理 null）
+    for (j in 0...allCards.length)
     {
-        card.visible = false;
-        card.active = false;
+        var acard:FreeplayCard = allCards[j];
+        if (acard == null)
+        {
+            trace('filterSongs: allCards[' + j + '] is null');
+            continue;
+        }
+        var af:String = acard.folder == null ? '' : Std.string(acard.folder);
+        var an:String = acard.songName == null ? '' : Std.string(acard.songName);
+        try {
+            cardMap.set(af + '|' + an, acard);
+        } catch(e:Dynamic) {
+            trace('filterSongs: failed to set cardMap for key=' + af + '|' + an + ' err=' + Std.string(e));
+        }
     }
 
+    // 隐藏所有卡片，稍后激活匹配项
+    cards = [];
+    for (j in 0...allCards.length)
+    {
+        var ctmp:FreeplayCard = allCards[j];
+        if (ctmp == null) continue;
+        ctmp.visible = false;
+        ctmp.active = false;
+    }
+
+    // 将匹配到的卡片按顺序激活并放入 cards 中
     for (i in 0...songs.length)
     {
-        var key:String = songs[i].folder + '|' + songs[i].songName;
+        var sEntry:NewSongMetaData = songs[i];
+        if (sEntry == null)
+        {
+            trace('filterSongs: songs[' + i + '] is null');
+            continue;
+        }
+
+        var sf:String = sEntry.folder == null ? '' : Std.string(sEntry.folder);
+        var sn:String = sEntry.songName == null ? '' : Std.string(sEntry.songName);
+        var key:String = sf + '|' + sn;
         var card:FreeplayCard = cardMap.get(key);
+
+        // 如果精确 key 未命中，尝试降级匹配（按 songName 不区分 folder）
+        if (card == null)
+        {
+            for (c in allCards)
+            {
+                if (c == null) continue;
+                var cname:String = c.songName == null ? '' : Std.string(c.songName);
+                if (Std.string(cname).toLowerCase() == Std.string(sn).toLowerCase())
+                {
+                    card = c;
+                    trace('filterSongs: fallback matched songs[' + i + ']("' + sn + '") to card("' + cname + '")');
+                    break;
+                }
+            }
+        }
+
         if (card != null)
         {
             card.targetY = i;
             card.visible = true;
             card.active = true;
             cards.push(card);
+        }
+        else
+        {
+            trace('filterSongs: no card found for songs[' + i + '] key="' + key + '"');
         }
     }
     
