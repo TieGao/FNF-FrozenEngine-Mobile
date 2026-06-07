@@ -23,7 +23,7 @@ class PauseSubState extends MusicBeatSubstate
 	var difficultyChoices = [];
 	var curSelected:Int = 0;
 
-	var pauseMusic:FlxSound;
+	public var pauseMusic:FlxSound;
 	var practiceText:FlxText;
 	var skipTimeText:FlxText;
 	var skipTimeTracker:Alphabet;
@@ -185,6 +185,7 @@ class PauseSubState extends MusicBeatSubstate
 
 	var holdTime:Float = 0;
 	var cantUnpause:Float = 0.1;
+	
 	override function update(elapsed:Float)
 	{
 		cantUnpause -= elapsed;
@@ -500,6 +501,9 @@ class PauseSubState extends MusicBeatSubstate
 				else MusicBeatState.switchState(new OptionsState());
 					if(ClientPrefs.data.pauseMusic != 'None')
 					{
+					if (songName != null && Paths.formatToSongPath(songName) != 'none')
+						FlxG.sound.playMusic(Paths.music(Paths.formatToSongPath(songName)), pauseMusic.volume);
+					else
 						FlxG.sound.playMusic(Paths.music(Paths.formatToSongPath(ClientPrefs.data.pauseMusic)), pauseMusic.volume);
 						FlxTween.tween(FlxG.sound.music, {volume: 1}, 0.8);
 						FlxG.sound.music.time = pauseMusic.time;

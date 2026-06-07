@@ -277,7 +277,7 @@ class KEOptionsMenu extends MusicBeatState
 
 		// 描述文本
 		descText = new FlxText(10, SCREEN_HEIGHT - MARGIN_BOTTOM + 5, SCREEN_WIDTH - 20);
-		descText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+		descText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		descText.borderSize = 2;
 		descText.alpha = 1.0; // 描述文字完全不透明
 		descText.antialiasing = ClientPrefs.data.antialiasing;
@@ -434,7 +434,7 @@ class KEOptionsMenu extends MusicBeatState
 			if (cat.titleObject != null) cat.titleObject.setFormat(Paths.font("vcr.ttf"), 28, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 			for (j in 0...cat.optionObjects.members.length) {
 				var txt = cat.optionObjects.members[j];
-				if (txt != null) txt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK); // 改为左对齐
+				if (txt != null) txt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK); // 改为左对齐
 			}
 		}
 
@@ -446,7 +446,7 @@ class KEOptionsMenu extends MusicBeatState
 		}
 		if (selectedOption != null) {
 			descText.text = selectedOption.getDescription();
-			descText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+			descText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		}
 	}
 	
@@ -1385,15 +1385,15 @@ function onScrollChange()
 		);
 		
 		// 原有的其他选项
-		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
-		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
+		//options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
 		//options.push(KEOption.create("Mobile Settings", "Customize mobile-specific settings", "", "action"));
 		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
+		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 		
 		return options;
 	}
