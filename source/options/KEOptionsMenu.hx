@@ -1385,7 +1385,7 @@ function onScrollChange()
 		);
 		
 		// 原有的其他选项
-		KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']);
+		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
 		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
