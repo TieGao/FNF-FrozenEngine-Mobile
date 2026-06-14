@@ -1,7 +1,5 @@
-name: Everything + Release
-on: 
-  push:
-  workflow_dispatch:
+name: Mobile + Release
+on: workflow_dispatch
 
 permissions:
   contents: write
@@ -53,36 +51,6 @@ jobs:
             buildArgs: "ios -final -nosign"
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
-          - name: Windows
-            os: windows-latest
-            buildArgs: windows
-            setupCommand: .\"setup/windows.bat"
-            artifactName: windowsBuild-x86_64
-            artifactPath: export\release\windows\bin\*
-          - name: Linux
-            os: ubuntu-latest
-            buildArgs: linux
-            setupCommand: sh ./setup/unix.sh
-            artifactName: linuxBuild-x86_64
-            artifactPath: export/release/linux/bin/*
-          - name: Linux ARM64
-            os: ubuntu-latest
-            buildArgs: "linux -arm64 -D HXCPP_ARM64"
-            setupCommand: sh ./setup/unix.sh
-            artifactName: linuxBuild-arm64
-            artifactPath: export/release/linux/bin/*
-          - name: macOS x86_64
-            os: macos-latest
-            setupCommand: sh ./setup/unix.sh
-            buildArgs: "mac -64 -D HXCPP_M64"
-            artifactName: macOSBuild-x86_64
-            artifactPath: export/release/macos/bin/*
-          - name: macOS ARM64
-            os: macos-latest
-            setupCommand: sh ./setup/unix.sh
-            buildArgs: "mac -arm64 -D HXCPP_ARM64"
-            artifactName: macOSBuild-arm64
-            artifactPath: export/release/macos/bin/*
     uses: ./.github/workflows/build.yml
     with:
         name: ${{ matrix.name }}
@@ -114,51 +82,6 @@ jobs:
 
       - name: Move iOS File
         run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
-
-      - name: Download Windows Build
-        uses: actions/download-artifact@main
-        with:
-           name: windowsBuild-x86_64
-           path: ${{ github.workspace }}/WindowsBuild
-
-      - name: Pack Windows Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/WindowsBuild/*  
-
-      - name: Download Linux Build
-        uses: actions/download-artifact@main
-        with:
-           name: linuxBuild-x86_64
-           path: ${{ github.workspace }}/LinuxBuild
-
-      - name: Pack Linux Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/LinuxBuild/*    
-      
-      - name: Download Linux ARM 64 Build
-        uses: actions/download-artifact@main
-        with:
-           name: linuxBuild-arm64
-           path: ${{ github.workspace }}/LinuxBuild-arm64
-
-      - name: Pack Linux Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/LinuxBuild-arm64/*   
-
-      - name: Download macOS x86_64 Build
-        uses: actions/download-artifact@main
-        with:
-           name: macOSBuild-x86_64
-           path: ${{ github.workspace }}/macOSBuild-x86_64
-
-      - name: Pack macOS x86_64 Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/macOSBuild-x86_64/*     
-      
-      - name: Download macOS ARM64 Build
-        uses: actions/download-artifact@main
-        with:
-           name: macOSBuild-arm64
-           path: ${{ github.workspace }}/macOSBuild-arm64
-
-      - name: Pack macOS ARM64 Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip ${{ github.workspace }}/macOSBuild-arm64/*    
 
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
