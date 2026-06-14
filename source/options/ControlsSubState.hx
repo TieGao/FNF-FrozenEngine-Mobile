@@ -62,6 +62,13 @@ class ControlsSubState extends MusicBeatSubstate
 	
 	var controllerSpr:FlxSprite;
 	
+	// 鼠标控制相关变量
+	var allowMouse:Bool = true;
+	var isMouseControl:Bool = false;
+	var mouseOverOption:Int = -1;
+	var mouseOverBind:Int = -1; // 0 = 主键, 1 = 副键
+	var mouseOverController:Bool = false;
+	
 	public function new()
 	{
 		controls.isInSubstate = true;
@@ -116,6 +123,7 @@ class ControlsSubState extends MusicBeatSubstate
 		createTexts();
 		
 		addTouchPad('NONE', 'B');
+		FlxG.mouse.visible = true;
 	}
 
 	var lastID:Int = 0;
@@ -277,12 +285,146 @@ class ControlsSubState extends MusicBeatSubstate
 	var timeForMoving:Float = 0.1;
 	override function update(elapsed:Float)
 	{
+		super.update(elapsed);
+		
+		// 右键返回支持
+		#if !mobile
+		if (FlxG.mouse.justPressedRight && !binding)
+		{
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			close();
+			return;
+		}
+		#end
+
 		if(timeForMoving > 0) //Fix controller bug
 		{
 			timeForMoving = Math.max(0, timeForMoving - elapsed);
 			super.update(elapsed);
 			return;
 		}
+
+		#if !mobile
+		// 鼠标悬停检测
+		if (allowMouse && ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed))
+		{
+			allowMouse = false;
+			isMouseControl = true;
+			
+			var newMouseOverOption:Int = -1;
+			var newMouseOverBind:Int = -1;
+			
+			// 检查鼠标悬停在控制器图标上
+			mouseOverController = FlxG.mouse.overlaps(controllerSpr);
+			
+			// 检查鼠标悬停在选项上
+			for (i in 0...grpOptions.length)
+			{
+				var option = grpOptions.members[i];
+				if (option != null && FlxG.mouse.overlaps(option))
+				{
+					newMouseOverOption = i;
+					break;
+				}
+			}
+			
+			// 检查鼠标悬停在键位绑定上
+			for (i in 0...grpBinds.length)
+			{
+				var bind = grpBinds.members[i];
+				if (bind != null && FlxG.mouse.overlaps(bind))
+				{
+					newMouseOverOption = Math.floor(i / 2);
+					newMouseOverBind = i % 2;
+					break;
+				}
+			}
+			
+			// 检查鼠标悬停在黑色背景框上
+			for (i in 0...grpBlacks.length)
+			{
+				var black = grpBlacks.members[i];
+				if (black != null && FlxG.mouse.overlaps(black))
+				{
+					newMouseOverOption = Math.floor(i / 2);
+					newMouseOverBind = i % 2;
+					break;
+				}
+			}
+			
+			// 更新鼠标悬停状态
+			if (newMouseOverOption != -1 && newMouseOverOption != mouseOverOption)
+			{
+				mouseOverOption = newMouseOverOption;
+				mouseOverBind = newMouseOverBind;
+				updateMouseHover();
+			}
+			else if (newMouseOverOption == -1)
+			{
+				mouseOverOption = -1;
+				mouseOverBind = -1;
+				updateMouseHover();
+			}
+			
+			allowMouse = true;
+		}
+		
+		// 鼠标点击控制器图标切换模式
+		if (FlxG.mouse.justPressed && mouseOverController)
+		{
+			swapMode();
+		}
+		
+		// 鼠标点击选项或键位绑定
+		if (FlxG.mouse.justPressed && mouseOverOption != -1)
+		{
+			if (mouseOverOption != curSelected)
+			{
+				// 点击未选中的选项：选择它
+				curSelected = mouseOverOption;
+				updateText();
+			}
+			else if (mouseOverBind != -1)
+			{
+				// 点击已选中选项的键位绑定：切换到对应的alt键
+				if ((mouseOverBind == 0 && curAlt) || (mouseOverBind == 1 && !curAlt))
+				{
+					updateAlt(true);
+				}
+			}
+		}
+		
+		// 鼠标双击开始绑定
+		if (FlxG.mouse.justPressed && mouseOverOption != -1 && mouseOverOption == curSelected && 
+			(mouseOverBind == -1 || mouseOverBind == (curAlt ? 1 : 0)))
+		{
+			if(options[curOptions[curSelected]][1] != defaultKey)
+			{
+				startBinding();
+			}
+			else
+			{
+				// 重置为默认键位
+				ClientPrefs.resetKeys(!onKeyboardMode);
+				ClientPrefs.reloadVolumeKeys();
+				var lastSel:Int = curSelected;
+				createTexts();
+				curSelected = lastSel;
+				updateText();
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+			}
+		}
+		
+		// 鼠标滚轮滚动
+		if (FlxG.mouse.wheel != 0 && !binding)
+		{
+			if (FlxG.mouse.wheel < 0) {
+				updateText(1);
+			} else {
+				updateText(-1);
+			}
+		}
+		#end
 
 		if(!binding)
 		{
@@ -304,28 +446,7 @@ class ControlsSubState extends MusicBeatSubstate
 			{
 				if(options[curOptions[curSelected]][1] != defaultKey)
 				{
-					bindingBlack = new FlxSprite().makeGraphic(1, 1, /*FlxColor.BLACK*/ FlxColor.WHITE);
-					bindingBlack.scale.set(FlxG.width, FlxG.height);
-					bindingBlack.updateHitbox();
-					bindingBlack.alpha = 0;
-					FlxTween.tween(bindingBlack, {alpha: 0.6}, 0.35, {ease: FlxEase.linear});
-					add(bindingBlack);
-
-					bindingText = new Alphabet(FlxG.width / 2, 160, Language.getPhrase('controls_rebinding', 'Rebinding {1}', [options[curOptions[curSelected]][3]]), false);
-					bindingText.alignment = CENTERED;
-					add(bindingText);
-
-					final escape:String = (controls.mobileC) ? "B" : "ESC";
-					final backspace:String = (controls.mobileC) ? "C" : "Backspace";
-					
-					bindingText2 = new Alphabet(FlxG.width / 2, 340, Language.getPhrase('controls_rebinding2', 'Hold {1} to Cancel\nHold {2} to Delete', [escape, backspace]), true);
-					bindingText2.alignment = CENTERED;
-					add(bindingText2);
-
-					binding = true;
-					holdingEsc = 0;
-					ClientPrefs.toggleVolumeKeys(false);
-					FlxG.sound.play(Paths.sound('scrollMenu'));
+					startBinding();
 				}
 				else
 				{
@@ -344,6 +465,14 @@ class ControlsSubState extends MusicBeatSubstate
 		{
 			var altNum:Int = curAlt ? 1 : 0;
 			var curOption:Array<Dynamic> = options[curOptions[curSelected]];
+
+			if(FlxG.mouse.justPressedRight)
+			{
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+					closeBinding();
+			}
+
+
 			if(FlxG.keys.pressed.ESCAPE || FlxG.gamepads.anyPressed(B))
 			{
 				holdingEsc += elapsed;
@@ -463,7 +592,32 @@ class ControlsSubState extends MusicBeatSubstate
 				}
 			}
 		}
-		super.update(elapsed);
+	}
+	
+	function updateMouseHover()
+	{
+		// 更新控制器图标悬停效果
+		if (mouseOverController) {
+			controllerSpr.alpha = 1.0;
+		} else {
+			controllerSpr.alpha = 0.8;
+		}
+		
+		// 更新选项悬停效果
+		for (i in 0...grpOptions.length)
+		{
+			var option = grpOptions.members[i];
+			if (option != null)
+			{
+				if (i == curSelected) {
+					option.alpha = 1.0;
+				} else if (i == mouseOverOption) {
+					option.alpha = 0.8;
+				} else {
+					option.alpha = 0.6;
+				}
+			}
+		}
 	}
 
 	function closeBinding()
@@ -507,6 +661,9 @@ class ControlsSubState extends MusicBeatSubstate
 
 		updateAlt();
 		FlxG.sound.play(Paths.sound('scrollMenu'));
+		
+		// 更新鼠标悬停状态
+		updateMouseHover();
 	}
 
 	function swapMode()
@@ -519,6 +676,11 @@ class ControlsSubState extends MusicBeatSubstate
 		curAlt = false;
 		controllerSpr.animation.play(onKeyboardMode ? 'keyboard' : 'gamepad');
 		createTexts();
+		
+		// 重置鼠标悬停状态
+		mouseOverOption = -1;
+		mouseOverBind = -1;
+		mouseOverController = false;
 	}
 
 	function updateAlt(?doSwap:Bool = false)
@@ -530,5 +692,28 @@ class ControlsSubState extends MusicBeatSubstate
 		}
 		selectSpr.sprTracker = grpBlacks.members[Math.floor(curSelected * 2) + (curAlt ? 1 : 0)];
 		selectSpr.visible = (selectSpr.sprTracker != null);
+	}
+	
+	function startBinding()
+	{
+		bindingBlack = new FlxSprite().makeGraphic(1, 1, FlxColor.WHITE);
+		bindingBlack.scale.set(FlxG.width, FlxG.height);
+		bindingBlack.updateHitbox();
+		bindingBlack.alpha = 0;
+		FlxTween.tween(bindingBlack, {alpha: 0.6}, 0.35, {ease: FlxEase.linear});
+		add(bindingBlack);
+
+		bindingText = new Alphabet(FlxG.width / 2, 160, Language.getPhrase('controls_rebinding', 'Rebinding {1}', [options[curOptions[curSelected]][3]]), false);
+		bindingText.alignment = CENTERED;
+		add(bindingText);
+		
+		bindingText2 = new Alphabet(FlxG.width / 2, 340, Language.getPhrase('controls_rebinding2', 'Hold ESC to Cancel\nHold Backspace to Delete'), true);
+		bindingText2.alignment = CENTERED;
+		add(bindingText2);
+
+		binding = true;
+		holdingEsc = 0;
+		ClientPrefs.toggleVolumeKeys(false);
+		FlxG.sound.play(Paths.sound('scrollMenu'));
 	}
 }
