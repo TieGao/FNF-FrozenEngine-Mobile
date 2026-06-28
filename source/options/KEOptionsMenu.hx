@@ -1271,6 +1271,10 @@ function onScrollChange()
 				KEOption.create("Save Freeplay Cache", "Save freeplay song metadata cache to disk", "saveFreeplayCache", "bool"),
 				KEOption.create("Space Back Ground EveryWhere", "Show space background everywhere", "globalspace", "bool"),
 				KEOption.create("Mod Folder Manager", "Organize mods in Freeplay using folder selector", "freeplayModFolder", "bool"),
+				KEOption.create("Audio Display Number", "Change the relax audio number", "relaxAudioNumber", "int", 16, 1, 64, 1),
+				KEOption.create("Audio Display Quality", "Change the relax audio display quality", "relaxAudioDisplayQuality", "int", 4, 1, 8, 1),
+				KEOption.create("Audio Display Update Speed", "Change the relax audio display update speed", "audioDisplayUpdate", "int", 33, 33, 100, 1),
+				KEOption.create("Audio Gain", "Change the relax audio range", "audioGain", "float", 1.0, 0.1, 10.0, 0.5),
 			],
 			"",
 			"Freeplay Settings"
@@ -1395,7 +1399,7 @@ function onScrollChange()
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
 		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
-		options.push(KEOption.create("Mobile Settings", "Vanilla Psych Mobile Settings", "", "action"));
+		// options.push(KEOption.create("Mobile Settings", "Vanilla Psych Mobile Settings", "", "action"));
 		
 		return options;
 	}

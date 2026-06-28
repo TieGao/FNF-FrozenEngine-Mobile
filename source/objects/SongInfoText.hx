@@ -14,7 +14,7 @@ class SongInfoText extends FlxText {
         this.state = state;
         this.setFormat(Paths.font("vcr.ttf"), 15, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
         this.scrollFactor.set();
-        this.borderSize = 1;
+        this.borderSize = 1.1;
         this.visible = !ClientPrefs.data.hideHud && ClientPrefs.data.songText;
         state.uiGroup.add(this);
         refresh();

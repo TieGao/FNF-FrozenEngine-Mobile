@@ -182,6 +182,7 @@ class LoadingState extends MusicBeatState
 		funkay.antialiasing = ClientPrefs.data.antialiasing;
 		funkay.setGraphicSize(0, FlxG.height);
 		funkay.updateHitbox();
+		funkay.screenCenter();
 		addBehindBar(funkay);
 		#end
 		
@@ -211,6 +212,8 @@ class LoadingState extends MusicBeatState
 	// 设置所有加载界面元素的透明度
 	function setAllAlpha(alpha:Float)
 	{
+		if (ClientPrefs.data.transitionType == "loading")  return;
+
 		#if PSYCH_WATERMARKS
 		for (member in members)
 		{
@@ -446,7 +449,7 @@ class LoadingState extends MusicBeatState
 		initialThreadCompleted = true;
 		isIntrusive = false;
 
-		FlxTransitionableState.skipNextTransIn = true;
+		if (ClientPrefs.data.transitionType == 'fade') FlxTransitionableState.skipNextTransIn = true;
 		if (threadPool != null) threadPool.shutdown(); // kill all workers safely
 		threadPool = null;
 		mutex = null;

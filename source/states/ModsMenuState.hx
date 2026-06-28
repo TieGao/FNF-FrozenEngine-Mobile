@@ -24,10 +24,6 @@ class ModsMenuState extends MusicBeatState
 	var modRestartText:FlxText;
 	var modsList:ModsList = null;
 
-	var space:FlxSprite;
-    var starsBG:FlxBackdrop;
-    var starsFG:FlxBackdrop;
-
 	var bgList:FlxSprite;
 	var buttonReload:MenuButton;
 	//var buttonModFolder:MenuButton;
@@ -81,36 +77,6 @@ class ModsMenuState extends MusicBeatState
 		add(bg);
 		bg.screenCenter();
 
-		space = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
-        space.antialiasing = ClientPrefs.data.antialiasing;
-        space.updateHitbox();
-        space.scrollFactor.set();
-        space.alpha = 0;
-        add(space);
-
-        starsBG = new FlxBackdrop(Paths.image('starBG'));
-        starsBG.setPosition(111.3, 67.95);
-        starsBG.antialiasing = true;
-        starsBG.updateHitbox();
-        starsBG.scrollFactor.set();
-        starsBG.alpha = 0;
-        add(starsBG);
-
-        starsFG = new FlxBackdrop(Paths.image('starFG'));
-        starsFG.setPosition(54.3, 59.45);
-        starsFG.updateHitbox();
-        starsFG.antialiasing = true;
-        starsFG.scrollFactor.set();
-        starsFG.alpha = 0;
-        add(starsFG);
-
-		if (ClientPrefs.data.globalspace)
-        {
-            space.alpha = 1;
-            starsBG.alpha = 1;
-            starsFG.alpha = 1;
-        }
-
 		bgList = FlxSpriteUtil.drawRoundRect(new FlxSprite(40, 40).makeGraphic(340, 440, FlxColor.TRANSPARENT), 0, 0, 340, 440, 15, 15, FlxColor.BLACK);
 		bgList.alpha = 0.6;
 
@@ -136,13 +102,8 @@ class ModsMenuState extends MusicBeatState
 		var buttonX = bgList.x;
 		var buttonWidth = Std.int(bgList.width);
 		var buttonHeight = 80;
-		var daY = 0;
-		if (controls.mobileC)
-			daY = 70;
-		else
-			daY = 20;
 
-		buttonReload = new MenuButton(buttonX, bgList.y + bgList.height + daY, buttonWidth, buttonHeight, Language.getPhrase('reload_button', 'RELOAD'), reload);
+		buttonReload = new MenuButton(buttonX, bgList.y + bgList.height + 20, buttonWidth, buttonHeight, Language.getPhrase('reload_button', 'RELOAD'), reload);
 		add(buttonReload);
 		
 		var myY = buttonReload.y + buttonReload.bg.height + 20;
@@ -175,8 +136,7 @@ class ModsMenuState extends MusicBeatState
 		});
 		buttonEnableAll.bg.color = FlxColor.GREEN;
 		buttonEnableAll.focusChangeCallback = function(focus:Bool) if(!focus) buttonEnableAll.bg.color = FlxColor.GREEN;
-		if(!controls.mobileC)
-			add(buttonEnableAll);
+		add(buttonEnableAll);
 
 		buttonDisableAll = new MenuButton(buttonX, myY, buttonWidth, buttonHeight, Language.getPhrase('disable_all_button', 'DISABLE ALL'), function() {
 			buttonDisableAll.ignoreCheck = false;
@@ -196,8 +156,7 @@ class ModsMenuState extends MusicBeatState
 		});
 		buttonDisableAll.bg.color = 0xFFFF6666;
 		buttonDisableAll.focusChangeCallback = function(focus:Bool) if(!focus) buttonDisableAll.bg.color = 0xFFFF6666;
-		if(!controls.mobileC)
-			add(buttonDisableAll);
+		add(buttonDisableAll);
 		checkToggleButtons();
 
 		if(modsList.all.length < 1)
@@ -206,7 +165,7 @@ class ModsMenuState extends MusicBeatState
 			buttonEnableAll.visible = true;
 
 			var myX = bgList.x + bgList.width + 20;
-			noModsTxt = new FlxText(myX, 0, FlxG.width - myX - 20, Language.getPhrase('no_mods_installed', "NO MODS INSTALLED\nPRESS {1} TO EXIT OR INSTALL A MOD", [daButton]), 48);
+			noModsTxt = new FlxText(myX, 0, FlxG.width - myX - 20, Language.getPhrase('no_mods_installed', 'NO MODS INSTALLED\nPRESS BACK TO EXIT OR INSTALL A MOD'), 48);
 			if(FlxG.random.bool(0.1)) noModsTxt.text += '\nBITCH.'; //meanie
 			noModsTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 			noModsTxt.borderSize = 2;
@@ -219,7 +178,6 @@ class ModsMenuState extends MusicBeatState
 
 			FlxG.autoPause = false;
 			changeSelectedMod();
-			addTouchPad('NONE', 'B');
 			return super.create();
 		}
 		//
@@ -262,13 +220,13 @@ class ModsMenuState extends MusicBeatState
 		button.icon.animation.play('icon', true);
 		add(button);
 		buttons.push(button);
-		
+
 		var button = new MenuButton(buttonsX + 100, buttonsY, 80, 80, Paths.image('modsMenuButtons'), function() moveModToPosition(curSelectedMod - 1), 54, 54); //Move up
 		button.icon.animation.add('icon', [1]);
 		button.icon.animation.play('icon', true);
 		add(button);
 		buttons.push(button);
-		
+
 		var button = new MenuButton(buttonsX + 200, buttonsY, 80, 80, Paths.image('modsMenuButtons'), function() moveModToPosition(curSelectedMod + 1), 54, 54); //Move down
 		button.icon.animation.add('icon', [2]);
 		button.icon.animation.play('icon', true);
@@ -341,19 +299,7 @@ class ModsMenuState extends MusicBeatState
 
 		changeSelectedMod();
 
-		var bottomBG = new FlxSprite(0, FlxG.height - 26).makeGraphic(FlxG.width, 26, 0xFF000000);
-		bottomBG.alpha = 0.6;
-		add(bottomBG);
-
-		var bottomText = new FlxText(bottomBG.x, bottomBG.y + 4, FlxG.width, Language.getPhrase('mods_leave', "Press {1} To Leave", [daButton]), 16);
-		bottomText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, CENTER);
-		bottomText.scrollFactor.set();
-		add(bottomText);
-
-		addTouchPad('UP_DOWN', 'B');
-		touchPad.y -= 215; // so that you can press the buttons.
-		if (controls.mobileC)
-			touchPad.alpha = 0.3;
+		addTouchPad('NONE', 'B');
 		super.create();
 	}
 	
@@ -364,18 +310,11 @@ class ModsMenuState extends MusicBeatState
 	var gottaClickAgain:Bool = false;
 
 	var holdTime:Float = 0;
-	var exiting:Bool = false;
+
 	override function update(elapsed:Float)
 	{
-		starsBG.x -= 0.05;
-        starsFG.x -= 0.15;
-        
-        if (starsBG.x < -starsBG.width) starsBG.x = 0;
-        if (starsFG.x < -starsFG.width) starsFG.x = 0;
-		
 		if(controls.BACK && hoveringOnMods)
 		{
-			exiting = true;
 			saveTxt();
 
 			FlxG.sound.play(Paths.sound('cancelMenu'));
@@ -426,7 +365,7 @@ class ModsMenuState extends MusicBeatState
 			var lastMode = hoveringOnMods;
 			if(modsList.all.length > 1)
 			{
-				if(!controls.mobileC && FlxG.mouse.justPressed)
+				if(FlxG.mouse.justPressed)
 				{
 					for (i in centerMod-2...centerMod+3)
 					{
@@ -471,8 +410,7 @@ class ModsMenuState extends MusicBeatState
 						holdTime += elapsed;
 						if(holdTime > 0.5 && Math.floor(lastHoldTime * 8) != Math.floor(holdTime * 8)) changeSelectedMod(shiftMult * (controls.UI_UP ? -1 : 1));
 					}
-
-					else if(FlxG.mouse.pressed && !controls.mobileC && !gottaClickAgain)
+					else if(FlxG.mouse.pressed && !gottaClickAgain)
 					{
 						var curMod:ModItem = modsGroup.members[curSelectedMod];
 						if(curMod != null)
@@ -520,7 +458,7 @@ class ModsMenuState extends MusicBeatState
 						}
 						
 					}
-					else if(FlxG.mouse.justReleased && !controls.mobileC && holdingMod)
+					else if(FlxG.mouse.justReleased && holdingMod)
 					{
 						holdingMod = false;
 						holdingElapsed = 0;
@@ -694,7 +632,7 @@ class ModsMenuState extends MusicBeatState
 			limited = true;
 		}
 		
-		if(!controls.mobileC && !isMouseWheel && limited && Math.abs(add) == 1)
+		if(!isMouseWheel && limited && Math.abs(add) == 1)
 		{
 			if(add < 0) // pressed up on first mod
 			{
@@ -826,8 +764,8 @@ class ModsMenuState extends MusicBeatState
 
 	function checkToggleButtons()
 	{
-		buttonEnableAll.visible = buttonEnableAll.enabled = buttonEnableAll.active = modsList.disabled.length > 0;
-		buttonDisableAll.visible = buttonDisableAll.enabled = buttonDisableAll.active = !buttonEnableAll.visible;
+		buttonEnableAll.visible = buttonEnableAll.enabled = modsList.disabled.length > 0;
+		buttonDisableAll.visible = buttonDisableAll.enabled = !buttonEnableAll.visible;
 	}
 
 	function reload()
@@ -854,7 +792,7 @@ class ModsMenuState extends MusicBeatState
 			fileStr += '$mod|$on';
 		}
 
-		var path:String = #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'modsList.txt';
+		var path:String = 'modsList.txt';
 		File.saveContent(path, fileStr);
 		Mods.parseList();
 		Mods.loadTopMod();
@@ -897,7 +835,10 @@ class ModItem extends FlxSpriteGroup
 			{
 				var errorTitle = 'Mod name: ' + Mods.currentModDirectory;
 				var errorMsg = 'An error occurred: $e';
-				CoolUtil.showPopUp(errorMsg, errorTitle);
+				#if windows
+				lime.app.Application.current.window.alert(errorMsg, errorTitle);
+				#end
+				trace('$errorTitle - $errorMsg');
 			}
 		}
 
@@ -1025,32 +966,17 @@ class MenuButton extends FlxSpriteGroup
 			return;
 		}
 
-		if (Controls.instance.mobileC) {
-			if(!ignoreCheck)
-				onFocus = TouchUtil.overlaps(this);
+		if(!ignoreCheck && !Controls.instance.controllerMode && FlxG.mouse.justMoved && FlxG.mouse.visible)
+			onFocus = FlxG.mouse.overlaps(this);
 
-			if(onFocus && TouchUtil.justReleased)
-				onFocus = false;
+		if(onFocus && onClick != null && FlxG.mouse.justPressed)
+			onClick();
 
-			if(onFocus && onClick != null && TouchUtil.justPressed)
-				onClick();
-
-			if(_needACheck) {
-				_needACheck = false;
-				setButtonVisibility(TouchUtil.overlaps(this));
-			}
-		} else {
-			if(!ignoreCheck && !Controls.instance.controllerMode && (FlxG.mouse.justPressed || FlxG.mouse.justMoved) && FlxG.mouse.visible)
-				onFocus = FlxG.mouse.overlaps(this);
-			
-			if(onFocus && onClick != null && FlxG.mouse.justPressed)
-				onClick();
-
-			if(_needACheck) {
-				_needACheck = false;
-				if(!Controls.instance.controllerMode)
-					setButtonVisibility(FlxG.mouse.overlaps(this));
-			}
+		if(_needACheck)
+		{
+			_needACheck = false;
+			if(!Controls.instance.controllerMode)
+				setButtonVisibility(FlxG.mouse.overlaps(this));
 		}
 	}
 
