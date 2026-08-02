@@ -185,7 +185,7 @@ class StatsSubState extends MusicBeatSubstate
             if (controls.BACK || FlxG.mouse.justPressedRight)
             {
                 leftState = true;
-                FlxG.sound.play(Paths.sound('cancelMenu'));
+                //FlxG.sound.play(Paths.sound('cancelMenu'));
                 
                 FlxTween.tween(bg, { alpha: 0.0 }, 0.6, { ease: FlxEase.sineOut });
                 

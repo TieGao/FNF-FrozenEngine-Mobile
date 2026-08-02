@@ -1185,12 +1185,13 @@ function onScrollChange()
 			KEOption.create("Fast Restart", "Fast Restart When Dead or Press 'R' ", "skipDeath", "bool"),
 			KEOption.create("Hitsound Volume", "Volume of hit sounds", "hitsoundVolume", "float", 0, 0, 1, 0.1),
 			KEOption.create("Rating Offset", "Adjust note hit timing", "ratingOffset", "int", 0, -30, 30, 1),
-			windowSettings, // 使用二级菜单
-			KEOption.create("Note Sustains Offset", "Adjust the timing offset for note sustains", "noteSustainsOffset", "float", 0, 0, 1, 0.05)
+			windowSettings,
+			KEOption.create("Show Stage", "Show the stage", "showStage", "bool"),
+			KEOption.create("Note Sustains Offset", "Adjust the timing offset for note sustains", "noteSustainsOffset", "float", 0, 0, 1, 0.05),
+			KEOption.create("KE Style Sustains", "Enable KE style note sustains", "keLike", "bool")
 		];
 	}
 
-	// 在 getVisualsOptions 函数中，添加皮肤设置二级菜单：
 	function getVisualsOptions():Array<KEOption>
 	{
 		// 创建皮肤设置二级菜单
@@ -1265,7 +1266,6 @@ function onScrollChange()
 			[
 				KEOption.create("Old Freeplay Menu", "Use Psych Engine Default Freeplay Menu", "oldFreeplay", "bool"),
 				KEOption.create("Card Glow", "Enable breathing glow under selected card", "cardGlow", "bool"),
-				//KEOption.create("Legacy Music Player", "Use Psych Engine Default Music Player", "legacymp", "bool"),
 				KEOption.create("Freeplay ToolBar", "Show tool bar in freeplay", "toolBar", "bool"),
 				KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "freeplayspace", "bool"),
 				KEOption.create("Save Freeplay Cache", "Save freeplay song metadata cache to disk", "saveFreeplayCache", "bool"),
@@ -1275,9 +1275,37 @@ function onScrollChange()
 				KEOption.create("Audio Display Quality", "Change the relax audio display quality", "relaxAudioDisplayQuality", "int", 4, 1, 8, 1),
 				KEOption.create("Audio Display Update Speed", "Change the relax audio display update speed", "audioDisplayUpdate", "int", 33, 33, 100, 1),
 				KEOption.create("Audio Gain", "Change the relax audio range", "audioGain", "float", 1.0, 0.1, 10.0, 0.5),
+
 			],
 			"",
 			"Freeplay Settings"
+		);
+
+		var judgementsCounterOptions = KEOption.createSubMenu(
+			"Judgements Counter",
+			"Configure Judgements Counter settings",
+			[
+				KEOption.create("Judgements Counter", "Show judgements counter", "Counter", "bool"),
+				KEOption.create("Show Highest Combo", "Show highest combo in judgements counter", "showHC", "bool"),
+				KEOption.create("Show Current Combo", "Show current combo in judgements counter", "showCB", "bool"),
+				KEOption.create("Show Total Notes Hit", "Show total notes in judgements counter", "showTNH", "bool"),
+				KEOption.create("Show Misses", "Show misses in judgements counter", "showMiss", "bool"),
+			],
+			"",
+			"Judgements Counter Settings"
+		);
+
+		var songInfoTextOptions = KEOption.createSubMenu(
+			"Song Info Text",
+			"Configure Song Info Text settings",
+			[
+				KEOption.create("Song Info Text", "Show Song Info Text", "songText", "bool"),
+				KEOption.create("Song Info Text Size", "Change the size of song info text", "songInfoTextSize", "float", 1.0, 0.5, 3.0, 0.1),
+				KEOption.create("Show Difficulty", "Show difficulty in song info text", "showDifficulty", "bool"),
+				KEOption.create("Song Engine Version", "Show engine version in song info text", "showEngineVer", "bool"),
+			],
+			"",
+			"Song Info Text Settings"
 		);
 		
 		return [
@@ -1286,6 +1314,8 @@ function onScrollChange()
 			keyboardDisplayOptions,
 			charthelperOptions,
 			freeplayOptions,
+			judgementsCounterOptions,
+			songInfoTextOptions,
 			KEOption.create("Hide HUD", "Hide most HUD elements", "hideHud", "bool"),
 			KEOption.create("Flashing Lights", "Enable screen flashes", "flashing", "bool"),
 			KEOption.create("Camera Zooms", "Zoom camera on beat", "camZooms", "bool"),
@@ -1299,9 +1329,8 @@ function onScrollChange()
 			KEOption.create("Combo Stacking", "Stack combo numbers", "comboStacking", "bool"),
 			KEOption.create("MS Number", "Make you know how late/early ur when hit notes", "showMS", "bool"),
 			KEOption.create("Health Text", "Show health as number", "healthText", "bool"),
-			KEOption.create("Song Text", "Show song info watermark", "songText", "bool"),
 			KEOption.create("Score Screen", "Show Kade-style results", "scoreScreen", "bool"),
-			KEOption.create("Judgements Counter", "Show judgments counter", "Counter", "bool"),
+			KEOption.create("Transition Type", "Choose the transition animation style when switching scenes", "transitionType", "string", ['fade', 'pixel', 'loading']),
 			KEOption.create("Charm Bar Pause", "Modern Pause Sub State", "charmPause", "bool"),
 			//KEOption.create("Impostor V3 Story Mode BG", "Use Impostor V3 Story Mode Background", "ImpStory", "bool")
 		];
@@ -1327,7 +1356,7 @@ function onScrollChange()
 			fpsOptions, // FPS 计数器二级菜单
 			KEOption.create("Low Quality", "Reduce graphics for performance", "lowQuality", "bool"),
 			KEOption.create("Anti-Aliasing", "Smoother visuals", "antialiasing", "bool"),
-			KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "int", 0, 0, 4, 1),
+			#if !mobile KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "int", 0, 0, 4, 1),#end
 			KEOption.create("Shaders", "Enable shader effects", "shaders", "bool"),
 			KEOption.create("GPU Caching", "Use GPU for texture caching", "cacheOnGPU", "bool"),
 			KEOption.create("Devide Draw And Update", "Draw and Update in separate threads", "devideDrawAndUpdate", "bool"),
@@ -1393,14 +1422,12 @@ function onScrollChange()
 		// 原有的其他选项
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
-		options.push(KEOption.create("Open EZ KeyBinds", "Customize key bindings in KE Styled Menu", "", "action"));
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
 		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
 		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 		// options.push(KEOption.create("Mobile Settings", "Vanilla Psych Mobile Settings", "", "action"));
-		
 		return options;
 	}
 

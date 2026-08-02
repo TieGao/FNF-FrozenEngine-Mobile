@@ -89,6 +89,7 @@ import states.TitleState;
 	public var guideLineAlpha:Float = 0.0;
 	public var modInfoBox:Bool = true;
 	public var toolBar:Bool = false;
+	public var freeplaySearch:Bool = true;
 	public var charmPause:Bool = false;
 	public var legacyMouseWheelScroll:Bool = false; //是否启用旧版鼠标滚轮行为（滚轮滚动数值选项时改变数值，滚轮滚动选项列表时滚动列表）
 	public var forceSplashSkin:Bool = false;
@@ -96,7 +97,7 @@ import states.TitleState;
 	public var forceRGBShader:Bool = false;
 
 	public var msInErrorBar:Bool = false; // 是否在误差条上显示ms文本
-
+	
 	public var totalPlaytime:Float = 0;        // 累计总时长（秒）
     public var sessionStartTime:Float = 0;     // 本次会话开始时间（毫秒时间戳）
 
@@ -185,19 +186,31 @@ import states.TitleState;
 	public var forceSplashSkins:Bool = false;
 	public var forceNoteRGB:Bool = false;
 
+	public var showHC:Bool = true;
+	public var showCB:Bool = true;
+	public var showMiss:Bool = true;
+	public var showTNH:Bool = true;
+	public var showEngineVer:Bool = true;
+	public var showDifficulty:Bool = true;
+
 	public var relaxAudioNumber:Int = 16;
 	public var relaxAudioDisplayQuality:Int = 4;
 	public var audioDisplayUpdate:Float = 33.0;
 	public var audioGain:Float = 1.5;
 	public var transitionType:String = "fade";
-
+	
 	public  var renderResolution:Int = 0;
+	public var useDpiSettings:Bool = true;
+	public var dpiSettingsAsked:Bool = false;
+	public var showStage:Bool = true;
 
 	public var showOS:Bool = false; // show os in fps counter
 	public var showTPS:Bool = false;
 	public var showMEMPeak:Bool = false;
 	public var showApi:Bool = false;
 
+	public var keLike:Bool = false;
+	public var clipoffset:Float = 0;
 	public var betaUpdates:Bool = false;
 }
 

@@ -1,11 +1,14 @@
 package objects;
 
+import backend.Rating;
+import flixel.FlxG;
 import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import states.PlayState;
 
 class JudgementCounter {
     public var state:PlayState;
+    public var side:String;
     public var tnhText:FlxText;
     public var highestcomboText:FlxText;
     public var comboText:FlxText;
@@ -15,9 +18,14 @@ class JudgementCounter {
     public var badText:FlxText;
     public var shitText:FlxText;
     public var missText:FlxText;
+    
+    // 存储所有文本对象以便统一管理
+    private var allTexts:Array<FlxText> = [];
+    private var visibleItems:Int = 0;
 
-    public function new(state:PlayState) {
+    public function new(state:PlayState, ?side:String) {
         this.state = state;
+        this.side = if (side == null) "player" else side;
         if (!ClientPrefs.data.Counter) return;
 
         var font:String = Paths.font("vcr.ttf");
@@ -25,20 +33,75 @@ class JudgementCounter {
         var textWidth:Float = 280;
         var verticalSpacing:Float = 24;
         var startX:Float = 10;
-        var startY:Float = 250;
-
-        tnhText = createText(startX, startY, textWidth, "Total Notes Hit: 0", font, textSize, FlxColor.WHITE);
-        highestcomboText = createText(startX, startY + verticalSpacing, textWidth, "Highest Combo: 0", font, textSize, FlxColor.WHITE);
-        comboText = createText(startX, startY + verticalSpacing * 2, textWidth, "Combo: 0", font, textSize, FlxColor.WHITE);
-        marvelousText = createText(startX, startY + verticalSpacing * 3, textWidth, "Marvelous: 0", font, textSize, FlxColor.fromRGB(255,215,0));
-        sickText = createText(startX, startY + verticalSpacing * 4, textWidth, "Sicks: 0", font, textSize, FlxColor.fromRGB(0,191,255) );
-        goodText = createText(startX, startY + verticalSpacing * 5, textWidth, "Goods: 0", font, textSize, FlxColor.fromRGB(0,205,0) );
-        badText = createText(startX, startY + verticalSpacing * 6, textWidth, "Bads: 0", font, textSize, FlxColor.fromRGB(238,0,0) );
-        shitText = createText(startX, startY + verticalSpacing * 7, textWidth, "Shits: 0", font, textSize, FlxColor.fromRGB(205,0,0) );
-        missText = createText(startX, startY + verticalSpacing * 8, textWidth, "Misses: 0", font, textSize, FlxColor.fromRGB(139,0,0) );
+        var textAlign = LEFT;
+        var baseColor:FlxColor = if (this.side == "opponent") FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]) else FlxColor.fromRGB(state.boyfriend.healthColorArray[0], state.boyfriend.healthColorArray[1], state.boyfriend.healthColorArray[2]);
+        var startY:Float = FlxG.height / 2;
+        
+        // 先计算可见项的数量
+        var tempIndex:Int = 0;
+        if (ClientPrefs.data.showTNH) tempIndex++;
+        if (ClientPrefs.data.showHC) tempIndex++;
+        if (ClientPrefs.data.showCB) tempIndex++;
+        tempIndex++; // Marvelous
+        tempIndex++; // Sicks
+        tempIndex++; // Goods
+        tempIndex++; // Bads
+        tempIndex++; // Shits
+        if (ClientPrefs.data.showMiss) tempIndex++;
+        visibleItems = tempIndex;
+        
+        // 计算总高度
+        var totalHeight:Float = visibleItems * verticalSpacing;
+        // 居中计算：从中心点减去总高度的一半，再加上单个项目高度的一半
+        var centeredY:Float = startY - (totalHeight / 2) + (verticalSpacing / 2);
+        
+        // 重置索引用于实际创建
+        var currentIndex:Int = 0;
+        
+        // 根据设置决定是否创建各个文本项
+        if (ClientPrefs.data.showTNH) {
+            tnhText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Total Notes Hit: 0", font, textSize, baseColor, textAlign);
+            allTexts.push(tnhText);
+            currentIndex++;
+        }
+        
+        if (ClientPrefs.data.showHC) {
+            highestcomboText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Highest Combo: 0", font, textSize, baseColor, textAlign);
+            allTexts.push(highestcomboText);
+            currentIndex++;
+        }
+        
+        if (ClientPrefs.data.showCB) {
+            comboText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Combo: 0", font, textSize, baseColor, textAlign);
+            allTexts.push(comboText);
+            currentIndex++;
+        }
+        
+        // 评级统计（始终显示）
+        marvelousText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Marvelous: 0", font, textSize, FlxColor.fromRGB(255,215,0), textAlign);
+        allTexts.push(marvelousText);
+        currentIndex++;
+        sickText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Sicks: 0", font, textSize, FlxColor.fromRGB(0,191,255), textAlign);
+        allTexts.push(sickText);
+        currentIndex++;
+        goodText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Goods: 0", font, textSize, FlxColor.fromRGB(0,205,0), textAlign);
+        allTexts.push(goodText);
+        currentIndex++;
+        badText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Bads: 0", font, textSize, FlxColor.fromRGB(238,0,0), textAlign);
+        allTexts.push(badText);
+        currentIndex++;
+        shitText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Shits: 0", font, textSize, FlxColor.fromRGB(205,0,0), textAlign);
+        allTexts.push(shitText);
+        currentIndex++;
+        
+        if (ClientPrefs.data.showMiss) {
+            missText = createText(startX, centeredY + verticalSpacing * currentIndex, textWidth, "Misses: 0", font, textSize, FlxColor.fromRGB(139,0,0), textAlign);
+            allTexts.push(missText);
+            currentIndex++;
+        }
     }
 
-    private function createText(x:Float, y:Float, w:Float, txt:String, font:String, size:Int, ?color:FlxColor):FlxText {
+    private function createText(x:Float, y:Float, w:Float, txt:String, font:String, size:Int, ?color:FlxColor, ?align:Dynamic):FlxText {
         var t:FlxText = new FlxText(x, y, w, txt, size);
         t.setFormat(font, size, (color != null ? color : FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2])), LEFT, OUTLINE, FlxColor.BLACK);
         t.scrollFactor.set(0, 0);
@@ -50,22 +113,47 @@ class JudgementCounter {
 
     public function refresh():Void {
         if (!ClientPrefs.data.Counter) return;
-        if (tnhText != null) tnhText.text = "Total Notes Hit: " + state.songHits;
-        if (highestcomboText != null) highestcomboText.text = "Highest Combo: " + state.highestCombo;
-        if (comboText != null) comboText.text = "Combo: " + state.combo;
-        if (marvelousText != null) marvelousText.text = "Marvelous: " + state.ratingsData[0].hits;
-        if (sickText != null) sickText.text = "Sicks: " + state.ratingsData[1].hits;
-        if (goodText != null) goodText.text = "Goods: " + state.ratingsData[2].hits;
-        if (badText != null) badText.text = "Bads: " + state.ratingsData[3].hits;
-        if (shitText != null) shitText.text = "Shits: " + state.ratingsData[4].hits;
-        if (missText != null) missText.text = "Misses: " + state.songMisses;
 
-        // 颜色刷新
+        var hits:Int = 0;
+        var highestCombo:Int = 0;
+        var comboValue:Int = 0;
+        var ratings:Array<Rating> = null;
+        var misses:Int = 0;
+
+        hits = state.songHits;
+        highestCombo = state.highestCombo;
+        comboValue = state.combo;
+        ratings = state.ratingsData;
+        misses = state.songMisses;
+        
+        // 更新文本 - 只有在对应的设置开启且文本对象存在时才更新
+        if (tnhText != null && ClientPrefs.data.showTNH) {
+            tnhText.text = "Total Notes Hit: " + hits;
+        }
+        if (highestcomboText != null && ClientPrefs.data.showHC) {
+            highestcomboText.text = "Highest Combo: " + highestCombo;
+        }
+        if (comboText != null && ClientPrefs.data.showCB) {
+            comboText.text = "Combo: " + comboValue;
+        }
+        
+        // 评级统计始终更新（除非隐藏HUD）
+        if (marvelousText != null) marvelousText.text = "Marvelous: " + ratings[0].hits;
+        if (sickText != null) sickText.text = "Sicks: " + ratings[1].hits;
+        if (goodText != null) goodText.text = "Goods: " + ratings[2].hits;
+        if (badText != null) badText.text = "Bads: " + ratings[3].hits;
+        if (shitText != null) shitText.text = "Shits: " + ratings[4].hits;
+        
+        if (missText != null && ClientPrefs.data.showMiss) {
+            missText.text = "Misses: " + misses;
+        }
+
+        // 颜色更新
         if (ClientPrefs.data.customColor) {
-            var opponentColor:FlxColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);
-            if (tnhText != null) tnhText.color = opponentColor;
-            if (highestcomboText != null) highestcomboText.color = opponentColor;
-            if (comboText != null) comboText.color = opponentColor;
+            var color:FlxColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);
+            if (tnhText != null) tnhText.color = color;
+            if (highestcomboText != null) highestcomboText.color = color;
+            if (comboText != null) comboText.color = color;
         }
     }
 }
