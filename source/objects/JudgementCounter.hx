@@ -32,7 +32,7 @@ class JudgementCounter {
         var textSize:Int = 20;
         var textWidth:Float = 280;
         var verticalSpacing:Float = 24;
-        var startX:Float = 10;
+        var startX:Float =  #if ios 90 #elseif mobile 40 #else 10#end;
         var textAlign = LEFT;
         var baseColor:FlxColor = if (this.side == "opponent") FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]) else FlxColor.fromRGB(state.boyfriend.healthColorArray[0], state.boyfriend.healthColorArray[1], state.boyfriend.healthColorArray[2]);
         var startY:Float = FlxG.height / 2;
