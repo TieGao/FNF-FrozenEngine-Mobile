@@ -1827,7 +1827,8 @@ class PlayState extends MusicBeatState
 	public var skipArrowStartTween:Bool = false; //for lua
 	private function generateStaticArrows(player:Int):Void
 	{
-		var strumLineX:Float = ClientPrefs.data.middleScroll ? STRUM_X_MIDDLESCROLL : STRUM_X;
+		var screenWidthRatio:Float = FlxG.width / 1280.0;
+		var strumLineX:Float = ClientPrefs.data.middleScroll ? STRUM_X_MIDDLESCROLL * screenWidthRatio : STRUM_X * screenWidthRatio * screenWidthRatio * screenWidthRatio * screenWidthRatio;
 		var strumLineY:Float = ClientPrefs.data.downScroll ? (FlxG.height - 150) : 50;
 		for (i in 0...4)
 		{
@@ -3371,7 +3372,7 @@ var effectiveNoteDiff:Float = (rawNoteDiff != null) ? rawNoteDiff : note.strumTi
             }
             
             numScore.loadGraphic(Paths.image(numPath));
-				numScore.screenCenter();
+			numScore.screenCenter();
             numScore.x = placement + (43 * i) - 90 + ClientPrefs.data.comboOffset[2];
 			numScore.y = numScore.y + 80 - ClientPrefs.data.comboOffset[3]; 
 
