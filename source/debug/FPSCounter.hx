@@ -17,8 +17,13 @@ import lime.graphics.RenderContextType;
 #if cpp
 #if windows
 @:cppFileCode('#include <windows.h>')
-#elseif (ios || mac)
+#elseif mac
 @:cppFileCode('#include <mach-o/arch.h>')
+#elseif ios
+@:cppFileCode('
+	#include <sys/sysctl.h>
+	#include <sys/types.h>
+')
 #else
 @:headerInclude('sys/utsname.h')
 #end
@@ -47,25 +52,15 @@ class FPSCounter extends TextField
 	@:noCompletion private var tpsCount:Int;
 	@:noCompletion private var prevTPSTime:Int;
 
-	public var os:String = '';
 	public var graphicsAPI:String = '';
 
 	public function new(x:Float = 10, y:Float = 10, color:Int = 0x000000)
 	{
 		super();
 		
-		// 获取图形 API 信息
+		// 获取图形 API 信息（运行时不变，只获取一次）
 		graphicsAPI = getGraphicsAPI();
 		
-		// 获取操作系统信息
-		if (ClientPrefs.data.showOS)
-		{
-			if (LimeSystem.platformName == LimeSystem.platformVersion || LimeSystem.platformVersion == null)
-				os = LimeSystem.platformName #if cpp + (getArch() != 'Unknown' ? ' ${getArch()}' : '') #end;
-			else
-				os = LimeSystem.platformName #if cpp + (getArch() != 'Unknown' ? ' ${getArch()}' : '') #end + ' - ${LimeSystem.platformVersion}';
-		}
-
 		positionFPS(x, y);
 
 		currentFPS = 0;
@@ -184,11 +179,28 @@ class FPSCounter extends TextField
 		#end
 	}
 
+	/**
+		实时获取操作系统信息
+	**/
+	private function getOSInfo():String
+	{
+		if (!ClientPrefs.data.showOS) return '';
+		
+		var platformName = LimeSystem.platformName;
+		var platformVersion = LimeSystem.platformVersion;
+		var arch = #if cpp getArch() #else "" #end;
+		
+		if (platformName == platformVersion || platformVersion == null)
+			return platformName + (arch != 'Unknown' && arch != '' ? ' $arch' : '');
+		else
+			return platformName + (arch != 'Unknown' && arch != '' ? ' $arch' : '') + ' - $platformVersion';
+	}
+
 	public dynamic function updateText():Void
 	{
 		var lines:Array<String> = [];
 		
-		// 第一行：FPS | TPS（不带括号内数值）
+		// 第一行：FPS | TPS
 		var fpsTpsLine = 'FPS: $currentFPS';
 		if (ClientPrefs.data.showTPS)
 		{
@@ -205,11 +217,12 @@ class FPSCounter extends TextField
 		}
 		lines.push(memLine);
 		
-		// 第三行：OS 和 Render（在同一行，用 | 分隔）
+		// 第三行：OS 和 Render（实时获取，切换设置立即生效）
 		var infoParts:Array<String> = [];
-		if (ClientPrefs.data.showOS && os != '')
+		if (ClientPrefs.data.showOS)
 		{
-			infoParts.push('OS: $os');
+			var osInfo = getOSInfo();
+			if (osInfo != '') infoParts.push('OS: $osInfo');
 		}
 		if (ClientPrefs.data.showApi && graphicsAPI != '')
 		{
@@ -310,29 +323,40 @@ class FPSCounter extends TextField
 	#if windows
 	@:functionCode('
 		SYSTEM_INFO osInfo;
-
 		GetSystemInfo(&osInfo);
-
 		switch(osInfo.wProcessorArchitecture)
 		{
-			case 9:
-				return ::String("x86_64");
-			case 5:
-				return ::String("ARM");
-			case 12:
-				return ::String("ARM64");
-			case 6:
-				return ::String("IA-64");
-			case 0:
-				return ::String("x86");
-			default:
-				return ::String("Unknown");
+			case 9: return ::String("x86_64");
+			case 5: return ::String("ARM");
+			case 12: return ::String("ARM64");
+			case 6: return ::String("IA-64");
+			case 0: return ::String("x86");
+			default: return ::String("Unknown");
 		}
 	')
-	#elseif (ios || mac)
+	#elseif mac
 	@:functionCode('
 		const NXArchInfo *archInfo = NXGetLocalArchInfo();
-    	return ::String(archInfo == NULL ? "Unknown" : archInfo->name);
+		return ::String(archInfo == NULL ? "Unknown" : archInfo->name);
+	')
+	#elseif ios
+	@:functionCode('
+		#if TARGET_OS_SIMULATOR
+			return ::String("x86_64");
+		#else
+			size_t size;
+			cpu_type_t type;
+			size = sizeof(type);
+			sysctlbyname("hw.cputype", &type, &size, NULL, 0);
+			
+			switch(type)
+			{
+				case 16777228: return ::String("ARM64");  // CPU_TYPE_ARM64
+				case 12: return ::String("ARM");          // CPU_TYPE_ARM
+				case 16777234: return ::String("ARM64_32"); // CPU_TYPE_ARM64_32
+				default: return ::String("ARM");
+			}
+		#endif
 	')
 	#else
 	@:functionCode('
