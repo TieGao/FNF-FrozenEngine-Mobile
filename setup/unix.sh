@@ -8,7 +8,7 @@ mkdir ~/haxelib && haxelib setup ~/haxelib
 echo Installing dependencies...
 echo This might take a few moments depending on your internet speed.
 haxelib git hxcpp https://github.com/TieGao/hxcpp --quiet
-haxelib install lime 8.3.2 --quiet
+haxelib git https://github.com/TieGao/lime --quiet
 haxelib git openfl https://github.com/TieGao/openfl
 haxelib git flixel https://github.com/TieGao/flixel --quiet
 haxelib git flixel-addons https://github.com/TieGao/flixel-addons --skip-dependencies
