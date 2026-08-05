@@ -19,12 +19,7 @@ import lime.graphics.RenderContextType;
 @:cppFileCode('#include <windows.h>')
 #elseif mac
 @:cppFileCode('#include <mach-o/arch.h>')
-#elseif ios
-@:cppFileCode('
-	#include <sys/sysctl.h>
-	#include <sys/types.h>
-')
-#else
+#elseif linux
 @:headerInclude('sys/utsname.h')
 #end
 #end
@@ -188,12 +183,18 @@ class FPSCounter extends TextField
 		
 		var platformName = LimeSystem.platformName;
 		var platformVersion = LimeSystem.platformVersion;
-		var arch = #if cpp getArch() #else "" #end;
 		
+		#if ios
+		// iOS 只显示系统版本，不显示架构
+		return platformVersion != null ? 'iOS $platformVersion' : 'iOS';
+		#else
+		// 其他平台显示系统名称 + 架构 + 版本
+		var arch = #if cpp getArch() #else "" #end;
 		if (platformName == platformVersion || platformVersion == null)
 			return platformName + (arch != 'Unknown' && arch != '' ? ' $arch' : '');
 		else
 			return platformName + (arch != 'Unknown' && arch != '' ? ' $arch' : '') + ' - $platformVersion';
+		#end
 	}
 
 	public dynamic function updateText():Void
@@ -339,26 +340,7 @@ class FPSCounter extends TextField
 		const NXArchInfo *archInfo = NXGetLocalArchInfo();
 		return ::String(archInfo == NULL ? "Unknown" : archInfo->name);
 	')
-	#elseif ios
-	@:functionCode('
-		#if TARGET_OS_SIMULATOR
-			return ::String("x86_64");
-		#else
-			size_t size;
-			cpu_type_t type;
-			size = sizeof(type);
-			sysctlbyname("hw.cputype", &type, &size, NULL, 0);
-			
-			switch(type)
-			{
-				case 16777228: return ::String("ARM64");  // CPU_TYPE_ARM64
-				case 12: return ::String("ARM");          // CPU_TYPE_ARM
-				case 16777234: return ::String("ARM64_32"); // CPU_TYPE_ARM64_32
-				default: return ::String("ARM");
-			}
-		#endif
-	')
-	#else
+	#elseif linux
 	@:functionCode('
 		struct utsname osInfo{};
 		uname(&osInfo);
