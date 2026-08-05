@@ -66,9 +66,14 @@ class CopyState extends MusicBeatState
 			return;
 		}
 
-		CoolUtil.showPopUp("Seems like you have some missing files that are necessary to run the game\nPress OK to begin the copy process", Language.getPhrase('mobile_notice', 'Notice!'));
-
+		#if ios
+		// iOS: 直接开始复制，不显示弹窗
 		shouldCopy = true;
+		#else
+		// 其他平台: 显示弹窗询问
+		CoolUtil.showPopUp("Seems like you have some missing files that are necessary to run the game\nPress OK to begin the copy process", Language.getPhrase('mobile_notice', 'Notice!'));
+		shouldCopy = true;
+		#end
 
 		add(new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, 0xffcaff4d));
 
