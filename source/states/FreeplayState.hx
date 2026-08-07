@@ -281,10 +281,10 @@ class FreeplayState extends MusicBeatState
         cardScroller.mouseWheelSensitivity = -200.0;
         add(cardScroller);
 
-        scoreText = new FlxText(FlxG.width * 0.7, 85, 0, "", 32);
+        scoreText = new FlxText(FlxG.width * 0.7, 170, 0, "", 32);
         scoreText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, RIGHT);
 
-        scoreBG = new FlxSprite(scoreText.x - 6, 85).makeGraphic(1, 66, 0xFF000000);
+        scoreBG = new FlxSprite(scoreText.x - 6, 170).makeGraphic(1, 66, 0xFF000000);
         scoreBG.alpha = 0.8;
         add(scoreBG);
         add(scoreText);
@@ -418,7 +418,7 @@ class FreeplayState extends MusicBeatState
 
         if (ClientPrefs.data.toolBar)
         {
-            toolBar = new ToolBar(this, FlxG.width, 50);
+            toolBar = new ToolBar(this, FlxG.width, 75);
             add(toolBar);
 
             bottomBG = new FlxSprite(0, FlxG.height - 26).makeGraphic(FlxG.width, 26, 0xFF000000);

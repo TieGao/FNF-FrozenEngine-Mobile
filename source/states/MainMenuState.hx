@@ -139,17 +139,17 @@ class MainMenuState extends MusicBeatState
 		var frozenVer:FlxText = new FlxText(12, FlxG.height - 64, 0, "Frozen Engine Mobile v" + frozenEngineVersion, 12);
 		frozenVer.scrollFactor.set();
 		frozenVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
-		frozenVer.borderSize = 1.1;
+		frozenVer.borderSize = 1;
 		add(frozenVer);
 		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Psych Engine v" + psychEngineVersion, 12);
 		psychVer.scrollFactor.set();
 		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
-		psychVer.borderSize = 1.1;
+		psychVer.borderSize = 1;
 		add(psychVer);
-		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + Application.current.meta.get('version'), 12);
+		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + "0.3.0", 12);
 		fnfVer.scrollFactor.set();
 		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
-		fnfVer.borderSize = 1.1;
+		fnfVer.borderSize = 1;
 		add(fnfVer);
 		changeItem();
 

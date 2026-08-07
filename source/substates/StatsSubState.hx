@@ -55,6 +55,8 @@ class StatsSubState extends MusicBeatSubstate
         FlxTween.tween(bg, { alpha: 0.85 }, 0.6, { ease: FlxEase.sineIn });
         FlxTween.tween(titleText, { alpha: 1.0 }, 0.6, { ease: FlxEase.sineIn });
         FlxTween.tween(hintText, { alpha: 1.0 }, 0.6, { ease: FlxEase.sineIn, startDelay: 0.3 });
+        addTouchPad('LEFT_RIGHT', 'B');
+        addTouchPadCamera();
     }
     
     function showPage(page:Int)

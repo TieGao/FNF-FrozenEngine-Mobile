@@ -193,7 +193,7 @@ import states.TitleState;
 	public var showEngineVer:Bool = true;
 	public var showDifficulty:Bool = true;
 
-	public var relaxAudioNumber:Int = 16;
+	public var relaxAudioNumber:Int = 64;
 	public var relaxAudioDisplayQuality:Int = 4;
 	public var audioDisplayUpdate:Float = 33.0;
 	public var audioGain:Float = 1.5;
