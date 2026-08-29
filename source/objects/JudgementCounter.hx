@@ -32,10 +32,16 @@ class JudgementCounter {
         var textSize:Int = 20;
         var textWidth:Float = 280;
         var verticalSpacing:Float = 24;
-        var startX:Float =  #if ios 90 #elseif mobile 40 #else 10#end;
-        var textAlign = LEFT;
+        var startX:Float = if (this.side == "player") FlxG.width - textWidth - 10 else #if ios 90 #elseif mobile 40 #else 10#end;
+        var textAlign = if (this.side == "player") RIGHT else LEFT;
         var baseColor:FlxColor = if (this.side == "opponent") FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]) else FlxColor.fromRGB(state.boyfriend.healthColorArray[0], state.boyfriend.healthColorArray[1], state.boyfriend.healthColorArray[2]);
         var startY:Float = FlxG.height / 2;
+        if(!state.isSplitCoopMode()) 
+        {
+            startX = 10;
+            textAlign = LEFT;
+            baseColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);       
+        }
         
         // 先计算可见项的数量
         var tempIndex:Int = 0;
@@ -103,7 +109,9 @@ class JudgementCounter {
 
     private function createText(x:Float, y:Float, w:Float, txt:String, font:String, size:Int, ?color:FlxColor, ?align:Dynamic):FlxText {
         var t:FlxText = new FlxText(x, y, w, txt, size);
-        t.setFormat(font, size, (color != null ? color : FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2])), LEFT, OUTLINE, FlxColor.BLACK);
+        var textAlign:Dynamic = if (align != null) align else LEFT;
+        t.antialiasing = ClientPrefs.data.antialiasing;
+        t.setFormat(font, size, (color != null ? color : FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2])), textAlign, OUTLINE, FlxColor.BLACK);
         t.scrollFactor.set(0, 0);
         t.borderSize = 2.00;
         t.visible = !ClientPrefs.data.hideHud;
@@ -114,17 +122,19 @@ class JudgementCounter {
     public function refresh():Void {
         if (!ClientPrefs.data.Counter) return;
 
-        var hits:Int = 0;
-        var highestCombo:Int = 0;
-        var comboValue:Int = 0;
-        var ratings:Array<Rating> = null;
-        var misses:Int = 0;
+        var hits:Int = if (side == "opponent") state.opponentSongHits else state.playerSongHits;
+        var highestCombo:Int = if (side == "opponent") state.opponentHighestCombo else state.playerHighestCombo;
+        var comboValue:Int = if (side == "opponent") state.opponentCombo else state.playerCombo;
+        var ratings:Array<Rating> = if (side == "opponent") state.opponentRatingsData else state.playerRatingsData;
+        var misses:Int = if (side == "opponent") state.opponentSongMisses else state.playerSongMisses;
 
-        hits = state.songHits;
-        highestCombo = state.highestCombo;
-        comboValue = state.combo;
-        ratings = state.ratingsData;
-        misses = state.songMisses;
+        if (!PlayState.instance.isSplitCoopMode()) {
+            hits = state.songHits;
+            highestCombo = state.highestCombo;
+            comboValue = state.combo;
+            ratings = state.ratingsData;
+            misses = state.songMisses;
+        }
         
         // 更新文本 - 只有在对应的设置开启且文本对象存在时才更新
         if (tnhText != null && ClientPrefs.data.showTNH) {
@@ -150,7 +160,7 @@ class JudgementCounter {
 
         // 颜色更新
         if (ClientPrefs.data.customColor) {
-            var color:FlxColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);
+            var color:FlxColor = if (side == "opponent") FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]) else FlxColor.fromRGB(state.boyfriend.healthColorArray[0], state.boyfriend.healthColorArray[1], state.boyfriend.healthColorArray[2]);
             if (tnhText != null) tnhText.color = color;
             if (highestcomboText != null) highestcomboText.color = color;
             if (comboText != null) comboText.color = color;

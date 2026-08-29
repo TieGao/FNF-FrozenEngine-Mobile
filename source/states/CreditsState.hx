@@ -13,7 +13,7 @@ class CreditsState extends MusicBeatState
 	private var iconArray:Array<AttachedSprite> = [];
 	private var creditsStuff:Array<Array<String>> = [];
 
-	var bg:FlxSprite;
+	var bg:FlxFilteredSprite;
 	var descText:FlxText;
 	var intendedColor:FlxColor;
 	var descBox:AttachedSprite;
@@ -43,12 +43,14 @@ class CreditsState extends MusicBeatState
 		#end
 
 		persistentUpdate = true;
-		bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
+		bg = new FlxFilteredSprite();
+		bg.loadGraphic(Paths.image('menuDesat'));
+		if(ClientPrefs.data.blurEffects)bg.filters = [new BlurFilter(5, 5, BitmapFilterQuality.HIGH)];
 		bg.antialiasing = ClientPrefs.data.antialiasing;
 		add(bg);
 		bg.screenCenter();
-		
-		        space = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
+
+		space = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
         space.antialiasing = ClientPrefs.data.antialiasing;
         space.updateHitbox();
         space.scrollFactor.set();
@@ -56,7 +58,7 @@ class CreditsState extends MusicBeatState
         add(space);
 
         starsBG = new FlxBackdrop(Paths.image('starBG'));
-        starsBG.setPosition(FlxG.width * 0.08, FlxG.height * 0.095);
+        starsBG.setPosition(111.3, 67.95);
         starsBG.antialiasing = true;
         starsBG.updateHitbox();
         starsBG.scrollFactor.set();
@@ -64,7 +66,7 @@ class CreditsState extends MusicBeatState
         add(starsBG);
 
         starsFG = new FlxBackdrop(Paths.image('starFG'));
-        starsFG.setPosition(FlxG.width * 0.04, FlxG.height * 0.08);
+        starsFG.setPosition(54.3, 59.45);
         starsFG.updateHitbox();
         starsFG.antialiasing = true;
         starsFG.scrollFactor.set();
@@ -110,22 +112,22 @@ class CreditsState extends MusicBeatState
             ["KadeDev",             "kade",             "Fixed some issues on Chart Editor and Other PRs",          "https://x.com/kade0912",           "64A250"],
             ["superpowers04",       "superpowers04",    "LUA JIT Fork",                                             "https://x.com/superpowers04",      "B957ED"],
             ["CheemsAndFriends",    "cheems",           "Creator of FlxAnimate",                                    "https://x.com/CheemsnFriendos",    "E1E1E1"],
-			[""],
-			["Funkin' Crew"],
+            [""],
+            ["Funkin' Crew"],
             ["ninjamuffin99",       "ninjamuffin99",    "Programmer of Friday Night Funkin'",                       "https://x.com/ninja_muffin99",     "CF2D2D"],
             ["PhantomArcade",       "phantomarcade",    "Animator of Friday Night Funkin'",                         "https://x.com/PhantomArcade3K",    "FADC45"],
             ["evilsk8r",            "evilsk8r",         "Artist of Friday Night Funkin'",                           "https://x.com/evilsk8r",           "5ABD4B"],
             ["kawaisprite",         "kawaisprite",      "Composer of Friday Night Funkin'",                         "https://x.com/kawaisprite",        "378FC7"],
-			[""],
-			["Psych Engine Discord"],
+            [""],
+            ["Psych Engine Discord"],
             ["Join the Psych Ward!", "discord", "", "https://discord.gg/2ka77eMXDv", "5165F6"],
             [""],
             ["Frozen Engine Creator"],
-            ["Ice_Axe",         "iceaxe",       "Creator of Frozen Engine", "https://github.com/TieGao",     "87CEEB"],
+            ["Ice_Axe",         "iceaxe",       "Creator of Frozen Engine","https://github.com/TieGao",     "87CEEB"],
 			["Special Thanks"],
 			["beihu", "novaflare", "Original of KeyboardViewer", "https://space.bilibili.com/511083372", "FF69B4"],
-			["MaybeMaru","","Chart Converter Lib","https://lib.haxe.org/p/moonchart/", "FF69B4"]
-		];
+			//["MaybeMaru","","Chart Converter Lib","https://lib.haxe.org/p/moonchart/", "FF69B4"]
+        ];
 		
 		for(i in defaultList)
 			creditsStuff.push(i);
@@ -185,7 +187,8 @@ class CreditsState extends MusicBeatState
 		descBox.alpha = 0.6;
 		add(descBox);
 
-		descText = new FlxText(50, FlxG.height + offsetThing - 25, FlxG.width - 100, "", 32);
+		descText = new FlxText(50, FlxG.height + offsetThing - 25, 1180, "", 32);
+		descText.antialiasing = ClientPrefs.data.antialiasing;
 		descText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER/*, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK*/);
 		descText.scrollFactor.set();
 		//descText.borderSize = 2.4;
@@ -196,7 +199,7 @@ class CreditsState extends MusicBeatState
 		intendedColor = bg.color;
 		changeSelection();
 		setupCreditsScroller();
-
+		
 		// 初始化鼠标位置
 		lastMousePosition.set(FlxG.mouse.screenX, FlxG.mouse.screenY);
 
@@ -399,7 +402,7 @@ class CreditsState extends MusicBeatState
 	{
 		// 如果change为0，不播放声音
 		if(change != 0)
-		FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+			FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
 			
 		do
 		{

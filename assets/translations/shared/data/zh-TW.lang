@@ -44,7 +44,7 @@ freeplay_rating: "評分: {1}"
 freeplay_notes_side: "玩家: {1} / 對手: {2}"
 freeplay_notes_missing: "音符: --"
 freeplay_rating_missing: "評分: --"
-freeplay_tip: "按X試聽/按C打開修改器選單/按Y清除分數"
+freeplay_tip: "按SPACE試聽/按CTRL打開修改器選單/按RESET清除分數"
 
 charting_help_prompt: "按F1查看說明"
 charting_help_list: "W/S/滑鼠滾輪 - 移動指揮時間\nA/D - 切換小節\nQ/E - 減少/增加音符長按長度\n按住Shift/Alt以4倍速度增加/減少移動\n\nF12 - 預覽譜面\nEnter - 試玩譜面\nSpace - 停止/繼續歌曲\n\nAlt + 單擊 - 選擇音符\nShift + 單擊 - 選擇/取消選擇音符\n右鍵 - 選擇框\n\nR - 重置小節\nShift + R - 回到歌曲起點\nZ/X - 縮放\n左右方向鍵 - 更改對齊方式\n左中括號/右中括號 - 更改歌曲播放速度\nALT + 左中括號/右中括號 - 重置歌曲播放速度\nCtrl + Z - 撤銷\nCtrl + Y - 重做\nCtrl + X - 剪下選取音符\nCtrl + C - 複製選取音符\nCtrl + V - 貼上複製音符\nCtrl + A - 選擇當前小節所有音符\nCtrl + S - 快速儲存"

@@ -374,6 +374,7 @@ class StoryMenuState extends MusicBeatState
 				changeWeek(-1);
 				FlxG.sound.play(Paths.sound('scrollMenu'));
 				changeDiff = true;
+				holdTime = 0;
 			}
 
 			if (controls.UI_DOWN_P)
@@ -381,6 +382,7 @@ class StoryMenuState extends MusicBeatState
 				changeWeek(1);
 				FlxG.sound.play(Paths.sound('scrollMenu'));
 				changeDiff = true;
+				holdTime = 0;
 			}
 			if(controls.UI_DOWN || controls.UI_UP)
 			{

@@ -83,6 +83,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 		descText = new FlxText(50, 600, 1180, "", 32);
 		descText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		descText.antialiasing = ClientPrefs.data.antialiasing;
 		descText.scrollFactor.set();
 		descText.borderSize = 2.4;
 		add(descText);
@@ -347,7 +348,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 	function onOptionScrollChange():Void
 	{
-		if (keyboardUsing) return; // 如果正在使用键盘控制，忽略鼠标滚动
+		 if (optionScroller == null || !optionScroller.isDragging) return;
 		var newIndex:Int = Std.int(Math.round(optionScrollPos / optionScrollSpacing));
 		if (newIndex < 0) newIndex = 0;
 		if (newIndex >= optionsArray.length) newIndex = optionsArray.length - 1;

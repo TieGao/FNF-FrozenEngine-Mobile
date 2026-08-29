@@ -16,7 +16,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var frozenEngineVersion:String = '0.5.0';
+	public static var frozenEngineVersion:String = '0.5.3';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -140,16 +140,19 @@ class MainMenuState extends MusicBeatState
 		frozenVer.scrollFactor.set();
 		frozenVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		frozenVer.borderSize = 1;
+		frozenVer.antialiasing = ClientPrefs.data.antialiasing;
 		add(frozenVer);
 		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Psych Engine v" + psychEngineVersion, 12);
 		psychVer.scrollFactor.set();
 		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		psychVer.borderSize = 1;
+		psychVer.antialiasing = ClientPrefs.data.antialiasing;
 		add(psychVer);
 		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + "0.3.0", 12);
 		fnfVer.scrollFactor.set();
 		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		fnfVer.borderSize = 1;
+		fnfVer.antialiasing = ClientPrefs.data.antialiasing;
 		add(fnfVer);
 		changeItem();
 
@@ -217,7 +220,7 @@ class MainMenuState extends MusicBeatState
 		    if (FlxG.keys.justPressed.F3 ||  touchPad.buttonF.justPressed )
     		{
 				persistentUpdate = false;
-				openSubState(new substates.StatsSubState());
+				//openSubState(new substates.StatsSubState());
     		}
 
 			var allowMouse:Bool = allowMouse;

@@ -25,6 +25,7 @@ import objects.Character;
 
 import states.MainMenuState;
 import states.StoryMenuState;
+import states.OldFreeplayState;
 import states.FreeplayState;
 
 import substates.PauseSubState;
@@ -753,10 +754,17 @@ class FunkinLua {
 			}
 
 			if(PlayState.isStoryMode)
+			{
 				MusicBeatState.switchState(new StoryMenuState());
-			else
+			}
+			else if(!ClientPrefs.data.oldFreeplay)
+			{
 				MusicBeatState.switchState(new FreeplayState());
-
+			}
+			else
+			{
+				MusicBeatState.switchState(new OldFreeplayState());
+			}
 			#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
 
 			FlxG.sound.playMusic(Paths.music('freakyMenu'));
@@ -1280,7 +1288,7 @@ class FunkinLua {
 			}
 			return false;
 		});
-		Lua_helper.add_callback(lua, "startVideo", function(videoFile:String, ?canSkip:Bool = true, ?forMidSong:Bool = false, ?shouldLoop:Bool = false, ?playOnLoad:Bool = true) {
+		Lua_helper.add_callback(lua, "startVideo", function(videoFile:String, ?canSkip:Bool = true, ?forMidSong:Bool = false, ?shouldLoop:Bool = false, ?playOnLoad:Bool = true, ?group:String = "",?place:Int = 0) {
 			#if VIDEOS_ALLOWED
 			if(FileSystem.exists(Paths.video(videoFile)))
 			{
@@ -1289,7 +1297,7 @@ class FunkinLua {
 					game.remove(game.videoCutscene);
 					game.videoCutscene.destroy();
 				}
-				game.videoCutscene = game.startVideo(videoFile, forMidSong, canSkip, shouldLoop, playOnLoad);
+				game.videoCutscene = game.startVideo(videoFile, forMidSong, canSkip, shouldLoop, playOnLoad, group, place);
 				return true;
 			}
 			else

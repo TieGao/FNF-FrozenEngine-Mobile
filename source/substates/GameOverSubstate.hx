@@ -1,16 +1,12 @@
 package substates;
 
-import backend.WeekData;
-
 import objects.Character;
 import flixel.FlxObject;
-import flixel.FlxSubState;
 import flixel.math.FlxPoint;
 
 import states.StoryMenuState;
-import states.FreeplayState;
 import states.OldFreeplayState;
-import lime.ui.Haptic;
+import states.FreeplayState;
 
 class GameOverSubstate extends MusicBeatSubstate
 {
@@ -60,9 +56,6 @@ class GameOverSubstate extends MusicBeatSubstate
 	override function create()
 	{
 		instance = this;
-
-		if (ClientPrefs.data.gameOverVibration)
-			Haptic.vibrate(0, 500);
 
 		Conductor.songPosition = 0;
 
@@ -134,9 +127,6 @@ class GameOverSubstate extends MusicBeatSubstate
 			}
 		}
 
-		addTouchPad('NONE', 'A_B');
-		addTouchPadCamera();
-
 		super.create();
 	}
 
@@ -162,9 +152,9 @@ class GameOverSubstate extends MusicBeatSubstate
 		{
 			if (controls.ACCEPT)
 			{
-				endBullshit();
+			endBullshit();
 			}
-			else if (controls.BACK)
+			else if (controls.BACK || FlxG.mouse.justPressedRight)
 			{
 				#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
 				FlxG.camera.visible = false;
@@ -176,10 +166,11 @@ class GameOverSubstate extends MusicBeatSubstate
 				Mods.loadTopMod();
 				if (PlayState.isStoryMode)
 					MusicBeatState.switchState(new StoryMenuState());
-				else if(!ClientPrefs.data.oldFreeplay)
+				else if (!ClientPrefs.data.oldFreeplay)
 					MusicBeatState.switchState(new FreeplayState());
-				else MusicBeatState.switchState(new OldFreeplayState());
-	
+				else
+					MusicBeatState.switchState(new OldFreeplayState());
+
 				FlxG.sound.playMusic(Paths.music('freakyMenu'));
 				PlayState.instance.callOnScripts('onGameOverConfirm', [false]);
 			}

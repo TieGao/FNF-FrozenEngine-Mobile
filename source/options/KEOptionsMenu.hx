@@ -1310,7 +1310,7 @@ function onScrollChange()
 		
 		return [
 			skinSettings, 
-			hitErrorSettings, // 命中误差条二级菜单
+			hitErrorSettings,
 			keyboardDisplayOptions,
 			charthelperOptions,
 			freeplayOptions,
@@ -1324,13 +1324,14 @@ function onScrollChange()
 			KEOption.create("Gradient TimeBar", "Gradient colored timebar", "gradientTimeBar", "bool"),
 			KEOption.create("Score Zoom", "Grow score text on hit", "scoreZoom", "bool"),
 			KEOption.create('Time Bar',"What should the Time Bar display?","timeBarType","string",['Time Left', 'Time Elapsed', 'Song Name', 'Disabled']),
-			KEOption.create("Pause Music", "Choose pause screen music", "pauseMusic", "string", pauseMusicList),
 			KEOption.create("Health Bar Alpha", "Health bar transparency", "healthBarAlpha", "float", 1, 0, 1, 0.1),
 			KEOption.create("Combo Stacking", "Stack combo numbers", "comboStacking", "bool"),
 			KEOption.create("MS Number", "Make you know how late/early ur when hit notes", "showMS", "bool"),
 			KEOption.create("Health Text", "Show health as number", "healthText", "bool"),
 			KEOption.create("Score Screen", "Show Kade-style results", "scoreScreen", "bool"),
 			KEOption.create("Transition Type", "Choose the transition animation style when switching scenes", "transitionType", "string", ['fade', 'pixel', 'loading']),
+			KEOption.create("Blur Effect", "Enable blur effect on background elements", "blurEffects", "bool"),
+			KEOption.create("Skip Results Screen Fade Out", "Skip the exit results screen animation", "skipResultExitAnim", "bool"),
 			KEOption.create("Charm Bar Pause", "Modern Pause Sub State", "charmPause", "bool"),
 			//KEOption.create("Impostor V3 Story Mode BG", "Use Impostor V3 Story Mode Background", "ImpStory", "bool")
 		];
@@ -1423,11 +1424,10 @@ function onScrollChange()
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
-		options.push(KEOption.create("Reset KeyBinds", "Reset to default keys", "", "action"));
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
 		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
-		// options.push(KEOption.create("Mobile Settings", "Vanilla Psych Mobile Settings", "", "action"));
+		options.push(KEOption.createResetOption("Reset KeyBinds", "keybinds"));
 		return options;
 	}
 
@@ -1438,6 +1438,7 @@ function onScrollChange()
 			KEOption.create("Check Updates", "Check for game updates", "checkForUpdates", "bool"),
 			KEOption.create("Beta Updates", "Change the channel to beta", "betaUpdates", "bool"),
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
+			KEOption.create('Lua Text Antialiasing', "Enable antialiasing on lua texts", "luatextantialiasing", "bool"),
 			KEOption.create("Enable LUA Debug Printer", "Uncheck it if u dont want to see them ", "luadebugPrint", "bool"),
 			KEOption.create("Discord RPC", "Enable Discord Rich Presence", "discordRPC", "bool"),		
 			KEOption.create("Replay", "[Score Menu and Replay Required]", "saveReplays", "bool"),
@@ -1445,6 +1446,7 @@ function onScrollChange()
 			KEOption.create("NewOptions", "Disable it if u dont like current options menu", "keOptions", "bool"),
 			KEOption.createResetOption("Reset Settings", "settings"),
 			KEOption.createResetOption("Reset Scores", "scores"),
+			KEOption.create("About", "View information about the game", "", "action"),
 			KEOption.create("Use Default Mouse Cursor", "Use ur system's default mouse cursor in game", "useSystemCursor", "bool")
 		];
 	}

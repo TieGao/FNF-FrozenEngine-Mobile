@@ -262,9 +262,13 @@ class KEOption
 				case "Open EZ KeyBinds":
 					KEOptionsMenu.instance.openSubState(new options.KEKeyBindMenu());
 					return false;   
-				case "Replay Manager":
-//					MusicBeatState.switchState(new states.LoadReplayState());
-					return false;  
+				case "Open EK Controls":
+					KEOptionsMenu.instance.openSubState(new options.ExtraKeybindSubState());
+					return false;
+				//case "Replay Manager":
+				//	MusicBeatState.switchState(new states.LoadReplayState());
+				//	return false;  
+				// RIP LoadReplayState
 				case "Mobile Settings":
 					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
 					return false;  
@@ -287,6 +291,9 @@ class KEOption
 					return false;
 				case "Customize Mobile Controls":
 					KEOptionsMenu.instance.openSubState(new mobile.substates.MobileControlSelectSubState());
+					return false;
+				case "About":
+					KEOptionsMenu.instance.openSubState(new substates.AboutSubState());
 					return false;
 			}
 			return true;
@@ -516,6 +523,8 @@ class KEOption
 				// 如果有选项列表，显示当前选项（需要本地化选项文本）
 				if (options.length > 0) {
 					var optName = options[curOption];
+					if (variable == "hitsound" && optName.startsWith("hitsounds/"))
+						optName = optName.substring("hitsounds/".length);
 					optName = resolveTranslation(optName, optName);
 					return displayName + ": < " + optName + " >";
 				}

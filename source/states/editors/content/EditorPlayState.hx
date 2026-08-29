@@ -50,6 +50,7 @@ class EditorPlayState extends MusicBeatSubstate
 	var songHits:Int = 0;
 	var songMisses:Int = 0;
 	var songLength:Float = 0;
+	var totalColumns:Int = 4;
 	var songSpeed:Float = 1;
 	
 	var showCombo:Bool = false;
@@ -91,7 +92,7 @@ class EditorPlayState extends MusicBeatSubstate
 
 		cachePopUpScore();
 		guitarHeroSustains = ClientPrefs.data.guitarHeroSustains;
-		if(ClientPrefs.data.hitsoundVolume > 0) Paths.sound('hitsound');
+		if(ClientPrefs.data.hitsoundVolume > 0) Paths.sound(ClientPrefs.data.hitsound);
 
 		/* setting up Editor PlayState stuff */
 		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
@@ -121,30 +122,25 @@ class EditorPlayState extends MusicBeatSubstate
 		/***************/
 		
 		scoreTxt = new FlxText(10, FlxG.height - 50, FlxG.width - 20, "", 20);
-		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		scoreTxt.scrollFactor.set();
 		scoreTxt.borderSize = 1.25;
 		scoreTxt.visible = !ClientPrefs.data.hideHud;
 		add(scoreTxt);
 		
 		dataTxt = new FlxText(10, 580, FlxG.width - 20, "Section: 0", 20);
-		dataTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		dataTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		dataTxt.scrollFactor.set();
 		dataTxt.borderSize = 1.25;
 		add(dataTxt);
 
-		var tipText:FlxText = new FlxText(10, FlxG.height - 24, 0, 'Press ${(controls.mobileC) ? #if android 'BACK' #else 'X' #end : 'ESC'} to Go Back to Chart Editor', 16);
-		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		var tipText:FlxText = new FlxText(10, FlxG.height - 24, 0, 'Press ESC to Go Back to Chart Editor', 16);
+		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		tipText.borderSize = 2;
 		tipText.scrollFactor.set();
 		add(tipText);
 		FlxG.mouse.visible = false;
 		
-		addMobileControls();
-		mobileControls.instance.visible = true;
-		mobileControls.onButtonDown.add(onButtonPress);
-		mobileControls.onButtonUp.add(onButtonRelease);
-
 		generateSong();
 		_noteList = null;
 
@@ -158,11 +154,6 @@ class EditorPlayState extends MusicBeatSubstate
 		updateScore();
 		cachePopUpScore();
 
-		#if !android
-		addTouchPad('NONE', 'P');
-		addTouchPadCamera();
-		#end
-
 		super.create();
 
 		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
@@ -170,7 +161,7 @@ class EditorPlayState extends MusicBeatSubstate
 
 	override function update(elapsed:Float)
 	{
-		if(#if android FlxG.android.justReleased.BACK #else touchPad.buttonP.justPressed #end || controls.BACK || FlxG.keys.justPressed.ESCAPE || FlxG.keys.justPressed.F12)
+		if(controls.BACK || FlxG.keys.justPressed.ESCAPE || FlxG.keys.justPressed.F12)
 		{
 			endSong();
 			super.update(elapsed);
@@ -284,29 +275,38 @@ class EditorPlayState extends MusicBeatSubstate
 		super.destroy();
 	}
 	
+// EditorPlayState.hx - startSong()
 	function startSong():Void
 	{
 		startingSong = false;
-		@:privateAccess inst.loadEmbedded(FlxG.sound.music._sound);
-		inst.looped = false;
-		inst.onComplete = finishSong;
-		inst.volume = vocals.volume = opponentVocals.volume = 1;
-		FlxG.sound.list.add(inst);
-
-		FlxG.sound.music.pause();
-		inst.play();
+		
+		// 使用新的 Flixel 6.2.0 API
+		var soundPath = Paths.inst(PlayState.SONG.song);
+		if (soundPath != null) {
+			// 方法1: 使用 FlxSound.load()
+			inst = new FlxSound();
+			inst.load(soundPath); // 新 API
+			inst.looped = false;
+			inst.onComplete = finishSong;
+			inst.volume = 1;
+			FlxG.sound.list.add(inst);
+			
+			inst.play();
+			inst.time = startPos - Conductor.offset;
+			songLength = inst.length;
+		}
+		
+		// 处理 vocals
 		vocals.play();
 		opponentVocals.play();
-		inst.time = vocals.time = opponentVocals.time = startPos - Conductor.offset;
-
-		// Song duration in a float, useful for the time left feature
-		songLength = inst.length;
+		vocals.time = startPos - Conductor.offset;
+		opponentVocals.time = startPos - Conductor.offset;
 	}
-
 	// Borrowed from PlayState
 	function generateSong()
 	{
 		// FlxG.log.add(ChartParser.parse());
+		totalColumns = Note.getColumnsPerPlayer(PlayState.SONG);
 		songSpeed = PlayState.SONG.speed;
 		var songSpeedType:String = ClientPrefs.getGameplaySetting('scrolltype');
 		switch(songSpeedType)
@@ -454,7 +454,8 @@ class EditorPlayState extends MusicBeatSubstate
 	{
 		var strumLineX:Float = ClientPrefs.data.middleScroll ? PlayState.STRUM_X_MIDDLESCROLL : PlayState.STRUM_X;
 		var strumLineY:Float = ClientPrefs.data.downScroll ? (FlxG.height - 150) : 50;
-		for (i in 0...4)
+		var columns:Int = totalColumns > 0 ? totalColumns : Note.getColumnsPerPlayer(PlayState.SONG);
+		for (i in 0...columns)
 		{
 			// FlxG.log.add(i);
 			var targetAlpha:Float = 1;
@@ -512,9 +513,6 @@ class EditorPlayState extends MusicBeatSubstate
 			finishTimer.destroy();
 
 		Conductor.songPosition = FlxG.sound.music.time = vocals.time = opponentVocals.time = startPos - Conductor.offset;
-
-		mobileControls.instance.visible = false;
-
 		close();
 	}
 	
@@ -572,7 +570,6 @@ class EditorPlayState extends MusicBeatSubstate
 			antialias = !PlayState.isPixelStage;
 		}
 
-		if(ClientPrefs.data.popUpRating) {
 		rating.loadGraphic(Paths.image(uiFolder + daRating.image + PlayState.uiPostfix));
 		rating.screenCenter();
 		rating.x = placement - 40;
@@ -663,7 +660,6 @@ class EditorPlayState extends MusicBeatSubstate
 			},
 			startDelay: Conductor.crochet * 0.002 / playbackRate
 		});
-		}
 	}
 
 	private function onKeyPress(event:KeyboardEvent):Void
@@ -750,24 +746,6 @@ class EditorPlayState extends MusicBeatSubstate
 			spr.playAnim('static');
 			spr.resetAnim = 0;
 		}
-	}
-
-	private function onButtonPress(button:TouchButton):Void
-	{
-		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
-			return;
-
-		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
-		if (button.justPressed) keyPressed(buttonCode);
-	}
-
-	private function onButtonRelease(button:TouchButton):Void
-	{
-		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
-			return;
-
-		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
-		if(buttonCode > -1) keyReleased(buttonCode);
 	}
 	
 	// Hold notes
@@ -913,7 +891,7 @@ class EditorPlayState extends MusicBeatSubstate
 	}
 
 	public function invalidateNote(note:Note):Void {
-		//if (!ClientPrefs.data.lowQuality) note.kill();
+		note.kill();
 		notes.remove(note, true);
 		note.destroy();
 	}
