@@ -254,15 +254,19 @@ class KEOption
 			// 处理特殊动作 - 现在包含警告检查
 			switch(name) {
 				case "Open Note Colors":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.NotesColorSubState());
 					return false;
 				case "Open Controls":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.ControlsSubState());
 					return false;
 				case "Open EZ KeyBinds":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.KEKeyBindMenu());
 					return false;   
 				case "Open EK Controls":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.ExtraKeybindSubState());
 					return false;
 				//case "Replay Manager":
@@ -270,29 +274,18 @@ class KEOption
 				//	return false;  
 				// RIP LoadReplayState
 				case "Mobile Settings":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
 					return false;  
-				case "Reset KeyBinds":
-					ClientPrefs.resetKeys();
-					ClientPrefs.saveSettings();
-					return true;
-				case "Reset Settings":
-					ClientPrefs.data = ClientPrefs.defaultData;
-					ClientPrefs.saveSettings();
-					ClientPrefs.loadPrefs();
-					return true;
-				case "Reset Scores":
-					#if desktop
-					// 重置分数逻辑
-					#end
-					return true;
 				case "Adjust Delay and Combo":
 					MusicBeatState.switchState(new options.NoteOffsetState());
 					return false;
 				case "Customize Mobile Controls":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new mobile.substates.MobileControlSelectSubState());
 					return false;
 				case "About":
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new substates.AboutSubState());
 					return false;
 			}

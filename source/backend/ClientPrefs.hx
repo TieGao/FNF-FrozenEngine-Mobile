@@ -113,7 +113,7 @@ import states.TitleState;
 	public var gradientTimeBar:Bool = true;
 	public var guideLineAlpha:Float = 0.0;
 	public var modInfoBox:Bool = true;
-	public var toolBar:Bool = false;
+	public var toolBar:Bool = true;
 	public var freeplaySearch:Bool = true;
 	public var charmPause:Bool = false;
 	public var legacyMouseWheelScroll:Bool = false; //是否启用旧版鼠标滚轮行为（滚轮滚动数值选项时改变数值，滚轮滚动选项列表时滚动列表）

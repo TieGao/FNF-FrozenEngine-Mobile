@@ -94,6 +94,22 @@ class NoteOffsetState extends MusicBeatState
 		comboNums.cameras = [camHUD];
 		add(comboNums);
 
+		// === 创建 KeyboardViewer 预览 ===
+		var kbX:Float = FlxG.width/2 + ClientPrefs.data.kbOffsetX;
+		var kbY:Float = FlxG.height - 150 + ClientPrefs.data.kbOffsetY;
+		keyboardViewer = new KeyboardViewer(kbX, kbY, 4);
+		keyboardViewer.antialiasing = ClientPrefs.data.antialiasing;
+		keyboardViewer.cameras = [camHUD];
+		add(keyboardViewer);
+
+		// === 创建 HitErrorBar 预览 ===
+		hitErrorBar = new HitErrorBar();
+		hitErrorBar.screenCenter(X);
+		hitErrorBar.x += ClientPrefs.data.hitErrorBarOffsetX - 5;
+		hitErrorBar.y = FlxG.height * 0.3 + ClientPrefs.data.hitErrorBarOffsetY;
+		hitErrorBar.cameras = [camHUD];
+		add(hitErrorBar);
+
 		var seperatedScore:Array<Int> = [];
 		for (i in 0...3)
 		{
@@ -115,25 +131,9 @@ class NoteOffsetState extends MusicBeatState
 		dumbTexts = new FlxTypedGroup<FlxText>();
 		dumbTexts.cameras = [camHUD];
 		add(dumbTexts);
-		createTexts();
+		createTexts();  // 现在会创建 6 条文本
 
 		repositionCombo();
-
-		// === 创建 KeyboardViewer 预览 ===
-		var kbX:Float = FlxG.width/2 + ClientPrefs.data.kbOffsetX;
-		var kbY:Float = FlxG.height - 150 + ClientPrefs.data.kbOffsetY;
-		keyboardViewer = new KeyboardViewer(kbX, kbY, 4);
-		keyboardViewer.antialiasing = ClientPrefs.data.antialiasing;
-		keyboardViewer.cameras = [camHUD];
-		add(keyboardViewer);
-
-		// === 创建 HitErrorBar 预览 ===
-		hitErrorBar = new HitErrorBar();
-		hitErrorBar.screenCenter(X);
-		hitErrorBar.x += ClientPrefs.data.hitErrorBarOffsetX - 5;
-		hitErrorBar.y = FlxG.height * 0.3 + ClientPrefs.data.hitErrorBarOffsetY;
-		hitErrorBar.cameras = [camHUD];
-		add(hitErrorBar);
 
 		// Note delay stuff
 		beatText = new Alphabet(0, 0, Language.getPhrase('delay_beat_hit', 'Beat Hit!'), true);
@@ -259,7 +259,7 @@ class NoteOffsetState extends MusicBeatState
 
 		if(onComboMenu)
 		{
-			// 键盘/手柄控制 Combo Offset
+			// 键盘/手柄控制 Combo Offset（Rating 和 Numbers）
 			if(FlxG.keys.justPressed.ANY || FlxG.gamepads.anyJustPressed(ANY))
 			{
 				var controlArray:Array<Bool> = null;
@@ -394,7 +394,7 @@ class NoteOffsetState extends MusicBeatState
 				draggingTarget = "";
 			}
 
-			// 拖拽 Combo 元素
+			// 拖拽 Combo 元素（Rating 和 Numbers）
 			if(holdingObjectType != null)
 			{
 				if(FlxG.mouse.justMoved || analogMoved)
@@ -412,6 +412,7 @@ class NoteOffsetState extends MusicBeatState
 				}
 			}
 
+			// 拖拽 KeyboardViewer
 			if (draggingTarget == "keyboard")
 			{
 				if(FlxG.mouse.justMoved || analogMoved)
@@ -422,17 +423,11 @@ class NoteOffsetState extends MusicBeatState
 					else
 						mousePos = controllerPointer.getScreenPosition(camHUD);
 
-					// 计算偏移
 					ClientPrefs.data.kbOffsetX = Math.round((mousePos.x - startMousePos.x) + startKbOffset.x);
 					ClientPrefs.data.kbOffsetY = Math.round((mousePos.y - startMousePos.y) + startKbOffset.y);
 					
-					// 直接设置位置，而不是调用 updateKeyboardViewerPosition()
-					// 或者确保 updateKeyboardViewerPosition() 被正确调用
-					keyboardViewer.x = FlxG.width/2 + ClientPrefs.data.kbOffsetX;
-					keyboardViewer.y = FlxG.height - 150 + ClientPrefs.data.kbOffsetY;
-					keyboardViewer._x = keyboardViewer.x;  // 同步 _x
-					keyboardViewer._y = keyboardViewer.y;  // 同步 _y
-					// 注意：_x 和 _y 可能需要在 KeyboardViewer 内部更新
+					updateKeyboardViewerPosition();
+					reloadTexts(); // 更新显示
 				}
 			}
 
@@ -449,11 +444,13 @@ class NoteOffsetState extends MusicBeatState
 
 					ClientPrefs.data.hitErrorBarOffsetX = Math.round((mousePos.x - startMousePos.x) + startHitBarOffset.x);
 					ClientPrefs.data.hitErrorBarOffsetY = Math.round((mousePos.y - startMousePos.y) + startHitBarOffset.y);
+					
 					updateHitErrorBarPosition();
+					reloadTexts(); // 更新显示
 				}
 			}
 
-			if(controls.RESET)
+			if(controls.RESET || touchPad.buttonC.justPressed)
 			{
 				// 重置所有偏移量
 				for (i in 0...ClientPrefs.data.comboOffset.length)
@@ -468,6 +465,7 @@ class NoteOffsetState extends MusicBeatState
 				repositionCombo();
 				updateKeyboardViewerPosition();
 				updateHitErrorBarPosition();
+				reloadTexts();
 			}
 		}
 		else
@@ -551,7 +549,7 @@ class NoteOffsetState extends MusicBeatState
 
 	function updateDraggableBarPosition():Void
 	{
-		if (timeBar != null)
+		if (timeBar != null && !onComboMenu)
 		{
 			var percentValue = (barPercent - delayMin) / (delayMax - delayMin);
 			timeBar.setPercent(percentValue * 100, true);
@@ -563,10 +561,8 @@ class NoteOffsetState extends MusicBeatState
 	{
 		if (keyboardViewer != null)
 		{
-			keyboardViewer.x = FlxG.width/2 + ClientPrefs.data.kbOffsetX;
-			keyboardViewer.y = FlxG.height - 150 + ClientPrefs.data.kbOffsetY;
-			keyboardViewer._x = FlxG.width/2 + ClientPrefs.data.kbOffsetX;
-			keyboardViewer._y = FlxG.height - 150 + ClientPrefs.data.kbOffsetY;
+			keyboardViewer.x = ClientPrefs.data.kbOffsetX;
+			keyboardViewer.y = ClientPrefs.data.kbOffsetY;
 		}
 	}
 
@@ -694,7 +690,7 @@ class NoteOffsetState extends MusicBeatState
 			hitErrorBar.visible = onComboMenu;
 
 		controllerPointer.visible = false;
-		FlxG.mouse.visible = false;
+		FlxG.mouse.visible = true;
 		if(onComboMenu)
 		{
 			FlxG.mouse.visible = !controls.controllerMode;

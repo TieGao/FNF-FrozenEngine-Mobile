@@ -139,6 +139,9 @@ class FreeplayState extends MusicBeatState
         DiscordClient.changePresence("In the Freeplay Menu", null);
         #end
 
+		final accept:String = (controls.mobileC) ? "A" : "ACCEPT";
+		final reject:String = (controls.mobileC) ? "B" : "BACK";
+
         if(WeekData.weeksList.length < 1)
         {
 			FlxTransitionableState.skipNextTransIn = true;
@@ -456,6 +459,10 @@ class FreeplayState extends MusicBeatState
             bottomText.scrollFactor.set();
             add(bottomText);
         }
+        
+		final space:String = (controls.mobileC) ? "X" : "SPACE";
+		final control:String = (controls.mobileC) ? "C" : "CTRL";
+		final reset:String = (controls.mobileC) ? "Y" : "RESET";
 
         replayButton = new FlxSprite(FlxG.width - 200, 0);
         replayButton.loadGraphic(Paths.image('replay'));
@@ -488,7 +495,7 @@ class FreeplayState extends MusicBeatState
         }
         else
         {
-            addTouchPad('LEFT_FULL', 'A_B');
+            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
         }
 
         super.create();
@@ -500,6 +507,14 @@ class FreeplayState extends MusicBeatState
         changeSelection(0, false);
         persistentUpdate = true;
         super.closeSubState();
+        if (ClientPrefs.data.toolBar)
+        {
+            addTouchPad('NONE', 'A_B');
+        }
+        else
+        {
+            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
+        }
         for (card in cards)
         {
             if (card != null)
@@ -1265,6 +1280,7 @@ class FreeplayState extends MusicBeatState
             
             FlxG.sound.play(Paths.sound('confirmMenu'), 0.7);
             persistentUpdate = false;
+            removeTouchPad();
             openSubState(new substates.LoadReplaySubState(
                 this,
                 songs[curSelected].songName,
@@ -1275,6 +1291,7 @@ class FreeplayState extends MusicBeatState
 
         if (ClientPrefs.data.freeplayModFolder && FlxG.mouse.justPressed && FlxG.mouse.overlaps(modFolderText) && !musicPlayer.playingMusic && !inModFolderSelector)
         {
+            removeTouchPad();
             openModFolderSelector();
         }
 
@@ -1287,7 +1304,7 @@ class FreeplayState extends MusicBeatState
         }
 
         var shiftMult:Int = 1;
-        if(FlxG.keys.pressed.SHIFT && !musicPlayer.playingMusic) shiftMult = 3;
+        if((FlxG.keys.pressed.SHIFT || touchPad.buttonZ.pressed) && !musicPlayer.playingMusic) shiftMult = 3;
 
         if (!musicPlayer.playingMusic && PsychUIInputText.focusOn == null && !inModFolderSelector)
         {
@@ -1363,7 +1380,7 @@ class FreeplayState extends MusicBeatState
         }
         else if (!inModFolderSelector && PsychUIInputText.focusOn == null)
         {
-            if(FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle && !musicPlayer.playingMusic)
+            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
             {
                 persistentUpdate = false;
                 removeTouchPad();
@@ -1373,13 +1390,13 @@ class FreeplayState extends MusicBeatState
             {
                 selectSong();
             }
-            else if (FlxG.keys.justPressed.SPACE)
+                else if ((FlxG.keys.justPressed.SPACE || touchPad.buttonX.justPressed))
             {
                 togglePlaySong();
             }
         }
 
-        if (!inModFolderSelector && PsychUIInputText.focusOn == null && controls.RESET && !musicPlayer.playingMusic)
+        if (!inModFolderSelector && PsychUIInputText.focusOn == null && (controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
         {
             if (curSelected < 0 || curSelected >= songs.length)
             {
