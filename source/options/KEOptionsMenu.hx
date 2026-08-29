@@ -1423,6 +1423,7 @@ function onScrollChange()
 		// 原有的其他选项
 		options.push(KEOption.create("Open Note Colors", "Customize note colors", "", "action"));
 		options.push(KEOption.create("Open Controls", "Customize key bindings", "", "action"));
+		options.push(KEOption.create("Open EK Controls", "Customize key bindings for EK mode", "", "action"));
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
@@ -1434,9 +1435,9 @@ function onScrollChange()
 	// Advanced 选项
 	function getAdvancedOptions():Array<KEOption>
 	{
-				return [
+		return [
 			KEOption.create("Check Updates", "Check for game updates", "checkForUpdates", "bool"),
-			KEOption.create("Beta Updates", "Change the channel to beta", "betaUpdates", "bool"),
+			//KEOption.create("Beta Updates", "Change the channel to beta", "betaUpdates", "bool"),
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
 			KEOption.create('Lua Text Antialiasing', "Enable antialiasing on lua texts", "luatextantialiasing", "bool"),
 			KEOption.create("Enable LUA Debug Printer", "Uncheck it if u dont want to see them ", "luadebugPrint", "bool"),
