@@ -4,6 +4,7 @@ import flixel.FlxObject;
 import flixel.input.keyboard.FlxKey;
 import flixel.util.FlxDestroyUtil;
 import flash.events.KeyboardEvent;
+import flash.events.TextEvent;
 import lime.system.Clipboard;
 
 enum abstract AccentCode(Int) from Int from UInt to Int to UInt
@@ -86,6 +87,7 @@ class PsychUIInputText extends FlxSpriteGroup
 		this.text = text;
 
 		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+		FlxG.stage.addEventListener(TextEvent.TEXT_INPUT, onTextInput);
 	}
 	
 	public var selectIndex:Int = -1;
@@ -94,6 +96,17 @@ class PsychUIInputText extends FlxSpriteGroup
 
 	var _nextAccent:AccentCode = NONE;
 	public var inInsertMode:Bool = false;
+	function onTextInput(e:TextEvent)
+	{
+		if(focusOn != this) return;
+
+		var inputText:String = e.text;
+		if(inputText != null && inputText.length > 0)
+		{
+			_typeText(inputText);
+		}
+	}
+
 	function onKeyDown(e:KeyboardEvent)
 	{
 		if(focusOn != this) return;
@@ -265,19 +278,19 @@ class PsychUIInputText extends FlxSpriteGroup
 
 			case BACKSPACE: //Delete letter to the left of caret
 				if(caretIndex <= 0) return;
-
+//				 trace('Before BACKSPACE: caretIndex=$caretIndex, text="$text", len=${text.length}');
 				if(selectIndex > -1 && selectIndex != caretIndex)
 					deleteSelection();
 				else
 				{
 					var lastText = text;
 					text = text.substring(0, caretIndex-1) + text.substring(caretIndex);
-					caretIndex--;
+					if(caretIndex != text.length) caretIndex--;
 					if(onChange != null) onChange(lastText, text);
 					if(broadcastInputTextEvent) PsychUIEventHandler.event(CHANGE_EVENT, this);
 				}
 				_nextAccent = NONE;
-
+//				trace('AFTER: caretIndex=$caretIndex, text="$text" (len=${text.length})');
 			case DELETE: //Delete letter to the right of caret
 				if(selectIndex > -1 && selectIndex != caretIndex)
 				{
@@ -376,10 +389,7 @@ class PsychUIInputText extends FlxSpriteGroup
 	}
 
 	public dynamic function onPressEnter(e:KeyboardEvent)
-	{
-		FlxG.stage.window.textInputEnabled = false;
 		focusOn = null;
-	}
 
 	public var unfocus:Void->Void;
 	public static function set_focusOn(v:PsychUIInputText)
@@ -403,7 +413,6 @@ class PsychUIInputText extends FlxSpriteGroup
 				if(!FlxG.keys.pressed.SHIFT) selectIndex = -1;
 				else if(selectIndex == -1) selectIndex = caretIndex;
 				focusOn = this;
-				FlxG.stage.window.textInputEnabled = true;
 				caretIndex = 0;
 				var lastBound:Float = 0;
 				var textObjX:Float = textObj.getScreenPosition(camera).x;
@@ -472,10 +481,10 @@ class PsychUIInputText extends FlxSpriteGroup
 	}
 
 	public function updateCaret()
-	{
-		if(textObj == null || !textObj.exists) return;
+{
+    if(textObj == null || !textObj.exists) return;
 
-		var textField = textObj.textField;
+    var textField = textObj.textField;
     
     // OpenFL 9.5.0 修复了默认索引，需要确保索引有效
     if(caretIndex < 0) caretIndex = 0;
@@ -497,7 +506,7 @@ class PsychUIInputText extends FlxSpriteGroup
         trace("setSelection failed:", e);
     }
     
-		_caretTime = 0;
+    _caretTime = 0;
 		if(caret != null && caret.exists)
 		{
 			caret.y = textObj.y + 2;
@@ -566,6 +575,7 @@ class PsychUIInputText extends FlxSpriteGroup
 		_boundaries = null;
 		if(focusOn == this) focusOn = null;
 		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+		FlxG.stage.removeEventListener(TextEvent.TEXT_INPUT, onTextInput);
 		super.destroy();
 	}
 
@@ -629,13 +639,13 @@ class PsychUIInputText extends FlxSpriteGroup
 
 	var _boundaries:Array<Float> = [];
 	function set_text(v:String)
-	{
-		for (i in 0..._boundaries.length) _boundaries.pop();
-		v = filter(v);
+{
+    for (i in 0..._boundaries.length) _boundaries.pop();
+    v = filter(v);
 
-		textObj.text = '';
-		if(v != null && v.length > 0)
-		{
+    textObj.text = '';
+    if(v != null && v.length > 0)
+    {
         // 使用 OpenFL 9.5.0 的新特性
         if(passwordMask) {
             // 设置密码掩码字符（OpenFL 9.5.0 新增）
@@ -649,52 +659,53 @@ class PsychUIInputText extends FlxSpriteGroup
         else {
             textObj.textField.displayAsPassword = false;
             // 原有逻辑，但需要优化
-			if(v.length > 1)
-			{
+            if(v.length > 1)
+            {
                 // 批量处理，而不是逐个字符
                 var displayText = v.replace("\n", " ");
                 textObj.text = displayText;
                 calculateBoundaries(displayText);
-			}
-			else
-			{
+            }
+            else
+            {
                 textObj.text = v;
-				_boundaries.push(textObj.textField.textWidth);
-			}
-		}
+                _boundaries.push(textObj.textField.textWidth);
+            }
+        }
     }
     else {
         textObj.text = "";
         textObj.textField.displayAsPassword = false;
     }
     
-		text = v;
-		updateCaret();
-		return v;
-	}
+    text = v;
+    updateCaret();
+    return v;
+}
 
 // 新增的边界计算函数
 function calculateBoundaries(text:String)
 {
+    _boundaries = [];
     if(text.length == 0) return;
     
-    // 对于长文本，使用更高效的计算方式
-    if(text.length > 100) {
-        // 使用近似计算
-        var avgWidth = textObj.textField.textWidth / text.length;
-        for(i in 0...text.length) {
-            _boundaries[i] = (i + 1) * avgWidth;
-        }
-    } else {
-        // 对于短文本，使用精确计算
-        var tempText = "";
-        for(i in 0...text.length) {
-            tempText += text.charAt(i);
-            textObj.textField.text = tempText;
-            _boundaries[i] = textObj.textField.textWidth;
-        }
-        // 恢复原文本
-        textObj.textField.text = text;
+    // 使用 getCharBoundaries 进行精确计算
+    for(i in 0...text.length)
+    {
+			try
+			{
+				var rect = textObj.textField.getCharBoundaries(i);
+				if(rect != null)
+					_boundaries.push(rect.x + rect.width);
+				else
+					_boundaries.push(i > 0 ? _boundaries[i-1] : 0);
+			}
+			catch(e:Dynamic)
+			{
+				// 在某些 OpenFL/平台实现中 getCharBoundaries 可能抛出异常
+				// 回退到上一个边界或 0，保证不抛出导致 UI 崩溃
+				_boundaries.push(i > 0 ? _boundaries[i-1] : 0);
+			}
     }
 }
 
@@ -735,6 +746,29 @@ function calculateBoundaries(text:String)
 				text = text.substring(0, caretIndex) + letter + text.substring(caretIndex+1);
 
 			caretIndex += letter.length;
+			if(onChange != null) onChange(lastText, text);
+			if(broadcastInputTextEvent) PsychUIEventHandler.event(CHANGE_EVENT, this);
+		}
+		_caretTime = 0;
+	}
+
+	function _typeText(inputText:String)
+	{
+		if(inputText == null || inputText.length == 0) return;
+
+		if(selectIndex > -1 && selectIndex != caretIndex)
+			deleteSelection();
+
+		inputText = filter(inputText);
+		if(inputText.length > 0 && (maxLength == 0 || (text.length + inputText.length) <= maxLength))
+		{
+			var lastText = text;
+			if(!inInsertMode)
+				text = text.substring(0, caretIndex) + inputText + text.substring(caretIndex);
+			else
+				text = text.substring(0, caretIndex) + inputText + text.substring(caretIndex+1);
+
+			caretIndex += inputText.length;
 			if(onChange != null) onChange(lastText, text);
 			if(broadcastInputTextEvent) PsychUIEventHandler.event(CHANGE_EVENT, this);
 		}

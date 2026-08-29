@@ -969,7 +969,9 @@ class Controls
 		var result:Bool = (FlxG.keys.checkStatus(keys[index], JUST_PRESSED) == true);
 		if(result) controllerMode = false;
 
-		return result || _myGamepadJustPressedIndex(gamepadBinds[key], index) == true;
+		return result
+			|| _myGamepadJustPressedIndex(gamepadBinds[key], index) == true
+			|| _mobileJustPressed(key);   // 新增
 	}
 
 	public function pressedKeyIndex(key:String, index:Int):Bool
@@ -979,7 +981,9 @@ class Controls
 		var result:Bool = (FlxG.keys.checkStatus(keys[index], PRESSED) == true);
 		if(result) controllerMode = false;
 
-		return result || _myGamepadPressedIndex(gamepadBinds[key], index) == true;
+		return result
+			|| _myGamepadPressedIndex(gamepadBinds[key], index) == true
+			|| _mobilePressed(key);       // 新增
 	}
 
 	public function justReleasedKeyIndex(key:String, index:Int):Bool
@@ -989,7 +993,9 @@ class Controls
 		var result:Bool = (FlxG.keys.checkStatus(keys[index], JUST_RELEASED) == true);
 		if(result) controllerMode = false;
 
-		return result || _myGamepadJustReleasedIndex(gamepadBinds[key], index) == true;
+		return result
+			|| _myGamepadJustReleasedIndex(gamepadBinds[key], index) == true
+			|| _mobileJustReleased(key);  // 新增
 	}
 
 	public var controllerMode:Bool = false;
@@ -1190,5 +1196,24 @@ class Controls
 				}
 			}
 		}
+	}
+
+	private function _mobilePressed(key:String):Bool
+	{
+		var ids:Array<MobileInputID> = mobileBinds[key];
+		if (ids == null) return false;
+		return mobileCPressed(ids) || touchPadPressed(ids);
+	}
+	private function _mobileJustPressed(key:String):Bool
+	{
+		var ids:Array<MobileInputID> = mobileBinds[key];
+		if (ids == null) return false;
+		return mobileCJustPressed(ids) || touchPadJustPressed(ids);
+	}
+	private function _mobileJustReleased(key:String):Bool
+	{
+		var ids:Array<MobileInputID> = mobileBinds[key];
+		if (ids == null) return false;
+		return mobileCJustReleased(ids) || touchPadJustReleased(ids);
 	}
 }
