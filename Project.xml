@@ -199,9 +199,7 @@
 	<!-- Allow Access to Engine Files in iOS -->
 	<haxedef name="SHARE_MOBILE_FILES" if="ios" />
 
-	<config if="ios">
-		<ios UIFileSharingEnabled="true" LSSupportsOpeningDocumentsInPlace="true" />
-	</config>
+	<template path="template/ios-custom-Info.plist" if="ios" />
 
 	<!--Macro fixes-->
 	<haxeflag name="--macro" value="allowPackage('flash')" />
