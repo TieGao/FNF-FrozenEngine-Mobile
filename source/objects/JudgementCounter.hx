@@ -38,7 +38,7 @@ class JudgementCounter {
         var startY:Float = FlxG.height / 2;
         if(!state.isSplitCoopMode()) 
         {
-            startX = 10;
+            startX = #if ios 90 #elseif mobile 40 #else 10#end;
             textAlign = LEFT;
             baseColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);       
         }

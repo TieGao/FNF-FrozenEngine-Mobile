@@ -199,6 +199,16 @@
 	<!-- Allow Access to Engine Files in iOS -->
 	<haxedef name="SHARE_MOBILE_FILES" if="ios" />
 
+	<config:ios if="ios">
+    <!-- 启用 iTunes 文件共享 -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    
+    <!-- 允许在文件 App 中查看 -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+</config:ios>
+
 	<!--Macro fixes-->
 	<haxeflag name="--macro" value="allowPackage('flash')" />
 	<haxeflag name="--macro" value="include('my.pack')" />
