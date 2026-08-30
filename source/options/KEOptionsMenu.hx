@@ -383,7 +383,7 @@ class KEOptionsMenu extends MusicBeatState
 		};
 		backend.Language.addReloadCallback(langReloadCb);
 
-		addTouchPad('NONE', 'A_B');
+		addTouchPad('LEFT_RIGHT', 'A_B');
 
 		var totalOptionsHeight:Float = selectedCat.options.length * 46;  // 每个选项高度46
         var visibleHeight:Float = SCREEN_HEIGHT - MARGIN_TOP - CATEGORY_HEIGHT - MARGIN_BOTTOM - 20;
@@ -1455,6 +1455,6 @@ function onScrollChange()
 	 override function closeSubState()
     {
         super.closeSubState();
-        addTouchPad('NONE', 'A_B');
+        addTouchPad('LEFT_RIGHT', 'A_B');
     }
 }
