@@ -195,11 +195,6 @@
 	<!-- Category Type for Apple Systems -->
 	<!-- iOS 配置 -->
 	<config:ios category_type="public.app-category.music-games">
-		<!-- 通过 info-plist-children 合并自定义 plist 片段 -->
-		<info-plist-children>
-			<file>fileSharing-Info.plist</file>
-		</info-plist-children>
-	</config:ios>
 
 	<config:mac category_type="public.app-category.music-games" />
 
