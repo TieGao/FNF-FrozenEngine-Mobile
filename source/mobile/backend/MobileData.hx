@@ -27,6 +27,7 @@ import haxe.Json;
 import haxe.io.Path;
 import openfl.utils.Assets;
 import flixel.util.FlxSave;
+import flixel.math.FlxPoint;
 
 /**
  * ...
@@ -102,6 +103,9 @@ class MobileData
 		return touchPad;
 	}
 
+	/**
+	 * 设置按钮颜色 - 支持4K和多K
+	 */
 	public static function setButtonsColors(buttonsInstance:Dynamic):Dynamic
 	{
 		// Dynamic Controls Color
@@ -111,18 +115,100 @@ class MobileData
 		else
 			data = ClientPrefs.defaultData;
 
+		// === 设置4K方向键颜色 ===
 		for (i => button in [
 			buttonsInstance.buttonLeft,
 			buttonsInstance.buttonDown,
 			buttonsInstance.buttonUp,
 			buttonsInstance.buttonRight])
 		{
-			button.color = data.arrowRGB[i][0];
-			button.label.color = data.arrowRGB[i][0];
-			button.label.updateColorTransform();
+			if (button != null)
+			{
+				button.color = Std.int(data.arrowRGB[i][0]);
+				if (button.label != null)
+				{
+					button.label.color = Std.int(data.arrowRGB[i][0]);
+					button.label.updateColorTransform();
+				}
+			}
+		}
+
+		// === 设置多K按钮颜色 ===
+		if (buttonsInstance.multiKButtons != null)
+		{
+			var totalColumns:Int = buttonsInstance.multiKButtons.length;
+			var colorCount:Int = data.arrowRGB.length;  // 先获取为 Int
+			for (i in 0...totalColumns)
+			{
+				var button:TouchButton = buttonsInstance.multiKButtons[i];
+				if (button != null)
+				{
+					var colorIndex:Int = i % colorCount;  // 使用 Int 变量
+					button.color = Std.int(data.arrowRGB[colorIndex][0]);
+					if (button.label != null)
+					{
+						button.label.color = Std.int(data.arrowRGB[colorIndex][0]);
+						//button.label.updateColorTransform();
+					}
+				}
+			}
 		}
 
 		return buttonsInstance;
+	}
+
+	/**
+	 * 设置Hitbox颜色 - 支持4K和多K
+	 */
+	public static function setHitboxColors(hitboxInstance:Dynamic):Dynamic
+	{
+		// Dynamic Controls Color
+		var data:Dynamic;
+		if (ClientPrefs.data.dynamicColors)
+			data = ClientPrefs.data;
+		else
+			data = ClientPrefs.defaultData;
+
+		// === 设置4K Hitbox颜色 ===
+		for (i => button in [
+			hitboxInstance.buttonLeft,
+			hitboxInstance.buttonDown,
+			hitboxInstance.buttonUp,
+			hitboxInstance.buttonRight])
+		{
+			if (button != null)
+			{
+				button.color = Std.int(data.arrowRGB[i][0]);
+				if (button.label != null)
+				{
+					button.label.color = Std.int(data.arrowRGB[i][0]);
+					button.label.updateColorTransform();
+				}
+			}
+		}
+
+		// === 设置多K Hitbox颜色 ===
+		if (hitboxInstance.multiKHints != null)
+		{
+			var totalColumns:Int = hitboxInstance.multiKHints.length;
+			var colorCount:Int = data.arrowRGB.length;  // 先获取为 Int
+			for (i in 0...totalColumns)
+			{
+				var hint:TouchButton = hitboxInstance.multiKHints[i];
+				if (hint != null)
+				{
+					var colorIndex:Int = i % colorCount;  // 使用 Int 变量
+					hint.color = Std.int(data.arrowRGB[colorIndex][0]);
+					if (hint.label != null)
+					{
+						hint.label.color = Std.int(data.arrowRGB[colorIndex][0]);
+						//hint.label.updateColorTransform();
+					}
+				}
+			}
+		}
+
+		return hitboxInstance;
 	}
 
 	public static function readDirectory(folder:String, map:Dynamic)

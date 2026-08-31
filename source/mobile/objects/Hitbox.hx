@@ -27,6 +27,7 @@ import openfl.display.Shape;
 import flixel.graphics.FlxGraphic;
 import flixel.util.FlxSignal.FlxTypedSignal;
 import openfl.geom.Matrix;
+import objects.Note;
 
 /**
  * A zone with 4 hint's (A hitbox).
@@ -45,6 +46,11 @@ class Hitbox extends MobileInputManager implements IMobileControls
 	public var buttonRight:TouchButton = new TouchButton(0, 0, [MobileInputID.HITBOX_RIGHT, MobileInputID.NOTE_RIGHT]);
 	public var buttonExtra:TouchButton = new TouchButton(0, 0, [MobileInputID.EXTRA_1]);
 	public var buttonExtra2:TouchButton = new TouchButton(0, 0, [MobileInputID.EXTRA_2]);
+
+	// ============================================
+	// 新增：多K区域列表
+	// ============================================
+	public var multiKHints:Array<TouchButton> = [];
 
 	public var instance:MobileInputManager;
 	public var onButtonDown:FlxTypedSignal<TouchButton->Void> = new FlxTypedSignal<TouchButton->Void>();
@@ -66,6 +72,44 @@ class Hitbox extends MobileInputManager implements IMobileControls
 				storedButtonsIDs.set(button, Reflect.getProperty(field, 'IDs'));
 		}
 
+		// ============================================
+		// 修改：根据键位数决定创建4K还是多K
+		// ============================================
+		var totalColumns:Int = 4;
+		if (PlayState.SONG != null)
+		{
+			totalColumns = Note.getColumnsPerPlayer(PlayState.SONG);
+		}
+
+		if (totalColumns <= 4)
+		{
+			// 创建标准的4K Hitbox
+			createStandard4KHints(extraMode);
+		}
+		else
+		{
+			// 创建多K Hitbox
+			createMultiKHints(extraMode);
+		}
+
+		for (button in Reflect.fields(this))
+		{
+			if (Std.isOfType(Reflect.field(this, button), TouchButton))
+				Reflect.setProperty(Reflect.getProperty(this, button), 'IDs', storedButtonsIDs.get(button));
+		}
+
+		storedButtonsIDs.clear();
+		scrollFactor.set();
+		updateTrackedButtons();
+
+		instance = this;
+	}
+
+	// ============================================
+	// 新增：创建标准4K Hitbox
+	// ============================================
+	private function createStandard4KHints(extraMode:ExtraActions):Void
+	{
 		switch (extraMode)
 		{
 			case NONE:
@@ -89,18 +133,110 @@ class Hitbox extends MobileInputManager implements IMobileControls
 				add(buttonExtra2 = createHint(Std.int(FlxG.width / 2), offsetFir, Std.int(FlxG.width / 2), Std.int(FlxG.height / 4), 0xA6FF00));
 				add(buttonExtra = createHint(0, offsetFir, Std.int(FlxG.width / 2), Std.int(FlxG.height / 4), 0xFF0066FF));
 		}
+	}
 
-		for (button in Reflect.fields(this))
+	// ============================================
+	// 新增：创建多K Hitbox
+	// ============================================
+	private function createMultiKHints(extraMode:ExtraActions):Void
+	{
+		var totalColumns:Int = 4;
+		if (PlayState.SONG != null)
 		{
-			if (Std.isOfType(Reflect.field(this, button), TouchButton))
-				Reflect.setProperty(Reflect.getProperty(this, button), 'IDs', storedButtonsIDs.get(button));
+			totalColumns = Note.getColumnsPerPlayer(PlayState.SONG);
 		}
 
-		storedButtonsIDs.clear();
-		scrollFactor.set();
-		updateTrackedButtons();
+		if (totalColumns <= 4) return;
 
-		instance = this;
+		// 清除之前的多K区域
+		for (hint in multiKHints)
+		{
+			if (hint != null && members.contains(hint))
+			{
+				remove(hint);
+				hint.destroy();
+			}
+		}
+		multiKHints = [];
+
+		var hintWidth:Float = FlxG.width / totalColumns;
+		var hintHeight:Float = FlxG.height;
+		if (extraMode != NONE)
+		{
+			hintHeight = FlxG.height * 0.75;
+		}
+
+		var colors:Array<FlxColor> = [
+			0xFFC24B99, 0xFF00FFFF, 0xFF12FA05, 0xFFF9393F
+		];
+
+		var ids:Array<MobileInputID> = getMultiKIDs(totalColumns);
+
+		for (i in 0...totalColumns)
+		{
+			if (i >= ids.length) break;
+			
+			var x:Float = i * hintWidth;
+			var y:Float = 0;
+			if (extraMode != NONE)
+			{
+				y = offsetSec;
+			}
+
+			var id:MobileInputID = ids[i];
+			if (id == NONE) continue;
+
+			var hint:TouchButton = createHint(x, y, Math.ceil(hintWidth), Math.ceil(hintHeight), colors[i % 4]);
+			multiKHints.push(hint);
+			add(hint);
+		}
+	}
+
+	/**
+	 * 根据键位数获取对应的多K ID列表
+	 */
+	private function getMultiKIDs(k:Int):Array<MobileInputID>
+	{
+		switch(k)
+		{
+			case 5: return [NOTE_5K_1, NOTE_5K_2, NOTE_5K_3, NOTE_5K_4, NOTE_5K_5];
+			case 6: return [NOTE_6K_1, NOTE_6K_2, NOTE_6K_3, NOTE_6K_4, NOTE_6K_5, NOTE_6K_6];
+			case 7: return [NOTE_7K_1, NOTE_7K_2, NOTE_7K_3, NOTE_7K_4, NOTE_7K_5, NOTE_7K_6, NOTE_7K_7];
+			case 8: return [NOTE_8K_1, NOTE_8K_2, NOTE_8K_3, NOTE_8K_4, NOTE_8K_5, NOTE_8K_6, NOTE_8K_7, NOTE_8K_8];
+			case 9: return [NOTE_9K_1, NOTE_9K_2, NOTE_9K_3, NOTE_9K_4, NOTE_9K_5, NOTE_9K_6, NOTE_9K_7, NOTE_9K_8, NOTE_9K_9];
+			case 10: return [NOTE_10K_1, NOTE_10K_2, NOTE_10K_3, NOTE_10K_4, NOTE_10K_5, NOTE_10K_6, NOTE_10K_7, NOTE_10K_8, NOTE_10K_9, NOTE_10K_10];
+			case 11: return [NOTE_11K_1, NOTE_11K_2, NOTE_11K_3, NOTE_11K_4, NOTE_11K_5, NOTE_11K_6, NOTE_11K_7, NOTE_11K_8, NOTE_11K_9, NOTE_11K_10, NOTE_11K_11];
+			case 12: return [NOTE_12K_1, NOTE_12K_2, NOTE_12K_3, NOTE_12K_4, NOTE_12K_5, NOTE_12K_6, NOTE_12K_7, NOTE_12K_8, NOTE_12K_9, NOTE_12K_10, NOTE_12K_11, NOTE_12K_12];
+			case 13: return [NOTE_13K_1, NOTE_13K_2, NOTE_13K_3, NOTE_13K_4, NOTE_13K_5, NOTE_13K_6, NOTE_13K_7, NOTE_13K_8, NOTE_13K_9, NOTE_13K_10, NOTE_13K_11, NOTE_13K_12, NOTE_13K_13];
+			case 14: return [NOTE_14K_1, NOTE_14K_2, NOTE_14K_3, NOTE_14K_4, NOTE_14K_5, NOTE_14K_6, NOTE_14K_7, NOTE_14K_8, NOTE_14K_9, NOTE_14K_10, NOTE_14K_11, NOTE_14K_12, NOTE_14K_13, NOTE_14K_14];
+			case 15: return [NOTE_15K_1, NOTE_15K_2, NOTE_15K_3, NOTE_15K_4, NOTE_15K_5, NOTE_15K_6, NOTE_15K_7, NOTE_15K_8, NOTE_15K_9, NOTE_15K_10, NOTE_15K_11, NOTE_15K_12, NOTE_15K_13, NOTE_15K_14, NOTE_15K_15];
+			case 16: return [NOTE_16K_1, NOTE_16K_2, NOTE_16K_3, NOTE_16K_4, NOTE_16K_5, NOTE_16K_6, NOTE_16K_7, NOTE_16K_8, NOTE_16K_9, NOTE_16K_10, NOTE_16K_11, NOTE_16K_12, NOTE_16K_13, NOTE_16K_14, NOTE_16K_15, NOTE_16K_16];
+			default: return [];
+		}
+	}
+	// ============================================
+	// 新增：更新多K区域位置
+	// ============================================
+	public function updateMultiKPositions():Void
+	{
+		var totalColumns:Int = multiKHints.length;
+		if (totalColumns == 0) return;
+
+		var hintWidth:Float = FlxG.width / totalColumns;
+		var hintHeight:Float = FlxG.height;
+
+		for (i in 0...totalColumns)
+		{
+			var hint:TouchButton = multiKHints[i];
+			if (hint != null)
+			{
+				hint.x = i * hintWidth;
+				hint.y = 0;
+				var newGraphic:FlxGraphic = createHintGraphic(Math.ceil(hintWidth), Math.ceil(hintHeight));
+				hint.loadGraphic(newGraphic);
+				hint.updateHitbox();
+			}
+		}
 	}
 
 	/**
@@ -111,6 +247,12 @@ class Hitbox extends MobileInputManager implements IMobileControls
 		super.destroy();
 		onButtonUp.destroy();
 		onButtonDown.destroy();
+
+		for (hint in multiKHints)
+		{
+			if (hint != null) FlxDestroyUtil.destroy(hint);
+		}
+		multiKHints = [];
 
 		for (fieldName in Reflect.fields(this))
 		{

@@ -49,40 +49,46 @@ import states.TitleState;
 	public var oldFreeplay:Bool = false;
 	public var skipDeath:Bool = false;
 	public var noteOffset:Int = 0;
+// 在 ClientPrefs.hx 的 SaveVariables 中
 	public var arrowRGB:Array<Array<FlxColor>> = [
-		[0xFFC24B99, 0xFFFFFFFF, 0xFF3C1F56],
-		[0xFF00FFFF, 0xFFFFFFFF, 0xFF1542B7],
-		[0xFF12FA05, 0xFFFFFFFF, 0xFF0A4447],
-		[0xFFF9393F, 0xFFFFFFFF, 0xFF651038],
-		[0xFFC24B99, 0xFFFFFFFF, 0xFF3C1F56],
-		[0xFF00FFFF, 0xFFFFFFFF, 0xFF1542B7],
-		[0xFF12FA05, 0xFFFFFFFF, 0xFF0A4447],
-		[0xFFF9393F, 0xFFFFFFFF, 0xFF651038],
-		[0xFFC24B99, 0xFFFFFFFF, 0xFF3C1F56],
-		[0xFF00FFFF, 0xFFFFFFFF, 0xFF1542B7],
-		[0xFF12FA05, 0xFFFFFFFF, 0xFF0A4447],
-		[0xFFF9393F, 0xFFFFFFFF, 0xFF651038],
-		[0xFFC24B99, 0xFFFFFFFF, 0xFF3C1F56],
-		[0xFF00FFFF, 0xFFFFFFFF, 0xFF1542B7],
-		[0xFF12FA05, 0xFFFFFFFF, 0xFF0A4447],
-		[0xFFF9393F, 0xFFFFFFFF, 0xFF651038]];
+		[0xFFC24B99, 0xFFFFFFFF, 0xFF3C1F56], // 0 - 左
+		[0xFF00FFFF, 0xFFFFFFFF, 0xFF1542B7], // 1 - 下
+		[0xFF12FA05, 0xFFFFFFFF, 0xFF0A4447], // 2 - 上
+		[0xFFF9393F, 0xFFFFFFFF, 0xFF651038], // 3 - 右
+		// 多K额外颜色 (4-15)
+		[0xFFFF8C00, 0xFFFFFFFF, 0xFF4A2800], // 4 - 橙色
+		[0xFFFF00FF, 0xFFFFFFFF, 0xFF4A004A], // 5 - 品红
+		[0xFFFFD700, 0xFFFFFFFF, 0xFF4A3F00], // 6 - 金色
+		[0xFF00FF7F, 0xFFFFFFFF, 0xFF004A25], // 7 - 春绿
+		[0xFF8B00FF, 0xFFFFFFFF, 0xFF29004A], // 8 - 紫色
+		[0xFFFF4500, 0xFFFFFFFF, 0xFF4A1400], // 9 - 橙红
+		[0xFF00CED1, 0xFFFFFFFF, 0xFF003E3F], // 10 - 深天蓝
+		[0xFFFF1493, 0xFFFFFFFF, 0xFF4A062C], // 11 - 深粉
+		[0xFFFFFF00, 0xFFFFFFFF, 0xFF4A4A00], // 12 - 黄色
+		[0xFF7FFF00, 0xFFFFFFFF, 0xFF264A00], // 13 - 亮绿
+		[0xFF1E90FF, 0xFFFFFFFF, 0xFF092B4A], // 14 - 道奇蓝
+		[0xFFFF6EB4, 0xFFFFFFFF, 0xFF4A2136]  // 15 - 热粉
+	];
 	public var arrowRGBPixel:Array<Array<FlxColor>> = [
-		[0xFFE276FF, 0xFFFFF9FF, 0xFF60008D],
-		[0xFF3DCAFF, 0xFFF4FFFF, 0xFF003060],
-		[0xFF71E300, 0xFFF6FFE6, 0xFF003100],
-		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000],
-		[0xFFE276FF, 0xFFFFF9FF, 0xFF60008D],
-		[0xFF3DCAFF, 0xFFF4FFFF, 0xFF003060],
-		[0xFF71E300, 0xFFF6FFE6, 0xFF003100],
-		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000],
-		[0xFFE276FF, 0xFFFFF9FF, 0xFF60008D],
-		[0xFF3DCAFF, 0xFFF4FFFF, 0xFF003060],
-		[0xFF71E300, 0xFFF6FFE6, 0xFF003100],
-		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000],
-		[0xFFE276FF, 0xFFFFF9FF, 0xFF60008D],
-		[0xFF3DCAFF, 0xFFF4FFFF, 0xFF003060],
-		[0xFF71E300, 0xFFF6FFE6, 0xFF003100],
-		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000]];
+		// 4K 基础颜色 (像素风格 - 更鲜艳/亮眼)
+		[0xFFE276FF, 0xFFFFF9FF, 0xFF60008D], // 0 - 左 (紫色)
+		[0xFF3DCAFF, 0xFFF4FFFF, 0xFF003060], // 1 - 下 (蓝色)
+		[0xFF71E300, 0xFFF6FFE6, 0xFF003100], // 2 - 上 (绿色)
+		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000], // 3 - 右 (红色)
+		[0xFFFFA500, 0xFFFFF5E6, 0xFF4A2F00], // 4 - 橙色
+		[0xFFFF6B9D, 0xFFFFF0F5, 0xFF4A001F], // 5 - 粉色
+		[0xFF00E5FF, 0xFFF0FFFF, 0xFF00454A], // 6 - 青色
+		[0xFFB8FF00, 0xFFF5FFE6, 0xFF354A00], // 7 - 黄绿
+		[0xFFFF00D4, 0xFFFFF0FC, 0xFF4A003D], // 8 - 洋红
+		[0xFF4DD0FF, 0xFFF0FAFF, 0xFF00334A], // 9 - 天蓝
+		[0xFFFFD740, 0xFFFFFCF0, 0xFF4A3C00], // 10 - 金色
+		[0xFF69F0AE, 0xFFF0FFF5, 0xFF004A25], // 11 - 薄荷
+		[0xFFD9A0FF, 0xFFFCF0FF, 0xFF3D004A], // 12 - 薰衣草
+		[0xFFFF8A80, 0xFFFFF5F5, 0xFF4A1A00], // 13 - 珊瑚
+		[0xFF80D8A0, 0xFFF0FFF5, 0xFF004A2F], // 14 - 翡翠
+		[0xFFFF80B0, 0xFFFFF0F5, 0xFF4A0020], // 15 - 玫瑰
+	];
+
 
 	public var ghostTapping:Bool = true;
 	public var timeBarType:String = 'Time Left';
@@ -592,21 +598,196 @@ class ClientPrefs {
 		'reset'			=> [BACK]
 	];
 	public static var mobileBinds:Map<String, Array<MobileInputID>> = [
-		'note_up'		=> [NOTE_UP],
-		'note_left'		=> [NOTE_LEFT],
-		'note_down'		=> [NOTE_DOWN],
-		'note_right'	=> [NOTE_RIGHT],
+		'note_up'       => [NOTE_UP],
+		'note_left'     => [NOTE_LEFT],
+		'note_down'     => [NOTE_DOWN],
+		'note_right'    => [NOTE_RIGHT],
 
-		'ui_up'			=> [UP],
-		'ui_left'		=> [LEFT],
-		'ui_down'		=> [DOWN],
-		'ui_right'		=> [RIGHT],
+		'ui_up'         => [UP],
+		'ui_left'       => [LEFT],
+		'ui_down'       => [DOWN],
+		'ui_right'      => [RIGHT],
 
-		'accept'		=> [A],
-		'back'			=> [B],
-		'pause'			=> [P],
-		'reset'			=> [NONE]
+		'accept'        => [A],
+		'back'          => [B],
+		'pause'         => [P],
+		'reset'         => [NONE],
+
+		// ============================================
+		// 5K (44-48)
+		// ============================================
+		'note_5k_1'     => [NOTE_5K_1],
+		'note_5k_2'     => [NOTE_5K_2],
+		'note_5k_3'     => [NOTE_5K_3],
+		'note_5k_4'     => [NOTE_5K_4],
+		'note_5k_5'     => [NOTE_5K_5],
+
+		// ============================================
+		// 6K (49-54)
+		// ============================================
+		'note_6k_1'     => [NOTE_6K_1],
+		'note_6k_2'     => [NOTE_6K_2],
+		'note_6k_3'     => [NOTE_6K_3],
+		'note_6k_4'     => [NOTE_6K_4],
+		'note_6k_5'     => [NOTE_6K_5],
+		'note_6k_6'     => [NOTE_6K_6],
+
+		// ============================================
+		// 7K (55-61)
+		// ============================================
+		'note_7k_1'     => [NOTE_7K_1],
+		'note_7k_2'     => [NOTE_7K_2],
+		'note_7k_3'     => [NOTE_7K_3],
+		'note_7k_4'     => [NOTE_7K_4],
+		'note_7k_5'     => [NOTE_7K_5],
+		'note_7k_6'     => [NOTE_7K_6],
+		'note_7k_7'     => [NOTE_7K_7],
+
+		// ============================================
+		// 8K (62-69)
+		// ============================================
+		'note_8k_1'     => [NOTE_8K_1],
+		'note_8k_2'     => [NOTE_8K_2],
+		'note_8k_3'     => [NOTE_8K_3],
+		'note_8k_4'     => [NOTE_8K_4],
+		'note_8k_5'     => [NOTE_8K_5],
+		'note_8k_6'     => [NOTE_8K_6],
+		'note_8k_7'     => [NOTE_8K_7],
+		'note_8k_8'     => [NOTE_8K_8],
+
+		// ============================================
+		// 9K (70-78)
+		// ============================================
+		'note_9k_1'     => [NOTE_9K_1],
+		'note_9k_2'     => [NOTE_9K_2],
+		'note_9k_3'     => [NOTE_9K_3],
+		'note_9k_4'     => [NOTE_9K_4],
+		'note_9k_5'     => [NOTE_9K_5],
+		'note_9k_6'     => [NOTE_9K_6],
+		'note_9k_7'     => [NOTE_9K_7],
+		'note_9k_8'     => [NOTE_9K_8],
+		'note_9k_9'     => [NOTE_9K_9],
+
+		// ============================================
+		// 10K (79-88)
+		// ============================================
+		'note_10k_1'    => [NOTE_10K_1],
+		'note_10k_2'    => [NOTE_10K_2],
+		'note_10k_3'    => [NOTE_10K_3],
+		'note_10k_4'    => [NOTE_10K_4],
+		'note_10k_5'    => [NOTE_10K_5],
+		'note_10k_6'    => [NOTE_10K_6],
+		'note_10k_7'    => [NOTE_10K_7],
+		'note_10k_8'    => [NOTE_10K_8],
+		'note_10k_9'    => [NOTE_10K_9],
+		'note_10k_10'   => [NOTE_10K_10],
+
+		// ============================================
+		// 11K (89-99)
+		// ============================================
+		'note_11k_1'    => [NOTE_11K_1],
+		'note_11k_2'    => [NOTE_11K_2],
+		'note_11k_3'    => [NOTE_11K_3],
+		'note_11k_4'    => [NOTE_11K_4],
+		'note_11k_5'    => [NOTE_11K_5],
+		'note_11k_6'    => [NOTE_11K_6],
+		'note_11k_7'    => [NOTE_11K_7],
+		'note_11k_8'    => [NOTE_11K_8],
+		'note_11k_9'    => [NOTE_11K_9],
+		'note_11k_10'   => [NOTE_11K_10],
+		'note_11k_11'   => [NOTE_11K_11],
+
+		// ============================================
+		// 12K (100-111)
+		// ============================================
+		'note_12k_1'    => [NOTE_12K_1],
+		'note_12k_2'    => [NOTE_12K_2],
+		'note_12k_3'    => [NOTE_12K_3],
+		'note_12k_4'    => [NOTE_12K_4],
+		'note_12k_5'    => [NOTE_12K_5],
+		'note_12k_6'    => [NOTE_12K_6],
+		'note_12k_7'    => [NOTE_12K_7],
+		'note_12k_8'    => [NOTE_12K_8],
+		'note_12k_9'    => [NOTE_12K_9],
+		'note_12k_10'   => [NOTE_12K_10],
+		'note_12k_11'   => [NOTE_12K_11],
+		'note_12k_12'   => [NOTE_12K_12],
+
+		// ============================================
+		// 13K (112-124)
+		// ============================================
+		'note_13k_1'    => [NOTE_13K_1],
+		'note_13k_2'    => [NOTE_13K_2],
+		'note_13k_3'    => [NOTE_13K_3],
+		'note_13k_4'    => [NOTE_13K_4],
+		'note_13k_5'    => [NOTE_13K_5],
+		'note_13k_6'    => [NOTE_13K_6],
+		'note_13k_7'    => [NOTE_13K_7],
+		'note_13k_8'    => [NOTE_13K_8],
+		'note_13k_9'    => [NOTE_13K_9],
+		'note_13k_10'   => [NOTE_13K_10],
+		'note_13k_11'   => [NOTE_13K_11],
+		'note_13k_12'   => [NOTE_13K_12],
+		'note_13k_13'   => [NOTE_13K_13],
+
+		// ============================================
+		// 14K (125-138)
+		// ============================================
+		'note_14k_1'    => [NOTE_14K_1],
+		'note_14k_2'    => [NOTE_14K_2],
+		'note_14k_3'    => [NOTE_14K_3],
+		'note_14k_4'    => [NOTE_14K_4],
+		'note_14k_5'    => [NOTE_14K_5],
+		'note_14k_6'    => [NOTE_14K_6],
+		'note_14k_7'    => [NOTE_14K_7],
+		'note_14k_8'    => [NOTE_14K_8],
+		'note_14k_9'    => [NOTE_14K_9],
+		'note_14k_10'   => [NOTE_14K_10],
+		'note_14k_11'   => [NOTE_14K_11],
+		'note_14k_12'   => [NOTE_14K_12],
+		'note_14k_13'   => [NOTE_14K_13],
+		'note_14k_14'   => [NOTE_14K_14],
+
+		// ============================================
+		// 15K (139-153)
+		// ============================================
+		'note_15k_1'    => [NOTE_15K_1],
+		'note_15k_2'    => [NOTE_15K_2],
+		'note_15k_3'    => [NOTE_15K_3],
+		'note_15k_4'    => [NOTE_15K_4],
+		'note_15k_5'    => [NOTE_15K_5],
+		'note_15k_6'    => [NOTE_15K_6],
+		'note_15k_7'    => [NOTE_15K_7],
+		'note_15k_8'    => [NOTE_15K_8],
+		'note_15k_9'    => [NOTE_15K_9],
+		'note_15k_10'   => [NOTE_15K_10],
+		'note_15k_11'   => [NOTE_15K_11],
+		'note_15k_12'   => [NOTE_15K_12],
+		'note_15k_13'   => [NOTE_15K_13],
+		'note_15k_14'   => [NOTE_15K_14],
+		'note_15k_15'   => [NOTE_15K_15],
+
+		// ============================================
+		// 16K (154-169)
+		// ============================================
+		'note_16k_1'    => [NOTE_16K_1],
+		'note_16k_2'    => [NOTE_16K_2],
+		'note_16k_3'    => [NOTE_16K_3],
+		'note_16k_4'    => [NOTE_16K_4],
+		'note_16k_5'    => [NOTE_16K_5],
+		'note_16k_6'    => [NOTE_16K_6],
+		'note_16k_7'    => [NOTE_16K_7],
+		'note_16k_8'    => [NOTE_16K_8],
+		'note_16k_9'    => [NOTE_16K_9],
+		'note_16k_10'   => [NOTE_16K_10],
+		'note_16k_11'   => [NOTE_16K_11],
+		'note_16k_12'   => [NOTE_16K_12],
+		'note_16k_13'   => [NOTE_16K_13],
+		'note_16k_14'   => [NOTE_16K_14],
+		'note_16k_15'   => [NOTE_16K_15],
+		'note_16k_16'   => [NOTE_16K_16],
 	];
+
 	public static var defaultKeys:Map<String, Array<FlxKey>> = null;
 	public static var defaultButtons:Map<String, Array<FlxGamepadInputID>> = null;
 	public static var defaultMobileBinds:Map<String, Array<MobileInputID>> = null;

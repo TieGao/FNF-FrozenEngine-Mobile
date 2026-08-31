@@ -883,6 +883,17 @@ class PlayState extends MusicBeatState
 		mobileControls.onButtonDown.add(onButtonPress);
 		mobileControls.onButtonUp.add(onButtonRelease);
 
+		if (Std.isOfType(mobileControls.instance, TouchPad))
+		{
+			var touchPad:TouchPad = cast mobileControls.instance;
+			touchPad.updateMultiKPositions();
+		}
+		else if (Std.isOfType(mobileControls.instance, Hitbox))
+		{
+			var hitbox:Hitbox = cast mobileControls.instance;
+			hitbox.updateMultiKPositions();
+		}
+
 		if(eventNotes.length > 0)
 		{
 			for (event in eventNotes) event.strumTime -= eventEarlyTrigger(event);
