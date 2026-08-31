@@ -1427,6 +1427,7 @@ function onScrollChange()
 		options.push(KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"));
 		options.push(mobileSettings);
 		options.push(KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"));
+		options.push(KEOption.create("Customize Mobile Extra Controls", "Customize extra keys you required","","action"));
 		options.push(KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 		options.push(KEOption.createResetOption("Reset KeyBinds", "keybinds"));
 		return options;

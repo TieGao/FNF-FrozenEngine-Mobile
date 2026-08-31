@@ -241,6 +241,36 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			});
 		}
 
+		if (FlxG.mouse.justPressedRight || controls.BACK) 
+		{
+			if (options[curOption].toLowerCase().contains('pad'))
+				control.touchPad.setExtrasDefaultPos();
+			if (options[curOption] == 'Pad-Extra')
+			{
+				var nuhuh = new FlxText(0, 0, FlxG.width / 2, Language.getPhrase('pad-extra_save', 'Pad-Extra Is Just A Binding Option\nPlease Select A Different Option To Exit.'));
+				nuhuh.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, FlxTextAlign.CENTER);
+				nuhuh.screenCenter();
+				nuhuh.cameras = [ui];
+				add(nuhuh);
+				FlxTween.tween(nuhuh, {alpha: 0}, 3.4, {
+					ease: FlxEase.circOut,
+					onComplete: (twn:FlxTween) ->
+					{
+						nuhuh.destroy();
+						remove(nuhuh);
+					}
+				});
+				return;
+			}
+			MobileData.mode = curOption;
+			if (options[curOption] == 'Pad-Custom')
+				MobileData.setTouchPadCustom(control.touchPad);
+			controls.isInSubstate = FlxG.mouse.visible = false;
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			MobileData.forcedMode = null;
+			close();
+		}
+		
 		tweenieShit += 180 * elapsed;
 
 		super.update(elapsed);

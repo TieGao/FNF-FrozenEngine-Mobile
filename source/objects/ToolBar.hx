@@ -23,14 +23,15 @@ import backend.ui.PsychUIButton;
 
 class ToolBar extends FlxSpriteGroup
 {
-    public var background:FlxFilteredSprite;
+    public var 
+    background:FlxFilteredSprite;
     public var textDisplay:FlxText;
     public var musicPlayer:MusicPlayerLegacy;
     
     // 按钮相关
     public var buttons:Array<PsychUIButton> = [];
     public var buttonTexts:Array<String> = [];
-    public var buttonWidth:Int = 200;
+    public var buttonWidth:Int = 250;
     public var buttonSpacing:Int = 5;
     
     // 播放器控制相关
@@ -84,7 +85,7 @@ class ToolBar extends FlxSpriteGroup
         loadVizSettings();
         
         background = new FlxFilteredSprite(-100, FlxG.height - height);
-        background.makeGraphic(width, height + 50, 0xFF000000);
+        background.makeGraphic(width, height + 100, 0xFF000000);
         background.alpha = 0.6;
         background.scrollFactor.set();
         background.filters = [new BlurFilter(blurAmount, blurAmount, BitmapFilterQuality.HIGH)];
@@ -195,7 +196,7 @@ class ToolBar extends FlxSpriteGroup
     
     private function createButtons():Void
     {
-        var buttonY:Float = background.y + (background.height - 40) / 2 - 20;
+        var buttonY:Float = background.y + (background.height - 40) / 2 - 50;
         var startX:Float = (FlxG.width - (buttonWidth * 4 + buttonSpacing * 3)) / 2;
         
         var buttonData:Array<{label:String, action:Void->Void}> = [
@@ -213,7 +214,7 @@ class ToolBar extends FlxSpriteGroup
                 buttonData[i].label,
                 buttonData[i].action,
                 buttonWidth,
-                32
+                48
             );
             btn.scrollFactor.set();
             btn.text.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER);
@@ -238,7 +239,7 @@ class ToolBar extends FlxSpriteGroup
     
     private function createPlayerControls():Void
     {
-        var centerY:Float = background.y + background.height / 2 - 20;
+        var centerY:Float = background.y + background.height / 2 - 50;
         var btnSize:Int = 32;
         var spacing:Int = 8;
         

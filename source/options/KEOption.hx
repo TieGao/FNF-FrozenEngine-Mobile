@@ -288,6 +288,10 @@ class KEOption
 					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new substates.AboutSubState());
 					return false;
+				case "Customize Mobile Extra Controls" :
+					KEOptionsMenu.instance.removeTouchPad();
+					KEOptionsMenu.instance.openSubState(new mobile.substates.MobileExtraControl());
+					return false;
 			}
 			return true;
 		}

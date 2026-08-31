@@ -240,6 +240,9 @@ import states.TitleState;
 	public var keLike:Bool = false;
 	public var clipoffset:Float = 0;
 	public var betaUpdates:Bool = false;
+
+	public var extraKeyReturn1:String = 'Space';
+	public var extraKeyReturn2:String = 'Space';
 }
 
 class ClientPrefs {

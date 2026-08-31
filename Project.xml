@@ -112,8 +112,8 @@
 
 	<!-- _______________________________ Libraries ______________________________ -->
 
-	<haxelib name="flixel" version="git"/>
-	<haxelib name="flixel-addons" version="git"/>
+	<haxelib name="flixel" version="6.2.0"/>
+	<haxelib name="flixel-addons" version="4.0.1"/>
 	<haxelib name="tjson" version="1.4.0"/>
 
 	<!--Psych stuff needed-->

@@ -4,6 +4,7 @@ import flixel.input.gamepad.FlxGamepadButton;
 import flixel.input.gamepad.FlxGamepadInputID;
 import flixel.input.gamepad.mappings.FlxGamepadMapping;
 import flixel.input.keyboard.FlxKey;
+import flixel.input.FlxInput;
 
 class Controls
 {
@@ -925,14 +926,48 @@ class Controls
 	private function get_PAUSE() return justPressed('pause');
 	private function get_RESET() return justPressed('reset');
 
+	public var EXTRA_1_P(get, never):Bool;
+	public var EXTRA_2_P(get, never):Bool;
+	public var EXTRA_1(get, never):Bool;
+	public var EXTRA_2(get, never):Bool;
+	public var EXTRA_1_R(get, never):Bool;
+	public var EXTRA_2_R(get, never):Bool;
+
+	private function get_EXTRA_1_P() return justPressed('extra_1');
+	private function get_EXTRA_2_P() return justPressed('extra_2');
+	private function get_EXTRA_1() return pressed('extra_1');
+	private function get_EXTRA_2() return pressed('extra_2');
+	private function get_EXTRA_1_R() return justReleased('extra_1');
+	private function get_EXTRA_2_R() return justReleased('extra_2');
+
 	//Gamepad, Keyboard & Mobile stuff
 	public var keyboardBinds:Map<String, Array<FlxKey>>;
 	public var gamepadBinds:Map<String, Array<FlxGamepadInputID>>;
 	public var mobileBinds:Map<String, Array<MobileInputID>>;
 	public function justPressed(key:String)
 	{
-		var result:Bool = (FlxG.keys.anyJustPressed(keyboardBinds[key]) == true);
-		if(result) controllerMode = false;
+		var result:Bool = false;
+		var kbKeys = keyboardBinds[key];
+		if (kbKeys != null)
+		{
+			result = FlxG.keys.anyJustPressed(kbKeys);
+			if (result) controllerMode = false;
+		}
+
+		// 检测 Extra 1
+		if (key == 'extra_1')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn1);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.JUST_PRESSED))
+				result = true;
+		}
+		// 检测 Extra 2
+		else if (key == 'extra_2')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn2);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.JUST_PRESSED))
+				result = true;
+		}
 
 		return result
 			|| _myGamepadJustPressed(gamepadBinds[key]) == true
@@ -942,8 +977,26 @@ class Controls
 
 	public function pressed(key:String)
 	{
-		var result:Bool = (FlxG.keys.anyPressed(keyboardBinds[key]) == true);
-		if(result) controllerMode = false;
+		var result:Bool = false;
+		var kbKeys = keyboardBinds[key];
+		if (kbKeys != null)
+		{
+			result = FlxG.keys.anyPressed(kbKeys);
+			if (result) controllerMode = false;
+		}
+
+		if (key == 'extra_1')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn1);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.PRESSED))
+				result = true;
+		}
+		else if (key == 'extra_2')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn2);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.PRESSED))
+				result = true;
+		}
 
 		return result
 			|| _myGamepadPressed(gamepadBinds[key]) == true
@@ -953,8 +1006,26 @@ class Controls
 
 	public function justReleased(key:String)
 	{
-		var result:Bool = (FlxG.keys.anyJustReleased(keyboardBinds[key]) == true);
-		if(result) controllerMode = false;
+		var result:Bool = false;
+		var kbKeys = keyboardBinds[key];
+		if (kbKeys != null)
+		{
+			result = FlxG.keys.anyJustReleased(kbKeys);
+			if (result) controllerMode = false;
+		}
+
+		if (key == 'extra_1')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn1);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.JUST_RELEASED))
+				result = true;
+		}
+		else if (key == 'extra_2')
+		{
+			var k = FlxKey.fromString(ClientPrefs.data.extraKeyReturn2);
+			if (k != FlxKey.NONE && FlxG.keys.checkStatus(k, FlxInputState.JUST_RELEASED))
+				result = true;
+		}
 
 		return result
 			|| _myGamepadJustReleased(gamepadBinds[key]) == true

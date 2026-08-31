@@ -139,6 +139,9 @@ class FreeplayState extends MusicBeatState
         DiscordClient.changePresence("In the Freeplay Menu", null);
         #end
 
+        Paths.clearStoredMemory();
+		Paths.clearUnusedMemory();
+
 		final accept:String = (controls.mobileC) ? "A" : "ACCEPT";
 		final reject:String = (controls.mobileC) ? "B" : "BACK";
 
@@ -1280,7 +1283,7 @@ class FreeplayState extends MusicBeatState
             
             FlxG.sound.play(Paths.sound('confirmMenu'), 0.7);
             persistentUpdate = false;
-            removeTouchPad();
+            if (!ClientPrefs.data.toolBar) removeTouchPad();
             openSubState(new substates.LoadReplaySubState(
                 this,
                 songs[curSelected].songName,
@@ -1291,7 +1294,7 @@ class FreeplayState extends MusicBeatState
 
         if (ClientPrefs.data.freeplayModFolder && FlxG.mouse.justPressed && FlxG.mouse.overlaps(modFolderText) && !musicPlayer.playingMusic && !inModFolderSelector)
         {
-            removeTouchPad();
+            if (!ClientPrefs.data.toolBar) removeTouchPad();
             openModFolderSelector();
         }
 
@@ -1383,7 +1386,7 @@ class FreeplayState extends MusicBeatState
             if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
             {
                 persistentUpdate = false;
-                removeTouchPad();
+                if (!ClientPrefs.data.toolBar) removeTouchPad();
                 openSubState(new GameplayChangersSubstate());
             }
             else if (FlxG.keys.justPressed.ENTER && !musicPlayer.playingMusic)
@@ -1405,7 +1408,7 @@ class FreeplayState extends MusicBeatState
             else
             {
                 persistentUpdate = false;
-                removeTouchPad();
+                if (!ClientPrefs.data.toolBar) removeTouchPad();
                 openSubState(new ResetScoreSubState(songs[curSelected].songName, curDifficulty, songs[curSelected].songCharacter, -1, songs[curSelected].folder));
                 FlxG.sound.play(Paths.sound('scrollMenu'));
             }
@@ -1782,7 +1785,7 @@ class FreeplayState extends MusicBeatState
     {
         var modFolder = new ModFolderSubstate(this);
         inModFolderSelector = true;
-        removeTouchPad();
+        if (!ClientPrefs.data.toolBar) removeTouchPad();
         openSubState(modFolder);
     }
 
