@@ -482,7 +482,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			"Ctrl + A - Select all in current Section",
 			"Ctrl + S - Quicksave",
 		].join('\n');
-		fullTipText.text = Language.getPhrase('charting_help_list', defaultChartingHelp);
+		fullTipText.text = Language.getPhrase(#if mobile 'mobile_charting_help_list' #else 'charting_help_list' #end, defaultChartingHelp);
 		fullTipText.screenCenter();
 		add(fullTipText);
 		addTouchPad('LEFT_FULL', 'CHART_EDITOR');
@@ -3368,7 +3368,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		});
 		var reloadAudioButton:PsychUIButton = new PsychUIButton(objX + 120, objY, 'Reload Audio', function() loadMusic(true), 80);
 
-		#if mac
+		#if (mac || mobile)
 		var reloadJsonButton:PsychUIButton = new PsychUIButton(objX + 205, objY, 'Reload JSON', function()
 		{
 			var cur = Paths.formatToSongPath(songNameInputText.text);
