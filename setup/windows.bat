@@ -7,15 +7,15 @@ haxelib git hxcpp https://github.com/TieGao/hxcpp --quiet
 haxelib git lime https://github.com/TieGao/lime --quiet
 haxelib git openfl https://github.com/TieGao/openfl
 haxelib install flixel 6.2.0 --skip-dependencies
-haxelib install flixel-addons 4.0.1 --skip-dependencies
+haxelib install flixel-addons 4.0.2 --skip-dependencies
 haxelib install flixel-tools 1.5.1 --skip-dependencies
 haxelib install hscript-iris 1.1.3 --skip-dependencies
 haxelib install tjson 1.4.0 --skip-dependencies
 haxelib git flxanimate https://github.com/Dot-Stuff/flxanimate 768740a56b26aa0c072720e0d1236b94afe68e3e --quiet
 haxelib git linc_luajit https://github.com/kittycathy233/linc_luajit --quiet
 haxelib install hxdiscord_rpc 1.2.4 --quiet --skip-dependencies
-haxelib install hxvlc 2.2.5 --quiet --skip-dependencies
-haxelib install extension-androidtools 2.1.1 --skip-dependencies --quiet
+haxelib install hxvlc 2.3.1 --quiet --skip-dependencies
+haxelib install extension-androidtools 2.2.2 --skip-dependencies --quiet
 haxelib git funkin.vis https://github.com/FunkinCrew/funkVis 22b1ce089dd924f15cdc4632397ef3504d464e90 --quiet --skip-dependencies
 haxelib git grig.audio https://gitlab.com/haxe-grig/grig.audio.git cbf91e2180fd2e374924fe74844086aab7891666 --quiet
 haxelib install moonchart 0.5.1

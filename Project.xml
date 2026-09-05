@@ -2,7 +2,7 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.5.0" company="IceAxe" />
+	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.5.4" company="IceAxe" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
@@ -112,8 +112,8 @@
 
 	<!-- _______________________________ Libraries ______________________________ -->
 
-	<haxelib name="flixel" version="6.2.0"/>
-	<haxelib name="flixel-addons" version="4.0.1"/>
+	<haxelib name="flixel"/>
+	<haxelib name="flixel-addons"/>
 	<haxelib name="tjson" version="1.4.0"/>
 
 	<!--Psych stuff needed-->
