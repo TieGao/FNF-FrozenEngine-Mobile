@@ -30,7 +30,7 @@ class StorageUtil
 {
 	#if sys
 	public static function getStorageDirectory():String
-		return #if android haxe.io.Path.addTrailingSlash(AndroidContext.getExternalFilesDir()) #elseif ios lime.system.System.documentsDirectory #else Sys.getCwd() #end;
+		return #if android haxe.io.Path.addTrailingSlash(extension.androidtools.content.Context.getExternalFilesDir()) #elseif ios lime.system.System.documentsDirectory #else Sys.getCwd() #end;
 
 	public static function saveContent(fileName:String, fileData:String, ?alert:Bool = true):Void
 	{
@@ -58,28 +58,24 @@ class StorageUtil
 
 	public static function requestPermissions():Void
 {
-	if (AndroidVersion.SDK_INT >= AndroidVersionCode.TIRAMISU)
+	if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU)
 	{
 		// Request each permission individually
-		AndroidPermissions.requestPermission('READ_MEDIA_IMAGES');
-		AndroidPermissions.requestPermission('READ_MEDIA_VIDEO');
-		AndroidPermissions.requestPermission('READ_MEDIA_AUDIO');
-		AndroidPermissions.requestPermission('READ_MEDIA_VISUAL_USER_SELECTED');
+		extension.androidtools.Permissions.requestPermissions(['READ_MEDIA_IMAGES','READ_MEDIA_VISUAL_USER_SELECTED','READ_MEDIA_VIDEO','READ_MEDIA_AUDIO']);
 	}
 	else
 	{
 		// Request each permission individually
-		AndroidPermissions.requestPermission('READ_EXTERNAL_STORAGE');
-		AndroidPermissions.requestPermission('WRITE_EXTERNAL_STORAGE');
+		extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']);
 	}
 
-	if (!AndroidEnvironment.isExternalStorageManager())
-		AndroidSettings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
+	if (!extension.androidtools.os.Environment.isExternalStorageManager())
+		extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
 
-	if ((AndroidVersion.SDK_INT >= AndroidVersionCode.TIRAMISU
-		&& !AndroidPermissions.getGrantedPermissions().contains('android.permission.READ_MEDIA_IMAGES'))
-		|| (AndroidVersion.SDK_INT < AndroidVersionCode.TIRAMISU
-			&& !AndroidPermissions.getGrantedPermissions().contains('android.permission.READ_EXTERNAL_STORAGE')))
+	if ((extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU
+		&& !extension.androidtools.Permissions.getGrantedPermissions().contains('android.permission.READ_MEDIA_IMAGES'))
+		|| (extension.androidtools.os.Build.VERSION.SDK_INT < extension.androidtools.os.Build.VERSION_CODES.TIRAMISU
+			&& !extension.androidtools.Permissions.getGrantedPermissions().contains('android.permission.READ_EXTERNAL_STORAGE')))
 		CoolUtil.showPopUp(Language.getPhrase('permissions_message', 'If you accepted the permissions you are all good!\nIf you didn\'t then expect a crash\nPress OK to see what happens'),
 			Language.getPhrase('mobile_notice', "Notice!"));
 

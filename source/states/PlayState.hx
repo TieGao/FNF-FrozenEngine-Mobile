@@ -223,6 +223,7 @@ class PlayState extends MusicBeatState
 	public var cpuControlled:Bool = false;
 	public var practiceMode:Bool = false;
 	public var opponentMode:String = 'player';
+	public var swapPlayerOpponent:Bool = false;
 	public static var lastKeyBindIndex:Int = 0;
 	public var pressMissDamage:Float = 0.05;
 
@@ -268,7 +269,6 @@ class PlayState extends MusicBeatState
 	public var camHUD:FlxCamera;
 	public var camGame:FlxCamera;
 	public var camOther:FlxCamera;
-	public var luaTpadCam:FlxCamera;
 	public var cameraSpeed:Float = 1;
 
 	public var songScore:Int = 0;
@@ -285,6 +285,10 @@ class PlayState extends MusicBeatState
 	private var replayNoteQueue:Array<Array<Dynamic>> = []; // 回放音符队列（明确类型）
 	public static var inReplay:Bool = false; 
 	public static var replayFileName:String = "";
+	public static var chartCategory:String = null;
+	public static var chartDirectory:String = null;
+	public static var chartHasVSliceMetadata:Bool = false;
+	public static var chartAudioSuffix:String = null;
 
 	var scoreTxtColorTween:FlxTween;
 	var scoreTxtDefaultColor:FlxColor = 0xFFFFFFFF;
@@ -385,6 +389,18 @@ class PlayState extends MusicBeatState
 
 	override public function create()
 	{
+		if (Paths.currentChartCategory == null && chartCategory != null)
+			Paths.currentChartCategory = chartCategory;
+		if (Paths.currentChartDirectory == null && chartDirectory != null)
+			Paths.currentChartDirectory = chartDirectory;
+		if (Paths.currentChartCategory != null)
+		{
+			chartCategory = Paths.currentChartCategory;
+			chartDirectory = Paths.currentChartDirectory;
+			chartHasVSliceMetadata = Paths.currentChartHasVSliceMetadata;
+			chartAudioSuffix = Paths.currentChartAudioSuffix;
+		}
+
 		 // ========== 回放系统初始化 ==========
     if (loadRep && rep != null)
     {
@@ -437,6 +453,21 @@ class PlayState extends MusicBeatState
 
 		PauseSubState.songName = null; //Reset to default
 		playbackRate = ClientPrefs.getGameplaySetting('songspeed');
+		var pureChartMode:Bool = Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0;
+		if (pureChartMode)
+		{
+			SONG.stage = ClientPrefs.data.customChartStage;
+			SONG.player1 = ClientPrefs.data.customChartPlayer;
+			SONG.player2 = ClientPrefs.data.customChartOpponent;
+			SONG.gfVersion = ClientPrefs.data.customChartGirlfriend;
+			swapPlayerOpponent = ClientPrefs.data.customChartSwapSides;
+			if (ClientPrefs.data.customChart8KTo4K)
+			{
+				SONG.mania = 3;
+				SONG.keyCount = 4;
+				SONG.keycount = 4;
+			}
+		}
 
 		var totalKeys:Int = Note.getColumnsPerPlayer(SONG);
 		keysArray = [];
@@ -492,6 +523,10 @@ class PlayState extends MusicBeatState
 
 		GameOverSubstate.resetVariables();
 		songName = Paths.formatToSongPath(SONG.song);
+		if(pureChartMode)
+		{
+			StageData.loadDirectory(SONG);
+		}
 		if(SONG.stage == null || SONG.stage.length < 1)
 			SONG.stage = StageData.vanillaSongStage(Paths.formatToSongPath(Song.loadedSongName));
 
@@ -933,7 +968,8 @@ class PlayState extends MusicBeatState
 		addTouchPadCamera();
 
 		super.create();
-		rep = new Replay("");
+		if (!loadRep && !inReplay)
+			rep = new Replay("");
 
 		// 使用新的 JudgementCounter 模块替代旧的 createCounterUI
 		if (judgementCounterObj == null && !isSplitCoopMode()) judgementCounterObj = new objects.JudgementCounter(this);
@@ -987,9 +1023,9 @@ class PlayState extends MusicBeatState
 			videoCutscene.videoSprite.bitmap.rate = value;
 		#end
 		setOnScripts('playbackRate', playbackRate);
-		#else
+	#else
 		playbackRate = 1.0; // ensuring -Crow
-		#end
+	#end
 		return playbackRate;
 	}
 
@@ -1199,16 +1235,6 @@ class PlayState extends MusicBeatState
 		{
 			videoCutscene = new VideoSprite(fileName, forMidSong, canSkip, loop);
 			if(forMidSong) videoCutscene.videoSprite.bitmap.rate = playbackRate;
-			if(group == "videoGroup") 
-			{
-				videoCutscene.cameras = null;
-				videoGroup.add(videoCutscene);
-			}
-			 else if (group == "uiGroup")
-			{
-				videoCutscene.cameras = null;
-				uiGroup.insert(place, videoCutscene);
-			}
 
 			// Finish callback
 			if (!forMidSong)
@@ -1475,7 +1501,7 @@ class PlayState extends MusicBeatState
 				daNote.visible = false;
 				daNote.ignoreNote = true;
 
-				//if(!ClientPrefs.data.lowQuality || !cpuControlled) daNote.kill();
+				daNote.kill();
 				unspawnNotes.remove(daNote);
 				daNote.destroy();
 			}
@@ -1553,7 +1579,7 @@ class PlayState extends MusicBeatState
 			else ratingFC = 'Clear';
 		}
 	}
-	public function reloadCounterColors()
+public function reloadCounterColors()
 	{
 		// Delegate counter/health/song color refresh to modules
 		if (isSplitCoopMode())
@@ -1574,7 +1600,7 @@ class PlayState extends MusicBeatState
         }
     }
     return 0xFF149DFF;
-	}
+}
 
 	function updateHealthTextPosition()
     {
@@ -1716,10 +1742,10 @@ class PlayState extends MusicBeatState
 		{
 			if (songData.needsVoices)
 			{
-				var playerVocals = Paths.voices(songData.song, (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile);
-				vocals.loadEmbedded(playerVocals != null ? playerVocals : Paths.voices(songData.song));
+				var playerVocals = Paths.voices(songData.song, (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile, true, Paths.currentChartCategory);
+				vocals.loadEmbedded(playerVocals != null ? playerVocals : Paths.voices(songData.song, null, true, Paths.currentChartCategory));
 				
-				var oppVocals = Paths.voices(songData.song, (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile);
+				var oppVocals = Paths.voices(songData.song, (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile, true, Paths.currentChartCategory);
 				if(oppVocals != null && oppVocals.length > 0) opponentVocals.loadEmbedded(oppVocals);
 			}
 		}
@@ -1735,7 +1761,7 @@ class PlayState extends MusicBeatState
 		inst = new FlxSound();
 		try
 		{
-			inst.loadEmbedded(Paths.inst(songData.song));
+			inst.loadEmbedded(Paths.inst(songData.song, true, Paths.currentChartCategory));
 		}
 		catch (e:Dynamic) {}
 		FlxG.sound.list.add(inst);
@@ -1792,13 +1818,16 @@ class PlayState extends MusicBeatState
 			{
 				final songNotes: Array<Dynamic> = section.sectionNotes[i];
 				var spawnTime: Float = songNotes[0];
-				var noteColumn: Int = Std.int(songNotes[1] % totalColumns);
+				var noteData:Int = Std.int(songNotes[1]);
+				if (swapPlayerOpponent)
+					noteData = noteData < totalColumns ? noteData + totalColumns : noteData - totalColumns;
+				var noteColumn: Int = Std.int(noteData % totalColumns);
 				var holdLength: Float = songNotes[2];
 				var noteType: String = !Std.isOfType(songNotes[3], String) ? Note.defaultNoteTypes[songNotes[3]] : songNotes[3];
 				if (Math.isNaN(holdLength))
 					holdLength = 0.0;
 
-				var gottaHitNote:Bool = (songNotes[1] < totalColumns);
+				var gottaHitNote:Bool = (noteData < totalColumns);
 
 				if (i != 0) {
 					// CLEAR ANY POSSIBLE GHOST NOTES
@@ -4536,7 +4565,7 @@ class PlayState extends MusicBeatState
 		if (notePool != null)
 			notePool.put(note);
 		else
-		note.destroy();
+			note.destroy();
 	}
 
 	public function spawnNoteSplashOnNote(note:Note) {

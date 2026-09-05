@@ -126,8 +126,17 @@ import states.TitleState;
 	public var forceSplashSkin:Bool = false;
 	public var forceNoteSkin:Bool = false;
 	public var forceRGBShader:Bool = false;
+	public var customChartFolder:String = 'custom';
+	public var customChartModFolder:String = '';
+	public var customChartStage:String = 'audiostage';
+	public var customChartPlayer:String = 'bf';
+	public var customChartOpponent:String = 'dad';
+	public var customChartGirlfriend:String = 'gf';
+	public var customChart8KTo4K:Bool = false;
+	public var customChartSwapSides:Bool = false;
 
 	public var msInErrorBar:Bool = false; // 是否在误差条上显示ms文本
+	public var pointerType:String = "triangle"; // 误差条指针样式
 	
 	public var totalPlaytime:Float = 0;        // 累计总时长（秒）
 	public var sessionStartTime:Float = 0;     // 本次会话开始时间（毫秒时间戳）

@@ -22,7 +22,7 @@ class KEOptionsMenu extends MusicBeatState
 	public static var instance:KEOptionsMenu;
 
 	public var background:FlxSprite;
-	public var bg:FlxSprite;
+	public var bg:FlxFilteredSprite;
 	public var selectedCat:KEOptionCata;
 	public var selectedOption:KEOption;
 	public var selectedCatIndex:Int = 0;
@@ -46,10 +46,11 @@ class KEOptionsMenu extends MusicBeatState
 	var holdCovers:Array<String> = Mods.mergeAllTextsNamed('images/holdCover/list.txt');
 	var ratings:Array<String> = Mods.mergeAllTextsNamed('images/ratings/list.txt');
 	var pauseMusicList:Array<String> = Mods.mergeAllTextsNamed('music/list.txt');
+	var hitsoundList:Array<String> = Mods.mergeAllTextsNamed('sounds/hitsounds/HitSound.txt');
 	
 	var changedOption:Bool = false;
 	public var descText:FlxText;
-	public var descBack:FlxSprite;
+	public var descBack:FlxFilteredSprite;
 	var valueBar:DraggableBar;
 	var valueBarText:FlxText;
 
@@ -173,6 +174,12 @@ class KEOptionsMenu extends MusicBeatState
 		holdCovers.insert(0, ClientPrefs.defaultData.holdCoverSkin);
 		ratings.insert(0, ClientPrefs.defaultData.customUI);
 		pauseMusicList = ['None', 'Tea Time', 'Breakfast', 'Breakfast (Pico)'];
+		if (hitsoundList.length == 0) hitsoundList = ['hitsound'];
+		for (i in 0...hitsoundList.length)
+		{
+			if (!hitsoundList[i].contains('/')) hitsoundList[i] = 'hitsounds/' + hitsoundList[i];
+		}
+		//if (!hitsoundList.contains('hitsound')) hitsoundList.insert(0, 'hitsound');
 	}
 
 	override function create()
@@ -198,9 +205,10 @@ class KEOptionsMenu extends MusicBeatState
 		background.scrollFactor.set();
 		add(background);
 
-		// 创建选项区域的彩色循环底图
-		var optionBg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
-		optionBg.alpha = 1; // 选项区域背景透明度
+		var optionBg = new FlxFilteredSprite();
+		optionBg.loadGraphic(Paths.image('menuDesat'));
+		if(ClientPrefs.data.blurEffects)optionBg.filters = [new BlurFilter(4, 4, BitmapFilterQuality.HIGH)];
+		optionBg.alpha = 1;
 		optionBg.scrollFactor.set();
 		optionBg.antialiasing = ClientPrefs.data.antialiasing;
 		optionBg.screenCenter();
@@ -240,17 +248,19 @@ class KEOptionsMenu extends MusicBeatState
 		var contentStartY:Int = MARGIN_TOP + CATEGORY_HEIGHT;
 		var contentHeight:Int = SCREEN_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM - CATEGORY_HEIGHT;
 		
-		bg = new FlxSprite(0, contentStartY).makeGraphic(SCREEN_WIDTH, contentHeight, FlxColor.BLACK);
-		bg.alpha = 0.6; // 选项卡主体透明度
+		bg = new FlxFilteredSprite(0, contentStartY);
+		bg.makeGraphic(SCREEN_WIDTH, contentHeight, FlxColor.BLACK);
+		bg.alpha = 0.6;
 		bg.scrollFactor.set();
 		bg.antialiasing = ClientPrefs.data.antialiasing;
 		add(bg);
 
-		// 描述区域背景 - 在屏幕底部
-		descBack = new FlxSprite(0, SCREEN_HEIGHT - MARGIN_BOTTOM).makeGraphic(SCREEN_WIDTH, 32, FlxColor.BLACK);
-		descBack.alpha = DESC_ALPHA; // 描述文本区域透明度
+		descBack = new FlxFilteredSprite(0, SCREEN_HEIGHT - MARGIN_BOTTOM);
+		descBack.makeGraphic(SCREEN_WIDTH, 32, FlxColor.BLACK);
+		descBack.alpha = DESC_ALPHA;
 		descBack.scrollFactor.set();
 		descBack.antialiasing = ClientPrefs.data.antialiasing;
+		//descBack.filters = [blurFilter];
 		add(descBack);
 
 		add(shownStuff);
@@ -1184,6 +1194,8 @@ function onScrollChange()
 			KEOption.create("Guitar Hero Sustains", "Sustains count as one note", "guitarHeroSustains", "bool"),
 			KEOption.create("Fast Restart", "Fast Restart When Dead or Press 'R' ", "skipDeath", "bool"),
 			KEOption.create("Hitsound Volume", "Volume of hit sounds", "hitsoundVolume", "float", 0, 0, 1, 0.1),
+			KEOption.create("Hitsound", "Choose the note hit sound", "hitsound", "string", hitsoundList),
+			KEOption.create("Pause Music", "Choose pause screen music", "pauseMusic", "string", pauseMusicList),
 			KEOption.create("Rating Offset", "Adjust note hit timing", "ratingOffset", "int", 0, -30, 30, 1),
 			windowSettings,
 			KEOption.create("Show Stage", "Show the stage", "showStage", "bool"),
@@ -1224,6 +1236,7 @@ function onScrollChange()
 			"Configure hit error bar display",
 			[
 				KEOption.create("Hit Error Bar", "Show hit error bar", "hitErrorBarVisible", "bool"),
+				KEOption.create("Hit Error Bar Pointer Style", "Style of the hit error bar pointer", "pointerType", "string", ["triangle", "inverted", "thick_line"]),
 				KEOption.create("Hit Bar Lines", "Number of lines on hit error bar", "hitBarLines", "int", 5, 0, 200, 1),
 				KEOption.create("Hit Bar Line Time", "Time (in seconds) each line represents", "hitBarLineTime", "float", 2.0, 0.1, 5.0, 0.1),
 				KEOption.create("Hit Error Bar Offset X", "Horizontal position of hit error bar", "hitErrorBarOffsetX", "int", 0, -500, 500, 1),
@@ -1444,7 +1457,7 @@ function onScrollChange()
 			KEOption.create("Enable LUA Debug Printer", "Uncheck it if u dont want to see them ", "luadebugPrint", "bool"),
 			KEOption.create("Discord RPC", "Enable Discord Rich Presence", "discordRPC", "bool"),		
 			KEOption.create("Replay", "[Score Menu and Replay Required]", "saveReplays", "bool"),
-			KEOption.create("Replay Manager", "Manage and view ur Replays", "", "action"),
+			//KEOption.create("Replay Manager", "Manage and view ur Replays", "", "action"),
 			KEOption.create("NewOptions", "Disable it if u dont like current options menu", "keOptions", "bool"),
 			KEOption.createResetOption("Reset Settings", "settings"),
 			KEOption.createResetOption("Reset Scores", "scores"),

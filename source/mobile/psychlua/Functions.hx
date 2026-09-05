@@ -30,6 +30,7 @@ import psychlua.LuaUtils;
 import mobile.backend.TouchUtil;
 #if android import mobile.backend.PsychJNI; #end
 
+
 /**
  * ...
  * @author: Karim Akra and Homura Akemi (HomuHomu833)
@@ -329,12 +330,12 @@ class AndroidFunctions
 	public static function implement(funk:FunkinLua)
 	{
 		var lua:State = funk.lua;
-		// Lua_helper.add_callback(lua, "isRooted", AndroidTools.isRooted());
-		Lua_helper.add_callback(lua, "isDolbyAtmos", AndroidTools.isDolbyAtmos());
-		Lua_helper.add_callback(lua, "isAndroidTV", AndroidTools.isAndroidTV());
-		Lua_helper.add_callback(lua, "isTablet", AndroidTools.isTablet());
-		Lua_helper.add_callback(lua, "isChromebook", AndroidTools.isChromebook());
-		Lua_helper.add_callback(lua, "isDeXMode", AndroidTools.isDeXMode());
+		// Lua_helper.add_callback(lua, "isRooted", extension.androidtools.Tools.isRooted());
+		Lua_helper.add_callback(lua, "isDolbyAtmos", extension.androidtools.Tools.isDolbyAtmos());
+		Lua_helper.add_callback(lua, "isAndroidTV", extension.androidtools.Tools.isAndroidTV());
+		Lua_helper.add_callback(lua, "isTablet", extension.androidtools.Tools.isTablet());
+		Lua_helper.add_callback(lua, "isChromebook", extension.androidtools.Tools.isChromebook());
+		Lua_helper.add_callback(lua, "isDeXMode", extension.androidtools.Tools.isDeXMode());
 		// Lua_helper.add_callback(lua, "isCharging", spicyPillow.isCharging());
 
 		Lua_helper.add_callback(lua, "backJustPressed", FlxG.android.justPressed.BACK);
@@ -366,7 +367,7 @@ class AndroidFunctions
 			PsychJNI.setOrientation(FlxG.stage.stageWidth, FlxG.stage.stageHeight, false, hint);
 		});
 
-		Lua_helper.add_callback(lua, "minimizeWindow", () -> AndroidTools.minimizeWindow());
+		Lua_helper.add_callback(lua, "minimizeWindow", () -> extension.androidtools.Tools.minimizeWindow());
 
 		Lua_helper.add_callback(lua, "showToast", function(text:String, ?duration:Int, ?xOffset:Int, ?yOffset:Int) /* , ?gravity:Int*/
 		{
@@ -380,7 +381,7 @@ class AndroidFunctions
 			if (yOffset == null)
 				yOffset = 0;
 
-			AndroidToast.makeText(text, duration, -1, xOffset, yOffset);
+			extension.androidtools.widget.Toast.makeText(text, duration, -1, xOffset, yOffset);
 		});
 
 		Lua_helper.add_callback(lua, "isScreenKeyboardShown", () -> PsychJNI.isScreenKeyboardShown());

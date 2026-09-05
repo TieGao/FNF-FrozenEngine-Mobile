@@ -96,7 +96,7 @@ class KEConfirmMenu extends MusicBeatSubstate
 		bodyBack.scrollFactor.set();
 		add(bodyBack);
 
-		var titles:String = isConfirmMode ? Language.getPhrase("Confirm action", "Confirm action") : Language.getPhrase("Select an option", "SelectOption");
+		var titles:String = isConfirmMode ? Language.getPhrase("Confirm action", "Confirm action") : Language.getPhrase("SelectOption", "Select an option");
 		titleText = new FlxText(0, marginTop, screenWidth, titles);
 		titleText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		titleText.antialiasing = ClientPrefs.data.antialiasing;
@@ -165,6 +165,8 @@ class KEConfirmMenu extends MusicBeatSubstate
 		}
 
 		updateDisplay();
+
+		addTouchPad('NONE', 'A_B');
 	}
 	
 	function setupMouseScroller():Void
@@ -484,7 +486,8 @@ class KEConfirmMenu extends MusicBeatSubstate
 		} else {
 			parentOption.value = availableOptions[selectedIndex];
 		}
-		KEOptionsMenu.instance.doSelectCurrentOption();
+		if (KEOptionsMenu.instance != null)
+			KEOptionsMenu.instance.doSelectCurrentOption();
 
 		if (KEOptionsMenu.instance != null && KEOptionsMenu.instance.subState != null && Std.is(KEOptionsMenu.instance.subState, KESubMenu))
 		{

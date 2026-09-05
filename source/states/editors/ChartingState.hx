@@ -21,8 +21,9 @@ import haxe.io.Bytes;
 import states.editors.content.MetaNote;
 import states.editors.content.VSlice;
 import states.editors.content.Prompt;
-import states.editors.content.OsuConverter;
 import states.editors.content.*;
+
+import substates.ChartSourceSelectSubstate;
 
 import backend.Song;
 import backend.StageData;
@@ -217,6 +218,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var vortexEnabled:Bool = false;
 	var waveformEnabled:Bool = false;
 	var waveformTarget:WaveformTarget = INST;
+	var chartAudioCategory:String = null;
 
 	override function create()
 	{
@@ -1433,220 +1435,220 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			}
 		} else {
 
-			if(isMovingNotes && FlxG.mouse.justReleased)
-				stopMovingNotes();
-	
-			if(FlxG.mouse.x >= minX && FlxG.mouse.x < gridBg.x + gridBg.width)
+		if(isMovingNotes && FlxG.mouse.justReleased)
+			stopMovingNotes();
+
+		if(FlxG.mouse.x >= minX && FlxG.mouse.x < gridBg.x + gridBg.width)
+		{
+			var diffX:Float = FlxG.mouse.x - gridBg.x;
+			var diffY:Float = FlxG.mouse.y - gridBg.y;
+			if(!FlxG.keys.pressed.SHIFT)
+				diffY -= diffY % (GRID_SIZE / (curQuant/16));
+
+			if(nextGridBg.visible) diffY = Math.min(diffY, gridBg.height + nextGridBg.height);
+			else diffY = Math.min(diffY, gridBg.height);
+
+			if(prevGridBg.visible) diffY = Math.max(diffY, -prevGridBg.height);
+			else diffY = Math.max(diffY, 0);
+
+			var noteData:Int = Math.floor(diffX / GRID_SIZE);
+			dummyArrow.visible = !selectionBox.visible;
+			dummyArrow.x = gridBg.x + noteData * GRID_SIZE;
+			if(SHOW_EVENT_COLUMN)
+				noteData--;
+
+			if(FlxG.keys.pressed.SHIFT || FlxG.mouse.y >= gridBg.y || !prevGridBg.visible)
+				dummyArrow.y = gridBg.y + diffY;
+			else
 			{
-				var diffX:Float = FlxG.mouse.x - gridBg.x;
-				var diffY:Float = FlxG.mouse.y - gridBg.y;
-				if(!FlxG.keys.pressed.SHIFT)
-					diffY -= diffY % (GRID_SIZE / (curQuant/16));
-	
-				if(nextGridBg.visible) diffY = Math.min(diffY, gridBg.height + nextGridBg.height);
-				else diffY = Math.min(diffY, gridBg.height);
-	
-				if(prevGridBg.visible) diffY = Math.max(diffY, -prevGridBg.height);
-				else diffY = Math.max(diffY, 0);
-	
-				var noteData:Int = Math.floor(diffX / GRID_SIZE);
-				dummyArrow.visible = !selectionBox.visible;
-				dummyArrow.x = gridBg.x + noteData * GRID_SIZE;
-				if(SHOW_EVENT_COLUMN)
-					noteData--;
-	
-				if(FlxG.keys.pressed.SHIFT || FlxG.mouse.y >= gridBg.y || !prevGridBg.visible)
-					dummyArrow.y = gridBg.y + diffY;
-				else
+				var t:Float = (diffY - (GRID_SIZE / (curQuant/16)));
+				if(FlxG.mouse.y >= gridBg.y) t *= curZoom;
+				dummyArrow.y = gridBg.y + t;
+			}
+
+			if(isMovingNotes)
+			{
+				// Move note data
+				var nData:Int = Std.int(Math.max(0, noteData));
+				if(movingNotesLastData != nData)
 				{
-					var t:Float = (diffY - (GRID_SIZE / (curQuant/16)));
-					if(FlxG.mouse.y >= gridBg.y) t *= curZoom;
-					dummyArrow.y = gridBg.y + t;
-				}
-	
-				if(isMovingNotes)
-				{
-					// Move note data
-					var nData:Int = Std.int(Math.max(0, noteData));
-					if(movingNotesLastData != nData)
+					var isFirst:Bool = true;
+					var movingNotesMinData:Int = 0;
+					var movingNotesMaxData:Int = 0;
+					for (note in selectedNotes) //Find boundaries first
 					{
-						var isFirst:Bool = true;
-						var movingNotesMinData:Int = 0;
-						var movingNotesMaxData:Int = 0;
-						for (note in selectedNotes) //Find boundaries first
-						{
-							if(note == null || note.isEvent) continue;
-		
-							var data:Int = note.songData[1];
-							if(isFirst || data < movingNotesMinData) movingNotesMinData = data;
-							if(data > movingNotesMaxData) movingNotesMaxData = data;
-							isFirst = false;
-						}
+						if(note == null || note.isEvent) continue;
 	
-						var diff:Int = nData - movingNotesLastData;
-						var maxn:Int = (GRID_PLAYERS * GRID_COLUMNS_PER_PLAYER) - 1;
-						movingNotesMinData += diff;
-						movingNotesMaxData += diff;
-						if(movingNotesMinData < 0)
-							diff -= movingNotesMinData;
-						else if(movingNotesMaxData > maxn)
-							diff -= movingNotesMaxData - maxn;
-	
-						for (note in movingNotes)
-						{
-							if(note == null || note.isEvent) continue; //Events shouldn't change note data as they don't have one
-	
-							note.changeNoteData(note.songData[1] + diff);
-							positionNoteXByData(note);
-						}
+						var data:Int = note.songData[1];
+						if(isFirst || data < movingNotesMinData) movingNotesMinData = data;
+						if(data > movingNotesMaxData) movingNotesMaxData = data;
+						isFirst = false;
 					}
-					movingNotesLastData = nData;
-	
-					// Move note strum time
-					if(dummyArrow.y != movingNotesLastY)
+
+					var diff:Int = nData - movingNotesLastData;
+					var maxn:Int = (GRID_PLAYERS * GRID_COLUMNS_PER_PLAYER) - 1;
+					movingNotesMinData += diff;
+					movingNotesMaxData += diff;
+					if(movingNotesMinData < 0)
+						diff -= movingNotesMinData;
+					else if(movingNotesMaxData > maxn)
+						diff -= movingNotesMaxData - maxn;
+
+					for (note in movingNotes)
 					{
-						var diff:Float = dummyArrow.y - movingNotesLastY;
-						var curSecRow:Int = 0;
-						for (note in movingNotes) //Try to figure out new strum time for the notes, DEFINITELY INACCURATE WITH BPM CHANGING, ALTHOUGH UNTESTED
-						{
-							if(note == null) continue;
-	
-							note.chartY += diff;
-							var row:Float = (note.chartY / GRID_SIZE) * curZoom;
-							while(curSecRow + 1 < cachedSectionRow.length && cachedSectionRow[curSecRow] <= row)
-							{
-								curSecRow++;
-							}
-	
-							note.setStrumTime(Math.max(-5000, note.strumTime + (diff * cachedSectionCrochets[curSecRow] / 4) / GRID_SIZE * curZoom));
-							positionNoteYOnTime(note, curSecRow);
-							if(note.isEvent) cast (note, EventMetaNote).updateEventText();
-						}
-						movingNotesLastY = dummyArrow.y;
+						if(note == null || note.isEvent) continue; //Events shouldn't change note data as they don't have one
+
+						note.changeNoteData(note.songData[1] + diff);
+						positionNoteXByData(note);
 					}
 				}
-				else if(FlxG.mouse.justPressed && !ignoreClickForThisFrame)
+				movingNotesLastData = nData;
+
+				// Move note strum time
+				if(dummyArrow.y != movingNotesLastY)
 				{
-					if(FlxG.keys.pressed.CONTROL && FlxG.mouse.justPressed)
+					var diff:Float = dummyArrow.y - movingNotesLastY;
+					var curSecRow:Int = 0;
+					for (note in movingNotes) //Try to figure out new strum time for the notes, DEFINITELY INACCURATE WITH BPM CHANGING, ALTHOUGH UNTESTED
 					{
-						if(selectedNotes.length > 0)
-							moveSelectedNotes(noteData, dummyArrow.y);
-						else
-							showOutput('You must select notes to move them!', true);
+						if(note == null) continue;
+
+						note.chartY += diff;
+						var row:Float = (note.chartY / GRID_SIZE) * curZoom;
+						while(curSecRow + 1 < cachedSectionRow.length && cachedSectionRow[curSecRow] <= row)
+						{
+							curSecRow++;
+						}
+
+						note.setStrumTime(Math.max(-5000, note.strumTime + (diff * cachedSectionCrochets[curSecRow] / 4) / GRID_SIZE * curZoom));
+						positionNoteYOnTime(note, curSecRow);
+						if(note.isEvent) cast (note, EventMetaNote).updateEventText();
 					}
-					else if(FlxG.mouse.x >= gridBg.x && FlxG.mouse.x < gridBg.x + gridBg.width)
+					movingNotesLastY = dummyArrow.y;
+				}
+			}
+			else if(FlxG.mouse.justPressed && !ignoreClickForThisFrame)
+			{
+				if(FlxG.keys.pressed.CONTROL && FlxG.mouse.justPressed)
+				{
+					if(selectedNotes.length > 0)
+						moveSelectedNotes(noteData, dummyArrow.y);
+					else
+						showOutput('You must select notes to move them!', true);
+				}
+				else if(FlxG.mouse.x >= gridBg.x && FlxG.mouse.x < gridBg.x + gridBg.width)
+				{
+					var closeNotes:Array<MetaNote> = curRenderedNotes.members.filter(function(note:MetaNote)
 					{
-						var closeNotes:Array<MetaNote> = curRenderedNotes.members.filter(function(note:MetaNote)
+						var chartY:Float = FlxG.mouse.y - note.chartY;
+						return ((note.isEvent && noteData < 0) || (!note.isEvent && note.songData[1] == noteData)) && chartY >= 0 && chartY < GRID_SIZE;
+					});
+					closeNotes.sort(function(a:MetaNote, b:MetaNote) return Math.abs(a.strumTime - FlxG.mouse.y) < Math.abs(b.strumTime - FlxG.mouse.y) ? 1 : -1);
+
+					var closest = closeNotes[0];
+					if(closest != null && (!closest.isEvent || !lockedEvents))
+					{
+						if(FlxG.keys.pressed.SHIFT || holdingAlt) // Select Note/Event
 						{
-							var chartY:Float = FlxG.mouse.y - note.chartY;
-							return ((note.isEvent && noteData < 0) || (!note.isEvent && note.songData[1] == noteData)) && chartY >= 0 && chartY < GRID_SIZE;
-						});
-						closeNotes.sort(function(a:MetaNote, b:MetaNote) return Math.abs(a.strumTime - FlxG.mouse.y) < Math.abs(b.strumTime - FlxG.mouse.y) ? 1 : -1);
-	
-						var closest = closeNotes[0];
-						if(closest != null && (!closest.isEvent || !lockedEvents))
-						{
-							if(FlxG.keys.pressed.SHIFT || holdingAlt) // Select Note/Event
+							var sel = selectedNotes.copy();
+							if(!selectedNotes.contains(closest))
 							{
-								var sel = selectedNotes.copy();
-								if(!selectedNotes.contains(closest))
-								{
-									selectedNotes.push(closest);
-									addUndoAction(SELECT_NOTE, {old: sel, current: selectedNotes.copy()});
-								}
-								else if(!holdingAlt)
-								{
-									resetSelectedNotes();
-									selectedNotes.remove(closest);
-									addUndoAction(SELECT_NOTE, {old: sel, current: selectedNotes.copy()});
-								}
-	
-								trace('Notes selected: ' + selectedNotes.length);
+								selectedNotes.push(closest);
+								addUndoAction(SELECT_NOTE, {old: sel, current: selectedNotes.copy()});
 							}
-							else if(!FlxG.keys.pressed.CONTROL) // Remove Note/Event
+							else if(!holdingAlt)
 							{
-								var kind:String = !closest.isEvent ? 'note' : 'event';
-								trace('Removed $kind at time: ${closest.strumTime}');
-								if(!closest.isEvent)
-									notes.remove(closest);
-								else
-									events.remove(cast (closest, EventMetaNote));
-	
+								resetSelectedNotes();
 								selectedNotes.remove(closest);
-								curRenderedNotes.remove(closest, true);
-								addUndoAction(DELETE_NOTE, !closest.isEvent ? {notes: [closest]} : {events: [closest]});
+								addUndoAction(SELECT_NOTE, {old: sel, current: selectedNotes.copy()});
 							}
-							if(selectedNotes.length == 1) onSelectNote();
-							forceDataUpdate = true;
+	
+							trace('Notes selected: ' + selectedNotes.length);
 						}
-						else if(!holdingAlt && FlxG.mouse.y >= gridBg.y && FlxG.mouse.y < gridBg.y + gridBg.height) // Add note
+						else if(!FlxG.keys.pressed.CONTROL) // Remove Note/Event
 						{
-							var strumTime:Float = (diffY / GRID_SIZE * Conductor.stepCrochet / curZoom) + cachedSectionTimes[curSec];
-							if(noteData >= 0)
-							{
-								trace('Added note at time: $strumTime');
-								var didAdd:Bool = false;
-	
-								var noteSetupData:Array<Dynamic> = [strumTime, noteData, 0];
-								var typeSelected:String = noteTypes[noteTypeDropDown.selectedIndex].trim();
-								if(typeSelected != null && typeSelected.length > 0)
-									noteSetupData.push(typeSelected);
-	
-								var noteAdded:MetaNote = createNote(noteSetupData);
-								for (num in sectionFirstNoteID...notes.length)
-								{
-									var note = notes[num];
-									if(note.strumTime >= strumTime)
-									{
-										notes.insert(num, noteAdded);
-										didAdd = true;
-										break;
-									}
-								}
-								if(!didAdd) notes.push(noteAdded);
-	
-								if(!holdingAlt)
-									resetSelectedNotes();
-	
-								selectedNotes.push(noteAdded);
-								addUndoAction(ADD_NOTE, {notes: [noteAdded]});
-							}
-							else if(!lockedEvents)
-							{
-								trace('Added event at time: $strumTime');
-								var didAdd:Bool = false;
-	
-								var eventAdded:EventMetaNote = createEvent([strumTime, [[eventsList[Std.int(Math.max(eventDropDown.selectedIndex, 0))][0], value1InputText.text, value2InputText.text]]]);
-								for (num in sectionFirstEventID...events.length)
-								{
-									var event = events[num];
-									if(event.strumTime >= strumTime)
-									{
-										events.insert(num, eventAdded);
-										didAdd = true;
-										break;
-									}
-								}
-								if(!didAdd) events.push(eventAdded);
-	
-								if(!holdingAlt)
-									resetSelectedNotes();
-	
-								selectedNotes.push(eventAdded);
-								addUndoAction(ADD_NOTE, {events: [eventAdded]});
-							}
-							onSelectNote();
-							softReloadNotes();
+							var kind:String = !closest.isEvent ? 'note' : 'event';
+							trace('Removed $kind at time: ${closest.strumTime}');
+							if(!closest.isEvent)
+								notes.remove(closest);
+							else
+								events.remove(cast (closest, EventMetaNote));
+
+							selectedNotes.remove(closest);
+							curRenderedNotes.remove(closest, true);
+							addUndoAction(DELETE_NOTE, !closest.isEvent ? {notes: [closest]} : {events: [closest]});
 						}
+						if(selectedNotes.length == 1) onSelectNote();
+						forceDataUpdate = true;
+					}
+					else if(!holdingAlt && FlxG.mouse.y >= gridBg.y && FlxG.mouse.y < gridBg.y + gridBg.height) // Add note
+					{
+						var strumTime:Float = (diffY / GRID_SIZE * Conductor.stepCrochet / curZoom) + cachedSectionTimes[curSec];
+						if(noteData >= 0)
+						{
+							trace('Added note at time: $strumTime');
+							var didAdd:Bool = false;
+
+							var noteSetupData:Array<Dynamic> = [strumTime, noteData, 0];
+							var typeSelected:String = noteTypes[noteTypeDropDown.selectedIndex].trim();
+							if(typeSelected != null && typeSelected.length > 0)
+								noteSetupData.push(typeSelected);
+
+							var noteAdded:MetaNote = createNote(noteSetupData);
+							for (num in sectionFirstNoteID...notes.length)
+							{
+								var note = notes[num];
+								if(note.strumTime >= strumTime)
+								{
+									notes.insert(num, noteAdded);
+									didAdd = true;
+									break;
+								}
+							}
+							if(!didAdd) notes.push(noteAdded);
+
+							if(!holdingAlt)
+								resetSelectedNotes();
+
+							selectedNotes.push(noteAdded);
+							addUndoAction(ADD_NOTE, {notes: [noteAdded]});
+						}
+						else if(!lockedEvents)
+						{
+							trace('Added event at time: $strumTime');
+							var didAdd:Bool = false;
+
+							var eventAdded:EventMetaNote = createEvent([strumTime, [[eventsList[Std.int(Math.max(eventDropDown.selectedIndex, 0))][0], value1InputText.text, value2InputText.text]]]);
+							for (num in sectionFirstEventID...events.length)
+							{
+								var event = events[num];
+								if(event.strumTime >= strumTime)
+								{
+									events.insert(num, eventAdded);
+									didAdd = true;
+									break;
+								}
+							}
+							if(!didAdd) events.push(eventAdded);
+
+							if(!holdingAlt)
+								resetSelectedNotes();
+
+							selectedNotes.push(eventAdded);
+							addUndoAction(ADD_NOTE, {events: [eventAdded]});
+						}
+						onSelectNote();
+						softReloadNotes();
 					}
 				}
 			}
-			else if(!ignoreClickForThisFrame)
-			{
-				if(FlxG.mouse.justPressed)
-					resetSelectedNotes();
-	
-				dummyArrow.visible = false;
+		}
+		else if(!ignoreClickForThisFrame)
+		{
+			if(FlxG.mouse.justPressed)
+				resetSelectedNotes();
+
+			dummyArrow.visible = false;
 			}
 		}
 		ignoreClickForThisFrame = false;
@@ -2183,7 +2185,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		try
 		{
-			FlxG.sound.playMusic(Paths.inst(PlayState.SONG.song), 0);
+			FlxG.sound.playMusic(Paths.inst(PlayState.SONG.song, true, chartAudioCategory), 0);
 			FlxG.sound.music.pause();
 			FlxG.sound.music.time = time;
 			FlxG.sound.music.onComplete = (function() songFinished = true);
@@ -2669,12 +2671,41 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				if(note[1] == null) continue;
 				var data:Int = Std.int(note[1]);
 				if(data < 0) continue;
-				var base = Math.floor(data / colsPerPlayer) * colsPerPlayer;
-				var col = data % colsPerPlayer;
-				note[1] = base + colsPerPlayer - col - 1;
+				// 计算音符所属的轨道（玩家1或玩家2）
+				var track:Int = Math.floor(data / colsPerPlayer);
+				// 计算在轨道内的列索引
+				var col:Int = data % colsPerPlayer;
+				// 在轨道内镜像列索引
+				var mirroredCol:Int = colsPerPlayer - col - 1;
+				// 重新组合：同一轨道 + 镜像后的列索引
+				note[1] = track * colsPerPlayer + mirroredCol;
 			}
 		}
 		// Notify user (sound)
+		FlxG.sound.play(Paths.sound('confirmMenu'));
+	}
+
+	// Swap every note between the Player and Opponent tracks.
+	public static function swapAllPlayerTracks():Void
+	{
+		if(PlayState.SONG == null) return;
+
+		var colsPerPlayer:Int = GRID_COLUMNS_PER_PLAYER;
+		var totalColumns:Int = colsPerPlayer * GRID_PLAYERS;
+		for (sec in PlayState.SONG.notes)
+		{
+			if(sec == null || sec.sectionNotes == null) continue;
+			for (note in sec.sectionNotes)
+			{
+				if(note == null || note[1] == null) continue;
+
+				var data:Int = Std.int(note[1]);
+				if(data < 0 || data >= totalColumns) continue;
+				var side:Int = Math.floor(data / colsPerPlayer);
+				var column:Int = data % colsPerPlayer;
+				note[1] = ((GRID_PLAYERS - side - 1) * colsPerPlayer) + column;
+			}
+		}
 		FlxG.sound.play(Paths.sound('confirmMenu'));
 	}
 
@@ -3806,6 +3837,36 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		btnY += 20;
 		#end
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Open from mods/charts...', function()
+		{
+			upperBox.isMinimized = true;
+			upperBox.bg.visible = false;
+			openSubState(new ChartSourceSelectSubstate(function(category:String, path:String, difficulty:String, variant:String)
+			{
+				chartAudioCategory = category;
+				Paths.currentChartCategory = category;
+				if (category == 'v_slice')
+				{
+					loadVSliceChartFromFolder(path, difficulty, variant);
+				}
+				else if (path.toLowerCase().endsWith('.osu'))
+				{
+					openOsuChartFromFile(path);
+				}
+				else if (path.toLowerCase().endsWith('.json'))
+				{
+					loadChartFromFile(path);
+				}
+				else showOutput('Unsupported chart file: $path', true);
+			}, function()
+			{
+				showOutput('Chart source selection cancelled');
+			}));
+		}, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
+
+		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Open Autosave...', function()
 		{
 			if(!fileDialog.completed) return;
@@ -3818,7 +3879,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				return;
 			}
 			
-			var fileList:Array<String> = Paths.readDirectory('backups/').filter((file:String) -> file.endsWith('.$BACKUP_EXT'));
+			var fileList:Array<String> = FileSystem.readDirectory('backups/').filter((file:String) -> file.endsWith('.$BACKUP_EXT'));
 			if(fileList.length < 1)
 			{
 				showOutput('No autosave files found.', true);
@@ -4488,6 +4549,72 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}, btnWid);
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
+		// === StepMania 导入 ===
+		btnY += 20;
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Import StepMania...', function()
+		{
+			if(!fileDialog.completed) return;
+			upperBox.isMinimized = true;
+			upperBox.bg.visible = false;
+
+			fileDialog.open('*.sm;*.ssc', 'Open StepMania Chart (.sm / .ssc)', function()
+			{
+				try
+				{
+					var filePath:String = fileDialog.path.replace('\\', '/');
+					
+					// 检测键数
+					var keys:Int = StepManiaConverter.detectStepManiaKeys(filePath);
+					
+					// 显示导入对话框
+					ClientPrefs.toggleVolumeKeys(false);
+					var dialog:StepManiaDialog = new StepManiaDialog(StepManiaDialog.ACTION_IMPORT, keys, keys);
+					dialog.onConfirm = function(action:Int, format:String, convertKeys:Bool, targetKeys:Int)
+					{
+						performStepManiaImport(filePath, targetKeys);
+					};
+					dialog.onCancel = function()
+					{
+						showOutput('StepMania import cancelled');
+					};
+					openSubState(dialog);
+				}
+				catch(e:Exception)
+				{
+					showOutput('Error: ${e.message}', true);
+					trace(e.stack);
+				}
+			});
+		}, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
+
+		// === StepMania 导出 ===
+		btnY += 20;
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Export to StepMania...', function()
+		{
+			if(!fileDialog.completed) return;
+			upperBox.isMinimized = true;
+			upperBox.bg.visible = false;
+
+			updateChartData();
+			var keys:Int = GRID_COLUMNS_PER_PLAYER;
+			
+			// 显示导出对话框
+			ClientPrefs.toggleVolumeKeys(false);
+			var dialog:StepManiaDialog = new StepManiaDialog(StepManiaDialog.ACTION_EXPORT, keys, keys);
+			dialog.onConfirm = function(action:Int, format:String, convertKeys:Bool, targetKeys:Int)
+			{
+				performStepManiaExport(format);
+			};
+			dialog.onCancel = function()
+			{
+				showOutput('StepMania export cancelled');
+			};
+			openSubState(dialog);
+		}, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
 
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Update (Legacy)...', function()
@@ -4533,8 +4660,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}, btnWid);
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
-		#end
 
+		#end
 		btnY++;
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Preview (${(controls.mobileC) ? 'C' : 'F12'})', openEditorPlayState, btnWid);
@@ -4543,6 +4670,27 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Playtest (${(controls.mobileC) ? 'A' : 'ENTER'})', goToPlayState, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
+
+		btnY++;
+		btnY += 20;
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Mirror All Notes', function()
+		{
+			mirrorAllNotes();
+			showOutput('All notes mirrored!');
+		}, btnWid);
+		btn.text.alignment = LEFT;
+		tab_group.add(btn);
+
+		btnY++;
+		btnY += 20;
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Swap Player/Opponent', function()
+		{
+			swapAllPlayerTracks();
+			prepareReload();
+			showOutput('Player and Opponent tracks swapped!');
+		}, btnWid);
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
 
@@ -5382,6 +5530,267 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		super.destroy();
 	}
 
+	function loadChartFromFile(filePath:String)
+	{
+		try
+		{
+			// 检查文件是否存在
+			if (!FileSystem.exists(filePath))
+			{
+				showOutput('Error: File not found: $filePath', true);
+				return;
+			}
+
+			var loadedChart:SwagSong = Song.parseJSON(File.getContent(filePath), filePath.substr(filePath.lastIndexOf('/') + 1));
+			if (loadedChart == null || !Reflect.hasField(loadedChart, 'song'))
+			{
+				showOutput('Error: File loaded is not a Psych Engine/FNF chart.', true);
+				return;
+			}
+
+			var func:Void->Void = function()
+			{
+				loadChart(loadedChart);
+				Song.chartPath = filePath;
+				reloadNotesDropdowns();
+				prepareReload();
+				showOutput('Opened chart "${filePath}" successfully!');
+			};
+
+			if(!ignoreProgressCheckBox.checked) openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
+			else func();
+		}
+		catch(e:Exception)
+		{
+			showOutput('Error: ${e.message}', true);
+			trace(e.stack);
+		}
+	}
+
+	function loadVSliceChartFromFolder(folderOrFilePath:String, ?difficulty:String = null, ?variant:Null<String> = null)
+	{
+		try
+		{
+			var normalizedPath:String = folderOrFilePath.replace('\\', '/');
+			var baseFolder:String = normalizedPath;
+			var chartFileName:String = null;
+			var metadataFileName:String = null;
+			var lowerPath:String = normalizedPath.toLowerCase();
+
+			if (lowerPath.endsWith('.json'))
+			{
+				var lastSlash:Int = normalizedPath.lastIndexOf('/');
+				baseFolder = normalizedPath.substring(0, lastSlash);
+				chartFileName = normalizedPath.substring(lastSlash + 1);
+				if (chartFileName.toLowerCase().indexOf('metadata') != -1)
+				{
+					metadataFileName = chartFileName;
+					chartFileName = null;
+				}
+			}
+
+			if (!FileSystem.exists(baseFolder) || !FileSystem.isDirectory(baseFolder))
+			{
+				showOutput('Error: V-Slice folder not found: $baseFolder', true);
+				return;
+			}
+
+			var files:Array<String> = FileSystem.readDirectory(baseFolder);
+			if (chartFileName == null)
+			{
+				var wantedVariant:String = variant;
+				if (wantedVariant == null && metadataFileName != null)
+					wantedVariant = ChartSourceSelectSubstate.getVariantNameFromFile(metadataFileName);
+
+				for (file in files)
+				{
+					if (file.startsWith('.') || !file.toLowerCase().endsWith('.json') || file.toLowerCase().indexOf('metadata') != -1) continue;
+					if (wantedVariant == null || ChartSourceSelectSubstate.getVariantNameFromFile(file).toLowerCase() == wantedVariant.toLowerCase())
+					{
+						chartFileName = file;
+						break;
+					}
+				}
+			}
+
+			if (chartFileName == null && FileSystem.exists('$baseFolder/chart.json')) chartFileName = 'chart.json';
+			if (chartFileName == null)
+			{
+				showOutput('Error: V-Slice chart file not found in: $baseFolder', true);
+				return;
+			}
+
+			// Match metadata to the selected chart variant before falling back to shared metadata.
+			var chartVariant:String = ChartSourceSelectSubstate.getVariantNameFromFile(chartFileName).toLowerCase();
+			if (metadataFileName == null)
+			{
+				for (file in files)
+				{
+					if (file.startsWith('.') || !file.toLowerCase().endsWith('.json') || file.toLowerCase().indexOf('metadata') == -1) continue;
+					if (ChartSourceSelectSubstate.getVariantNameFromFile(file).toLowerCase() == chartVariant)
+					{
+						metadataFileName = file;
+						break;
+					}
+				}
+				if (metadataFileName == null && FileSystem.exists('$baseFolder/metadata.json')) metadataFileName = 'metadata.json';
+			}
+			
+			var chartPath:String = '$baseFolder/$chartFileName';
+			var metadataPath:String = '$baseFolder/$metadataFileName';
+			
+			if (chartFileName == null || !FileSystem.exists(chartPath))
+			{
+				showOutput('Error: V-Slice chart file not found in: $baseFolder', true);
+				return;
+			}
+			if (metadataFileName == null || !FileSystem.exists(metadataPath))
+			{
+				showOutput('Error: V-Slice metadata file not found in: $baseFolder', true);
+				return;
+			}
+
+			var chart:VSliceChart = cast Json.parse(File.getContent(chartPath));
+			var metadata:VSliceMetadata = cast Json.parse(File.getContent(metadataPath));
+			if(chart == null || chart.version == null || chart.notes == null || chart.scrollSpeed == null)
+			{
+				showOutput('Error: File loaded is not a valid FNF V-Slice chart.', true);
+				return;
+			}
+			if(metadata == null || metadata.version == null || metadata.playData == null || metadata.songName == null ||
+				metadata.playData.difficulties == null || metadata.timeChanges == null || metadata.timeChanges.length < 1)
+			{
+				showOutput('Error: File loaded is not a valid FNF V-Slice metadata.', true);
+				return;
+			}
+
+			// Metadata describes the package; notes in the selected chart define its actual difficulties.
+			var chartDifficulties:Array<String> = Reflect.fields(chart.notes);
+			var availableDifficulties:Array<String> = [];
+			for (metaDifficulty in metadata.playData.difficulties)
+			{
+				for (chartDifficulty in chartDifficulties)
+				{
+					if (Paths.formatToSongPath(metaDifficulty) == Paths.formatToSongPath(chartDifficulty))
+					{
+						availableDifficulties.push(chartDifficulty);
+						break;
+					}
+				}
+			}
+			for (chartDifficulty in chartDifficulties)
+				if (availableDifficulties.indexOf(chartDifficulty) == -1) availableDifficulties.push(chartDifficulty);
+
+			if (availableDifficulties.length < 1)
+			{
+				showOutput('Error: No difficulty found in the selected V-Slice variant.', true);
+				return;
+			}
+			metadata.playData.difficulties = availableDifficulties;
+
+			var pack:PsychPackage = VSlice.convertToPsych(chart, metadata);
+			if(pack == null || pack.difficulties == null) return;
+			
+			var diffs:Array<String> = metadata.playData.difficulties.copy();
+			var defaultDiff:String = Paths.formatToSongPath(Difficulty.getDefault());
+			var firstChart:SwagSong = null;
+			
+			// 如果指定了难度，优先使用指定的难度
+			if (difficulty != null && difficulty.length > 0)
+			{
+				var targetDiff:String = Paths.formatToSongPath(difficulty);
+				if (pack.difficulties.exists(targetDiff))
+				{
+					firstChart = pack.difficulties.get(targetDiff);
+				}
+			}
+			
+			// 如果没有找到指定难度，使用第一个可用难度
+			if (firstChart == null)
+			{
+				for (diff in diffs)
+				{
+					if(pack.difficulties.exists(diff))
+					{
+						firstChart = pack.difficulties.get(diff);
+						break;
+					}
+				}
+			}
+			
+			if(firstChart == null)
+			{
+				showOutput('Error: No valid difficulty found in the V-Slice chart.', true);
+				return;
+			}
+
+			var func:Void->Void = function()
+			{
+				loadChart(firstChart);
+				Song.chartPath = chartPath;
+				reloadNotesDropdowns();
+				prepareReload();
+				
+				var variantInfo:String = (variant != null && variant != 'default') ? ' (variant: $variant)' : '';
+				showOutput('Opened V-Slice chart from "${baseFolder}" successfully!$variantInfo');
+			};
+
+			if(!ignoreProgressCheckBox.checked) openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
+			else func();
+		}
+		catch(e:Exception)
+		{
+			showOutput('Error: ${e.message}', true);
+			trace(e.stack);
+		}
+	}
+
+	function openOsuChartFromFile(filePath:String)
+	{
+		try
+		{
+			// 检查文件是否存在
+			if (!FileSystem.exists(filePath))
+			{
+				showOutput('Error: File not found: $filePath', true);
+				return;
+			}
+
+			// 检查文件扩展名
+			var lowerPath:String = filePath.toLowerCase();
+			if (!lowerPath.endsWith('.osu') && !lowerPath.endsWith('.osz'))
+			{
+				showOutput('Error: File is not a valid OSU chart (.osu or .osz expected).', true);
+				return;
+			}
+
+			var content:String = File.getContent(filePath);
+			var sections:Map<String, Array<String>> = OsuConverter.parseOsuSections(content);
+			var difficulty:Map<String, String> = OsuConverter.parseKeyValues(sections["Difficulty"]);
+			var keys:Int = Std.parseInt(difficulty.get("CircleSize"));
+			if (keys < 1) keys = 4;
+			
+			// 限制最大键数为 16
+			if (keys > 16) keys = 16;
+			
+			var dialog:OsuImportDialog = new OsuImportDialog(keys);
+			dialog.onConfirm = function(convertTo4k:Bool, action:Int)
+			{
+				performOsuImport(filePath, keys, convertTo4k, action);
+			};
+			dialog.onCancel = function()
+			{
+				showOutput('OSU import cancelled');
+			};
+			openSubState(dialog);
+		}
+		catch(e:Exception)
+		{
+			showOutput('Error: ${e.message}', true);
+			trace(e.stack);
+		}
+	}
+
 	function loadFileList(mainFolder:String, ?optionalList:String = null, ?fileTypes:Array<String> = null)
 	{
 		if(fileTypes == null) fileTypes = ['.json'];
@@ -5851,7 +6260,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		try
 		{
 			// 读取文件进行转换
-			var loadedChart:SwagSong = OsuConverter.convertOsuToPsych(filePath);
+			var chartInfo:Array<String> = getChartSourceInfo(filePath);
+			var loadedChart:SwagSong = OsuConverter.convertOsuToPsych(filePath, chartInfo[0], chartInfo[1]);
 			if(loadedChart == null || !Reflect.hasField(loadedChart, 'song'))
 			{
 				showOutput('Error: Unable to read OSU file or file format is incorrect', true);
@@ -5864,20 +6274,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				var targetKeys:Int = 4;
 				var sourceKeys:Int = keys;
 				
-				// 重新映射所有音符的列索引（将 8K 映射到 4K）
-				for (section in loadedChart.notes)
-				{
-					for (note in section.sectionNotes)
-					{
-						if (note == null) continue;
-						var data:Int = Std.int(note[1]);
-						// 将原始列映射到 4K 范围 (0-3)
-						var mappedData:Int = Math.round((data / (sourceKeys - 1)) * (targetKeys - 1));
-						if (mappedData < 0) mappedData = 0;
-						if (mappedData >= targetKeys) mappedData = targetKeys - 1;
-						note[1] = mappedData;
-					}
-				}
 				
 				// 更新键数信息
 				Reflect.setField(loadedChart, 'mania', targetKeys - 1);
@@ -6000,6 +6396,143 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		{
 			showOutput('Error: ${e.message}', true);
 			trace(e.stack);
+		}
+	}
+
+	function getChartSourceInfo(filePath:String):Array<String>
+	{
+		var normalized:String = filePath.replace('\\', '/');
+		var marker:String = '/charts/';
+		var markerIndex:Int = normalized.toLowerCase().indexOf(marker);
+		if (markerIndex == -1) return [null, null];
+
+		var parts:Array<String> = normalized.substr(markerIndex + marker.length).split('/');
+		if (parts.length < 3) return [null, null];
+		return [parts[0], parts[1]];
+	}
+
+	function getKeyCountFromSong(song:SwagSong):Int
+	{
+		if (Reflect.hasField(song, "mania")) return Reflect.field(song, "mania") + 1;
+		if (Reflect.hasField(song, "keyCount")) return Reflect.field(song, "keyCount");
+		if (Reflect.hasField(song, "keycount")) return Reflect.field(song, "keycount");
+		return 4;
+	}
+
+	/**
+	 * 执行 StepMania 导入
+	 */
+	function performStepManiaImport(filePath:String, targetKeys:Int):Void
+	{
+		try
+		{
+			var loadedChart:SwagSong = StepManiaConverter.convertStepManiaToPsych(filePath);
+			if(loadedChart == null || !Reflect.hasField(loadedChart, 'song'))
+			{
+				showOutput('Error: Unable to read StepMania file', true);
+				return;
+			}
+
+			// 如果需要转换键数
+			var sourceKeys:Int = getKeyCountFromSong(loadedChart);
+			if (sourceKeys != targetKeys)
+			{
+				// 重新映射音符列
+				remapSongKeys(loadedChart, sourceKeys, targetKeys);
+				// 更新 mania 字段
+				Reflect.setField(loadedChart, 'mania', targetKeys - 1);
+				Reflect.setField(loadedChart, 'keyCount', targetKeys);
+				Reflect.setField(loadedChart, 'keycount', targetKeys);
+				showOutput('Converted from ${sourceKeys}K to ${targetKeys}K');
+			}
+
+			var func:Void->Void = function()
+			{
+				GRID_COLUMNS_PER_PLAYER = targetKeys;
+				loadChart(loadedChart);
+				Song.chartPath = filePath;
+				reloadNotesDropdowns();
+				rebuildChartLayout();
+				prepareReload();
+				showOutput('StepMania chart loaded from: ' + filePath);
+			};
+			
+			if (!ignoreProgressCheckBox.checked)
+				openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
+			else
+				func();
+		}
+		catch(e:Exception)
+		{
+			showOutput('Error: ${e.message}', true);
+			trace(e.stack);
+		}
+	}
+
+	/**
+	 * 执行 StepMania 导出
+	 */
+	function performStepManiaExport(format:String):Void
+	{
+		fileDialog.openDirectory('Save StepMania File', function()
+		{
+			try
+			{
+				var path:String = fileDialog.path.replace('\\', '/');
+				if(!path.endsWith('/')) path += '/';
+				
+				var ext = (format == "ssc") ? "ssc" : "sm";
+				var fileName:String = Paths.formatToSongPath(PlayState.SONG.song) + '.' + ext;
+				var savePath:String = path + fileName;
+				
+				overwriteCheck(savePath, fileName, '', function()
+				{
+					var smText:String = StepManiaConverter.convertPsychToStepMania(PlayState.SONG, format);
+					File.saveContent(savePath, smText);
+					showOutput('StepMania file saved successfully: $savePath');
+				});
+			}
+			catch(e:Exception)
+			{
+				showOutput('Error: ${e.message}', true);
+				trace(e.stack);
+			}
+		});
+	}
+
+	/**
+	 * 重新映射歌曲的键数
+	 */
+	function remapSongKeys(song:SwagSong, sourceKeys:Int, targetKeys:Int):Void
+	{
+		if (sourceKeys == targetKeys) return;
+		
+		var scale:Float = (targetKeys - 1) / (sourceKeys - 1);
+		var halfScale:Bool = (targetKeys > sourceKeys);
+		
+		for (section in song.notes)
+		{
+			for (note in section.sectionNotes)
+			{
+				if (note == null || note[1] == null) continue;
+				var data:Int = Std.int(note[1]);
+				var player = Math.floor(data / sourceKeys);
+				var col = data % sourceKeys;
+				
+				// 重新映射列
+				var newCol:Int;
+				if (halfScale)
+				{
+					newCol = Math.round(col * scale);
+				}
+				else
+				{
+					newCol = Math.floor(col * scale);
+				}
+				newCol = Std.int(Math.max(0, Math.min(newCol, targetKeys - 1)));
+				
+				note[1] = player * targetKeys + newCol;
+			}
 		}
 	}
 }
