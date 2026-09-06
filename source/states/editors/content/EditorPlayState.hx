@@ -92,7 +92,7 @@ class EditorPlayState extends MusicBeatSubstate
 
 		cachePopUpScore();
 		guitarHeroSustains = ClientPrefs.data.guitarHeroSustains;
-		if(ClientPrefs.data.hitsoundVolume > 0) Paths.sound(ClientPrefs.data.hitsound);
+		if(ClientPrefs.data.hitsoundVolume > 0) Paths.sound('hitsound');
 
 		/* setting up Editor PlayState stuff */
 		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
@@ -122,24 +122,29 @@ class EditorPlayState extends MusicBeatSubstate
 		/***************/
 		
 		scoreTxt = new FlxText(10, FlxG.height - 50, FlxG.width - 20, "", 20);
-		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		scoreTxt.scrollFactor.set();
 		scoreTxt.borderSize = 1.25;
 		scoreTxt.visible = !ClientPrefs.data.hideHud;
 		add(scoreTxt);
 		
 		dataTxt = new FlxText(10, 580, FlxG.width - 20, "Section: 0", 20);
-		dataTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		dataTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		dataTxt.scrollFactor.set();
 		dataTxt.borderSize = 1.25;
 		add(dataTxt);
 
-		var tipText:FlxText = new FlxText(10, FlxG.height - 24, 0, 'Press ESC to Go Back to Chart Editor', 16);
-		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+		var tipText:FlxText = new FlxText(10, FlxG.height - 24, 0, 'Press ${(controls.mobileC) ? #if android 'BACK' #else 'X' #end : 'ESC'} to Go Back to Chart Editor', 16);
+		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		tipText.borderSize = 2;
 		tipText.scrollFactor.set();
 		add(tipText);
 		FlxG.mouse.visible = false;
+		
+		addMobileControls();
+		mobileControls.instance.visible = true;
+		mobileControls.onButtonDown.add(onButtonPress);
+		mobileControls.onButtonUp.add(onButtonRelease);
 		
 		generateSong();
 		_noteList = null;
@@ -154,6 +159,11 @@ class EditorPlayState extends MusicBeatSubstate
 		updateScore();
 		cachePopUpScore();
 
+		#if !android
+		addTouchPad('NONE', 'P');
+		addTouchPadCamera();
+		#end
+
 		super.create();
 
 		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
@@ -161,7 +171,7 @@ class EditorPlayState extends MusicBeatSubstate
 
 	override function update(elapsed:Float)
 	{
-		if(controls.BACK || FlxG.keys.justPressed.ESCAPE || FlxG.keys.justPressed.F12)
+		if(#if android FlxG.android.justReleased.BACK #else touchPad.buttonP.justPressed #end || controls.BACK || FlxG.keys.justPressed.ESCAPE || FlxG.keys.justPressed.F12)
 		{
 			endSong();
 			super.update(elapsed);
@@ -292,7 +302,11 @@ class EditorPlayState extends MusicBeatSubstate
 			FlxG.sound.list.add(inst);
 			
 			inst.play();
-			inst.time = startPos - Conductor.offset;
+			vocals.play();
+			opponentVocals.play();
+			inst.time = vocals.time = opponentVocals.time = startPos - Conductor.offset;
+
+		// Song duration in a float, useful for the time left feature
 			songLength = inst.length;
 		}
 		
@@ -513,6 +527,9 @@ class EditorPlayState extends MusicBeatSubstate
 			finishTimer.destroy();
 
 		Conductor.songPosition = FlxG.sound.music.time = vocals.time = opponentVocals.time = startPos - Conductor.offset;
+
+		mobileControls.instance.visible = false;
+
 		close();
 	}
 	
@@ -570,6 +587,7 @@ class EditorPlayState extends MusicBeatSubstate
 			antialias = !PlayState.isPixelStage;
 		}
 
+		if(ClientPrefs.data.popUpRating) {
 		rating.loadGraphic(Paths.image(uiFolder + daRating.image + PlayState.uiPostfix));
 		rating.screenCenter();
 		rating.x = placement - 40;
@@ -660,6 +678,7 @@ class EditorPlayState extends MusicBeatSubstate
 			},
 			startDelay: Conductor.crochet * 0.002 / playbackRate
 		});
+		}
 	}
 
 	private function onKeyPress(event:KeyboardEvent):Void
@@ -746,6 +765,24 @@ class EditorPlayState extends MusicBeatSubstate
 			spr.playAnim('static');
 			spr.resetAnim = 0;
 		}
+	}
+
+	private function onButtonPress(button:TouchButton):Void
+	{
+		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
+			return;
+
+		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
+		if (button.justPressed) keyPressed(buttonCode);
+	}
+
+	private function onButtonRelease(button:TouchButton):Void
+	{
+		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
+			return;
+
+		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
+		if(buttonCode > -1) keyReleased(buttonCode);
 	}
 	
 	// Hold notes

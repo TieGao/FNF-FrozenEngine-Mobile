@@ -58,48 +58,43 @@ class StorageUtil
 
 	public static function requestPermissions():Void
 {
-	if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU)
-	{
-		// Request each permission individually
-		extension.androidtools.Permissions.requestPermissions(['READ_MEDIA_IMAGES','READ_MEDIA_VISUAL_USER_SELECTED','READ_MEDIA_VIDEO','READ_MEDIA_AUDIO']);
-	}
-	else
-	{
-		// Request each permission individually
-		extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']);
-	}
+    if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU)
+    {
+        // Request each permission individually
+        extension.androidtools.Permissions.requestPermissions(['READ_MEDIA_IMAGES','READ_MEDIA_VISUAL_USER_SELECTED','READ_MEDIA_VIDEO','READ_MEDIA_AUDIO']);
+    }
+    else
+    {
+        // Request each permission individually
+        extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']);
+    }
 
-	if (!extension.androidtools.os.Environment.isExternalStorageManager())
-		extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
+    if (!extension.androidtools.os.Environment.isExternalStorageManager())
+        extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
 
-	if ((extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU
-		&& !extension.androidtools.Permissions.getGrantedPermissions().contains('android.permission.READ_MEDIA_IMAGES'))
-		|| (extension.androidtools.os.Build.VERSION.SDK_INT < extension.androidtools.os.Build.VERSION_CODES.TIRAMISU
-			&& !extension.androidtools.Permissions.getGrantedPermissions().contains('android.permission.READ_EXTERNAL_STORAGE')))
-		CoolUtil.showPopUp(Language.getPhrase('permissions_message', 'If you accepted the permissions you are all good!\nIf you didn\'t then expect a crash\nPress OK to see what happens'),
-			Language.getPhrase('mobile_notice', "Notice!"));
+    // 移除了权限检查的 if 语句块
 
-	try
-	{
-		if (!FileSystem.exists(StorageUtil.getStorageDirectory()))
-			FileSystem.createDirectory(StorageUtil.getStorageDirectory());
-	}
-	catch (e:Dynamic)
-	{
-		CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
-		lime.system.System.exit(1);
-	}
+    try
+    {
+        if (!FileSystem.exists(StorageUtil.getStorageDirectory()))
+            FileSystem.createDirectory(StorageUtil.getStorageDirectory());
+    }
+    catch (e:Dynamic)
+    {
+        CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+        lime.system.System.exit(1);
+    }
 
-	try
-	{
-		if (!FileSystem.exists(StorageUtil.getExternalStorageDirectory() + 'mods'))
-			FileSystem.createDirectory(StorageUtil.getExternalStorageDirectory() + 'mods');
-	}
-	catch (e:Dynamic)
-	{
-		CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getExternalStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
-		lime.system.System.exit(1);
-	}
+    try
+    {
+        if (!FileSystem.exists(StorageUtil.getExternalStorageDirectory() + 'mods'))
+            FileSystem.createDirectory(StorageUtil.getExternalStorageDirectory() + 'mods');
+    }
+    catch (e:Dynamic)
+    {
+        CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getExternalStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+        lime.system.System.exit(1);
+    }
 }
 	#end
 	#end
