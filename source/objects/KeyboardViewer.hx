@@ -46,7 +46,6 @@ class KeyboardViewer extends FlxSpriteGroup
 	{
 		super();
 		instance = this;
-
 		_x = X;
 		_y = Y;
 
@@ -222,7 +221,7 @@ class KeyboardViewer extends FlxSpriteGroup
 			keyTexts[displayIndex].color = FlxColor.BLACK;
 		}
 
-		total++;
+		if(!PlayState.inReplay)total++;
 		totalText.text = Std.string(total);
 		hitArray.unshift(Date.now());
 

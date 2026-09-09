@@ -1,12 +1,14 @@
 package substates;
 
-import backend.Replay;
+import backend.LegacyReplay as LegacyReplay;
+import backend.Replay as FrameReplay;
 import backend.MusicBeatState;
 import backend.MouseMove;
 import backend.Mods;
 import backend.Song;
 import backend.Paths;
 import backend.CustomChartData;
+import backend.ClientPrefs;
 
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
@@ -262,10 +264,21 @@ class LoadReplaySubState extends MusicBeatSubstate
             return;
         }
 
+        // 规范化歌曲名：移除特殊字符，统一转为小写
+        function normalizeSongName(name:String):String {
+            if (name == null) return "";
+            return StringTools.replace(StringTools.replace(StringTools.replace(
+                name.toLowerCase().trim(),
+                " ", ""
+            ), "-", ""), "_", "");
+        }
+
+        var normalizedCurrent:String = normalizeSongName(currentSongName);
+
         var files = FileSystem.readDirectory(replayDir);
         for (file in files)
         {
-            if (!file.endsWith(".kadeReplay")) continue;
+            if (!file.endsWith(".replay") && !file.endsWith(".kadeReplay")) continue;
             
             try
             {
@@ -275,9 +288,12 @@ class LoadReplaySubState extends MusicBeatSubstate
                 
                 if (json == null) continue;
                 
-                // 检查歌曲名是否匹配（不区分大小写）
+                // 检查歌曲名是否匹配（规范化后比较）
                 var replaySongName = json.songName != null ? json.songName : "";
-                if (replaySongName.toLowerCase() != currentSongName.toLowerCase()) continue;
+                var normalizedReplay:String = normalizeSongName(replaySongName);
+                
+                // 模糊匹配：规范化后相同即可
+                if (normalizedReplay != normalizedCurrent) continue;
                 
                 var entry:ReplayEntry = {
                     filename: file,
@@ -285,11 +301,16 @@ class LoadReplaySubState extends MusicBeatSubstate
                     songName: replaySongName,
                     difficultyName: json.difficultyName != null ? json.difficultyName : 
                         (json.songDiff != null ? Difficulty.getString(Std.int(json.songDiff)) : "Normal"),
-                    accuracy: json.accuracy != null ? Std.parseFloat(Std.string(json.accuracy)) : 0,
-                    score: json.score != null ? Std.parseInt(Std.string(json.score)) : 0,
-                    misses: json.misses != null ? Std.parseInt(Std.string(json.misses)) : 0,
-                    rating: json.rating != null ? json.rating : "N/A",
-                    ratingFC: json.ratingFC != null ? json.ratingFC : "N/A",
+                    accuracy: json.finalAccuracy != null ? Std.parseFloat(Std.string(json.finalAccuracy)) :
+                        (json.accuracy != null ? Std.parseFloat(Std.string(json.accuracy)) : 0),
+                    score: json.finalScore != null ? Std.parseInt(Std.string(json.finalScore)) :
+                        (json.score != null ? Std.parseInt(Std.string(json.score)) : 0),
+                    misses: json.finalMisses != null ? Std.parseInt(Std.string(json.finalMisses)) :
+                        (json.misses != null ? Std.parseInt(Std.string(json.misses)) : 0),
+                    rating: json.finalRating != null ? json.finalRating :
+                        (json.rating != null ? json.rating : "N/A"),
+                    ratingFC: json.finalRatingFC != null ? json.finalRatingFC :
+                        (json.ratingFC != null ? json.ratingFC : "N/A"),
                     modDirectory: json.modDirectory != null ? json.modDirectory : modFolder,
                     isDownscroll: json.isDownscroll == true,
                     noteSpeed: json.noteSpeed != null ? Std.parseFloat(Std.string(json.noteSpeed)) : 1.5,
@@ -566,7 +587,12 @@ class LoadReplaySubState extends MusicBeatSubstate
     {
         trace('Loading replay: $filePath');
         
-        var rep:Replay = Replay.LoadReplay(filePath);
+        var fileContent:String = File.getContent(filePath);
+        var json:Dynamic = Json.parse(fileContent);
+        var isLegacy:Bool = json == null || json.frameData == null;
+        var rep:Dynamic = isLegacy
+            ? LegacyReplay.LoadReplay(filePath)
+            : FrameReplay.LoadReplay(filePath);
         if (rep == null || !rep.isValid())
         {
             FlxG.sound.play(Paths.sound('cancelMenu'));
@@ -579,7 +605,16 @@ class LoadReplaySubState extends MusicBeatSubstate
             Mods.currentModDirectory = rep.replay.modDirectory;
         #end
         
-        PlayState.rep = rep;
+        if (isLegacy)
+        {
+            PlayState.rep = cast rep;
+            PlayState.frameRep = null;
+        }
+        else
+        {
+            PlayState.frameRep = cast rep;
+            PlayState.rep = null;
+        }
         PlayState.loadRep = true;
         PlayState.inReplay = true;
         PlayState.replayFileName = filePath;

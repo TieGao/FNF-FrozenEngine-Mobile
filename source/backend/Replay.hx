@@ -5,181 +5,721 @@ import sys.io.File;
 import sys.FileSystem;
 #end
 import flixel.FlxG;
-import openfl.events.IOErrorEvent;
-import openfl.events.Event;
-import openfl.net.FileReference;
-import lime.utils.Assets;
-import haxe.Json;
 import flixel.input.keyboard.FlxKey;
-import openfl.utils.Dictionary;
+import flixel.input.FlxInput;
+
+import haxe.Json;
 import states.PlayState;
+import objects.Note;
 
-class Ana
-{
-    public var hitTime:Float;
-    public var nearestNote:Array<Dynamic>;
-    public var hit:Bool;
-    public var hitJudge:String;
-    public var key:Int;
+// ========== 数据结构 ==========
+
+/**
+ * 单帧数据 - 记录某一时刻的所有按键变化
+ */
+typedef FrameSave = {
+    var time:Float;
+    var pressKey:Array<String>;
+    var releaseKey:Array<String>;
+    @:optional var noteJudgments:Array<NoteJudgment>; // 高保真模式：预录制判定
+}
+
+/**
+ * 单条判定记录
+ */
+typedef NoteJudgment = {
+    var strumTime:Float;
+    var noteData:Int;
+    var hitDiff:Float;
+    var rating:String;
+    var isSustain:Bool;
+}
+
+/**
+ * 回放文件完整数据结构
+ */
+typedef ReplayData = {
+    // 元数据
+    var replayGameVer:String;
+    var timestamp:Date;
+    var songName:String;
+    var songDiff:Int;
+    var difficultyName:String;
+    var modDirectory:String;
+    var opponentMode:String;
+    var isDownscroll:Bool;
+    var noteSpeed:Float;
+    var sf:Float;
     
-    public function new(_hitTime:Float, _nearestNote:Array<Dynamic>, _hit:Bool, _hitJudge:String, _key:Int) {
-        hitTime = _hitTime;
-        nearestNote = _nearestNote;
-        hit = _hit;
-        hitJudge = _hitJudge;
-        key = _key;
-    }
+    // 核心数据 - 帧序列 (包含判定)
+    var frameData:Array<FrameSave>;
+    
+    // 结果统计 (仅用于显示，不作为判定依据)
+    var finalScore:Int;
+    var finalMisses:Int;
+    var finalAccuracy:Float;
+    var finalRating:String;
+    var finalRatingFC:String;
+    
+    // 元数据
+    var chartPath:String;
+    var chartCategory:String;
+    var chartDirectory:String;
+    var chartHasVSliceMetadata:Bool;
+    var chartAudioSuffix:String;
+    var sm:Bool;
 }
 
-class Analysis
-{
-    public var anaArray:Array<Ana>;
-
-    public function new() {
-        anaArray = [];
-    }
-}
-
-typedef ReplayJSON =
-{
-    public var replayGameVer:String;
-    public var timestamp:Date;
-    public var songName:String;
-    public var songDiff:Int;
-    public var difficultyName:String;
-    public var songNotes:Array<Dynamic>;
-    public var songJudgements:Array<String>;
-    public var noteSpeed:Float;
-    public var chartPath:String;
-    public var chartCategory:String;
-    public var chartDirectory:String;
-    public var chartHasVSliceMetadata:Bool;
-    public var chartAudioSuffix:String;
-    public var modDirectory:String;
-    public var isDownscroll:Bool;
-    public var sf:Int;
-    public var sm:Bool;
-    public var ana:Analysis;
-    public var opponentMode:String;
-    public var accuracy:Float;
-    public var score:Int;
-    public var misses:Int;
-    public var rating:String;
-    public var ratingFC:String;
-}
-
+/**
+ * 高保真回放系统 - 结合帧记录与按键模拟
+ */
 class Replay
 {
-    public static var version:String = "1.5";
-
+    // ========== 版本信息 ==========
+    public static var version:String = "2.0";
+    
+    // ========== 实例变量 ==========
+    
     public var path:String = "";
-    public var replay:ReplayJSON;
-    
-    public var currentIndex:Int = 0;
-    public var judgementIndex:Int = 0;
-    
-    public var noteRecording:Array<Array<Dynamic>> = [];
-    public var judgementRecording:Array<String> = [];
-    public var anaRecording:Analysis;
-    
-    // 新增：存储Replay的完整路径（包含mod子文件夹）
     public var fullPath:String = "";
+    public var replay:ReplayData;
+    public var currentFrameIndex:Int = 0;
     
-    public function new(path:String)
+    /** 当前按住的键 (用于回放时维持状态) */
+    private var keysHeld:Map<String, Bool> = new Map<String, Bool>();
+    
+    /** 上一次回放的时间 (用于速度同步) */
+    private var lastReplayTime:Float = Math.NaN;
+
+        /** 高保真判定映射 */
+    public var hasJudgments(default, null):Bool = false;
+    private var judgmentMap:Map<String, NoteJudgment> = new Map<String, NoteJudgment>();
+    public var replayVersion(default, null):Int = 1;
+    
+    /** 录制相关 */
+    private var isRecording:Bool = false;
+    private var frameData:Array<FrameSave> = [];
+    private var recordTick:Int = 0;
+    private var pendingPressKeys:Array<String> = [];
+    private var pendingReleaseKeys:Array<String> = [];
+    private var pendingJudgments:Array<NoteJudgment> = [];
+    private var frameBuffer:Array<FrameSave> = [];
+    
+    /** 键名到lane的映射 (用于回放) */
+    private var keyToLane:Map<FlxKey, Int> = null;
+    private var laneCount:Int = 0;
+    
+    /** 缓存的键名列表 (用于快速遍历) */
+    private static var cachedKeyNames:Array<String> = null;
+
+    private static function roundToTwo(value:Float):Float
+    {
+        return Math.round(value * 100) / 100;
+    }
+    
+    // ========== 构造函数 ==========
+    
+    public function new(path:String = "")
     {
         this.path = path;
         this.fullPath = path;
+        
         replay = {
-            songName: "No Song Found", 
+            replayGameVer: version,
+            timestamp: Date.now(),
+            songName: "Unknown",
             songDiff: 1,
             difficultyName: "Normal",
-            noteSpeed: 1.5,
+            modDirectory: "",
+            opponentMode: "player",
             isDownscroll: false,
-            songNotes: [],
-            replayGameVer: version,
+            noteSpeed: 1.5,
+            sf: 10.0,
+            frameData: [],
+            finalScore: 0,
+            finalMisses: 0,
+            finalAccuracy: 0,
+            finalRating: "N/A",
+            finalRatingFC: "N/A",
             chartPath: "",
             chartCategory: "",
             chartDirectory: "",
             chartHasVSliceMetadata: false,
             chartAudioSuffix: "",
-            modDirectory: "",
-            sm: false,
-            timestamp: Date.now(),
-            sf: 10,
-            ana: new Analysis(),
-            songJudgements: [],
-            opponentMode: "player",
-            accuracy: 0.0,
-            score: 0,
-            misses: 0,
-            rating: "N/A",
-            ratingFC: "N/A"
+            sm: false
         };
         
-        anaRecording = new Analysis();
-    }
-
-    private function roundFloat(value:Dynamic, decimals:Int):Float
-    {
-        if (value == null) return 0.0;
-        var num:Float = Std.parseFloat(Std.string(value));
-        var factor:Float = Math.pow(10, decimals);
-        return Math.round(num * factor) / factor;
-    }
-
-    private function roundReplayNotes(notes:Array<Dynamic>, decimals:Int):Array<Dynamic>
-    {
-        var rounded:Array<Dynamic> = [];
-        for (note in notes)
-        {
-            if (note != null && note.length >= 4)
-            {
-                rounded.push([
-                    roundFloat(note[0], decimals),
-                    roundFloat(note[1], decimals),
-                    note[2],
-                    roundFloat(note[3], decimals)
-                ]);
-            }
-            else
-            {
-                rounded.push(note);
-            }
+        if (cachedKeyNames == null) {
+            cachedKeyNames = [for (k in FlxKey.toStringMap.keys()) k];
         }
-        return rounded;
     }
-
-    private function roundAnalysisData(ana:Analysis, decimals:Int):Analysis
+    
+    // ========== 录制方法 ==========
+    
+    public function startRecording():Void
     {
-        var rounded:Analysis = new Analysis();
-        for (hit in ana.anaArray)
-        {
-            var roundedHit:Ana = new Ana(
-                roundFloat(hit.hitTime, decimals),
-                hit.nearestNote,
-                hit.hit,
-                hit.hitJudge,
-                hit.key
-            );
-            rounded.anaArray.push(roundedHit);
-        }
-        return rounded;
+        isRecording = true;
+        frameData = [];
+        frameBuffer = [];
+        recordTick = 0;
+        pendingPressKeys = [];
+        pendingReleaseKeys = [];
+        pendingJudgments = [];
+        judgmentMap = new Map<String, NoteJudgment>();
+        trace('Started recording replay v${version}');
     }
-
-    // ========== 新增：获取Replay目录路径 ==========
+    
+    public function stopRecording():Void
+    {
+        isRecording = false;
+        flushFrameBuffer();
+        trace('Stopped recording replay, ${frameData.length} frames recorded, ${getTotalJudgments()} judgments');
+    }
     
     /**
-     * 获取Replay的根目录路径
+     * 刷新帧缓冲区 - 将缓冲的输入写入帧数据
      */
+    private function flushFrameBuffer():Void
+    {
+        if (frameBuffer.length > 0) {
+            mergeFrames(frameBuffer);
+            frameData = frameData.concat(frameBuffer);
+            frameBuffer = [];
+        }
+    }
+    
+    /**
+     * 合并连续的帧 (减少冗余数据)
+     */
+    private function mergeFrames(frames:Array<FrameSave>):Void
+    {
+        if (frames.length <= 1) return;
+        
+        var merged:Array<FrameSave> = [];
+        var current:FrameSave = frames[0];
+        
+        for (i in 1...frames.length) {
+            var next = frames[i];
+            if (Math.abs(next.time - current.time) < 5) {
+                for (key in next.pressKey) {
+                    if (!current.pressKey.contains(key)) current.pressKey.push(key);
+                }
+                for (key in next.releaseKey) {
+                    if (!current.releaseKey.contains(key)) current.releaseKey.push(key);
+                }
+                if (next.noteJudgments != null) {
+                    if (current.noteJudgments == null) current.noteJudgments = [];
+                    current.noteJudgments = current.noteJudgments.concat(next.noteJudgments);
+                }
+            } else {
+                merged.push(current);
+                current = next;
+            }
+        }
+        merged.push(current);
+        
+        frames.resize(0);
+        for (f in merged) frames.push(f);
+    }
+    
+    public function recordFrame(currentTime:Float, keysArray:Array<String>):Void
+    {
+        if (!isRecording) return;
+
+        recordTick++;
+        
+        var pressKey:Array<String> = pendingPressKeys;
+        var releaseKey:Array<String> = pendingReleaseKeys;
+        pendingPressKeys = [];
+        pendingReleaseKeys = [];
+        
+        for (keyName in cachedKeyNames)
+        {
+            var key:FlxKey = FlxKey.toStringMap.get(keyName);
+            if (key == FlxKey.ANY || key == FlxKey.NONE) continue;
+            
+            if (!isGameKey(keyName, keysArray)) continue;
+            
+            if (FlxG.keys.checkStatus(key, JUST_PRESSED)) {
+                var replayKeyName:String = InputFormatter.getKeyName(key);
+                if (!pressKey.contains(replayKeyName)) pressKey.push(replayKeyName);
+            }
+            if (FlxG.keys.checkStatus(key, JUST_RELEASED)) {
+                var replayKeyName:String = InputFormatter.getKeyName(key);
+                if (!releaseKey.contains(replayKeyName)) releaseKey.push(replayKeyName);
+            }
+        }
+        
+        if (pressKey.length == 0 && releaseKey.length == 0) {
+            if (recordTick % 30 != 0) return;
+        }
+        
+        var frame:FrameSave = {
+            time: roundToTwo(currentTime),
+            pressKey: pressKey,
+            releaseKey: releaseKey
+        };
+        
+        // 高保真模式：携带判定数据
+        if (pendingJudgments.length > 0 && ClientPrefs.data.replayQuality) {
+            frame.noteJudgments = pendingJudgments.copy();
+            pendingJudgments = [];
+        }
+        
+        frameBuffer.push(frame);
+        
+        if (frameBuffer.length >= 60) {
+            flushFrameBuffer();
+        }
+    }
+
+    public function recordInput(key:FlxKey, pressed:Bool):Void
+    {
+        if (!isRecording || key == FlxKey.NONE || key == FlxKey.ANY) return;
+
+        var keyName:String = InputFormatter.getKeyName(key);
+        var target:Array<String> = pressed ? pendingPressKeys : pendingReleaseKeys;
+        if (!target.contains(keyName)) target.push(keyName);
+    }
+
+    /**
+     * 记录Note判定 (高保真)
+     */
+    public function recordJudgment(strumTime:Float, noteData:Int, hitDiff:Float, rating:String, isSustain:Bool):Void
+    {
+        if (!isRecording || !ClientPrefs.data.replayQuality) return;
+        
+        pendingJudgments.push({
+            strumTime: roundToTwo(strumTime),
+            noteData: noteData,
+            hitDiff: roundToTwo(hitDiff),
+            rating: rating,
+            isSustain: isSustain
+        });
+    }
+
+    private function isGameKey(keyName:String, keysArray:Array<String>):Bool
+    {
+        var targetKey:FlxKey = FlxKey.toStringMap.get(keyName);
+        if (targetKey == FlxKey.NONE || targetKey == FlxKey.ANY) return false;
+        
+        var bindNames:Array<String> = getInputBindNames(keysArray);
+        for (k in bindNames) {
+            var keys = Controls.instance.keyboardBinds.get(k);
+            if (keys != null) {
+                for (key in keys) {
+                    if (key == targetKey) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private function getInputBindNames(keysArray:Array<String>):Array<String>
+        {
+            if (keysArray.length == 4) {
+                return ['note_left', 'note_down', 'note_up', 'note_right'];
+            }
+            return keysArray;
+        }
+    
+    
+    public function finishRecording(playState:PlayState):Void
+    {
+        isRecording = false;
+        flushFrameBuffer();
+        
+        if (playState != null && PlayState.SONG != null) {
+            replay.songName = PlayState.SONG.song;
+            replay.songDiff = PlayState.storyDifficulty;
+            replay.difficultyName = Difficulty.getString();
+            replay.noteSpeed = roundToTwo(PlayState.SONG.speed);
+            replay.isDownscroll = ClientPrefs.data.downScroll;
+            replay.opponentMode = playState.opponentMode;
+            replay.sf = ClientPrefs.data.safeFrames;
+            
+            replay.finalScore = playState.songScore;
+            replay.finalMisses = playState.songMisses;
+            replay.finalAccuracy = roundToTwo(playState.ratingPercent * 100);
+            replay.finalRating = playState.ratingName;
+            replay.finalRatingFC = playState.ratingFC;
+            
+            #if MODS_ALLOWED
+            replay.modDirectory = Mods.currentModDirectory;
+            #else
+            replay.modDirectory = "";
+            #end
+            
+            replay.chartPath = Paths.currentChartDirectory != null ? Paths.currentChartDirectory : "";
+            replay.chartCategory = Paths.currentChartCategory != null ? Paths.currentChartCategory : "";
+            replay.chartDirectory = replay.chartPath;
+            replay.chartHasVSliceMetadata = Paths.currentChartHasVSliceMetadata;
+            replay.chartAudioSuffix = Paths.currentChartAudioSuffix != null ? Paths.currentChartAudioSuffix : "";
+        }
+        
+        replay.frameData = frameData;
+        replay.timestamp = Date.now();
+        replay.replayGameVer = version;
+        
+        trace('Finished recording replay: ${frameData.length} frames, ${getTotalJudgments()} judgments');
+    }
+    
+    private function getTotalJudgments():Int
+    {
+        var count:Int = 0;
+        for (frame in frameData) {
+            if (frame.noteJudgments != null) count += frame.noteJudgments.length;
+        }
+        return count;
+    }
+    
+    // ========== 保存方法 ==========
+    
+    public function SaveReplay():Void
+    {
+        #if sys
+        try {
+            var currentMod:String = "";
+            #if MODS_ALLOWED
+            if (Mods.currentModDirectory != null && Mods.currentModDirectory.length > 0) {
+                currentMod = Mods.currentModDirectory;
+            }
+            #end
+            
+            var jsonString:String = Json.stringify(replay, null, "\t");
+            
+            var replayDir:String = ensureReplayDirExists(currentMod);
+            
+            var songNameForFile:String = StringTools.replace(StringTools.replace(replay.songName, " ", "_"), ":", "_");
+            var diffName:String = replay.difficultyName.toLowerCase();
+            var time:Float = Date.now().getTime();
+            var fileName:String = 'Replay_${songNameForFile}_${diffName}_${time}.replay';
+            var fullFilePath:String = replayDir + fileName;
+            
+            File.saveContent(fullFilePath, jsonString);
+            
+            this.fullPath = fullFilePath;
+            if (currentMod != null && currentMod.length > 0) {
+                this.path = currentMod + "/" + fileName;
+            } else {
+                this.path = fileName;
+            }
+            
+            trace('=== REPLAY SAVED ===');
+            trace('File: $fileName');
+            trace('Full Path: $fullFilePath');
+            trace('Frames: ${replay.frameData.length}');
+            trace('Judgments: ${getTotalJudgments()}');
+            trace('Mod: ${replay.modDirectory}');
+            trace('====================');
+            
+        } catch(e:Dynamic) {
+            trace('Error saving replay: $e');
+        }
+        #end
+    }
+    
+    // ========== 加载方法 ==========
+    
+    public function LoadFromJSON():Void
+    {
+        #if sys
+        try {
+            var filePath:String = findReplayFile(path);
+            
+            if (filePath == null) {
+                trace('Replay file not found: $path');
+                return;
+            }
+            
+            trace('Loading replay from: $filePath');
+            
+            var fileContent:String = File.getContent(filePath);
+            var data:ReplayData = cast Json.parse(fileContent);
+            replay = data;
+            this.fullPath = filePath;
+            
+            // 构建判定映射
+            buildJudgmentMap();
+            
+            if (data.replayGameVer != version) {
+                trace('Warning: Replay version mismatch. Replay: ${data.replayGameVer}, Current: $version');
+            }
+            
+            currentFrameIndex = 0;
+            keysHeld = new Map<String, Bool>();
+            lastReplayTime = Math.NaN;
+            trace('Successfully loaded replay:');
+            trace('  Song: ${data.songName}');
+            trace('  Difficulty: ${data.difficultyName}');
+            trace('  Mod: ${data.modDirectory}');
+            trace('  Frames: ${data.frameData.length}');
+            trace('  Judgments: ${getTotalJudgments()}');
+            trace('  Accuracy: ${data.finalAccuracy}%');
+            trace('  File: $filePath');
+            
+        } catch(e:Dynamic) {
+            trace('Failed to load replay: ' + e);
+        }
+        #end
+    }
+    
+    /**
+     * 构建判定映射 (用于快速查找)
+     */
+    private function buildJudgmentMap():Void
+    {
+        judgmentMap.clear();
+        hasJudgments = false;
+        
+        for (frame in replay.frameData) {
+            if (frame.noteJudgments != null) {
+                for (j in frame.noteJudgments) {
+                    var key:String = '${j.strumTime}_${j.noteData}';
+                    if (!judgmentMap.exists(key)) {
+                        judgmentMap.set(key, j);
+                    }
+                }
+                hasJudgments = true;
+            }
+        }
+    }
+    
+    /**
+     * 获取录制的判定 (用于回放时覆盖)
+     */
+    public function getRecordedJudgment(strumTime:Float, noteData:Int):NoteJudgment
+    {
+        return judgmentMap.get('${roundToTwo(strumTime)}_${noteData}');
+    }
+    
+    private function findReplayFile(path:String):String
+    {
+        #if sys
+        var rootDir:String = getReplayRootDir();
+        var possiblePaths:Array<String> = [];
+        
+        if (path != null && path.length > 0) {
+            if (FileSystem.exists(path)) return path;
+            possiblePaths.push(path.indexOf(rootDir) == 0 ? path : rootDir + path);
+        }
+        
+        if (path != null && path.length > 0 && path.indexOf("/") == -1) {
+            if (FileSystem.exists(rootDir)) {
+                for (entry in FileSystem.readDirectory(rootDir)) {
+                    var fullPath:String = rootDir + entry;
+                    if (FileSystem.isDirectory(fullPath)) {
+                        var filePath:String = fullPath + "/" + path;
+                        if (FileSystem.exists(filePath)) {
+                            possiblePaths.push(filePath);
+                        }
+                    }
+                }
+            }
+                    
+
+        }
+
+        
+        if (path != null && path.length > 0 && path.indexOf("/") > 0) {
+            var parts:Array<String> = path.split("/");
+            if (parts.length == 2) {
+                var modName:String = parts[0];
+                var fileName:String = parts[1];
+                var modPath:String = rootDir + modName + "/" + fileName;
+                if (!possiblePaths.contains(modPath)) {
+                    possiblePaths.push(modPath);
+                }
+            }
+        }
+        
+        for (p in possiblePaths) {
+            if (FileSystem.exists(p)) {
+                return p;
+            }
+        }
+        
+        var testPath:String = path != null && path.indexOf(rootDir) == 0 ? path : rootDir + path;
+        if (FileSystem.exists(testPath)) {
+            return testPath;
+        }
+        #end
+        
+        return null;
+    }
+    
+    // ========== 回放方法 ==========
+    
+    public function startPlayback():Void
+    {
+        trace('Starting replay playback for: ' + replay.songName);
+        if (replay.frameData == null) replay.frameData = [];
+        trace('Total frames: ' + replay.frameData.length);
+        currentFrameIndex = 0;
+        keysHeld = new Map<String, Bool>();
+        lastReplayTime = Math.NaN;
+    }
+    
+    public function processReplayFrames(currentTime:Float, playState:PlayState):Bool
+    {
+        if (currentFrameIndex >= replay.frameData.length) {
+            return false;
+        }
+        
+        var processedCount:Int = 0;
+        var maxProcessPerFrame:Int = 10;
+        
+        while (currentFrameIndex < replay.frameData.length && processedCount < maxProcessPerFrame)
+        {
+            var frame:FrameSave = replay.frameData[currentFrameIndex];
+            
+            if (frame.time > currentTime) {
+                break;
+            }
+            
+            processSingleFrame(frame, playState);
+            
+            currentFrameIndex++;
+            processedCount++;
+        }
+        
+        return currentFrameIndex < replay.frameData.length;
+    }
+    
+    private function processSingleFrame(frame:FrameSave, playState:PlayState):Void
+    {
+        for (keyName in frame.pressKey) {
+            simulateKeyPress(keyName, playState);
+        }
+        
+        for (keyName in frame.releaseKey) {
+            simulateKeyRelease(keyName, playState);
+        }
+    }
+    
+    /**
+     * 模拟按键按下 - 使用 @:privateAccess 访问 FlxKeyManager._keyListMap
+     */
+    private function simulateKeyPress(keyName:String, playState:PlayState):Void
+    {
+        var key:FlxKey = InputFormatter.getKeyFromName(keyName);
+        if (key == FlxKey.NONE || key == FlxKey.ANY) return;
+        
+        // 使用 @:privateAccess 访问 FlxKeyManager 的 _keyListMap
+        @:privateAccess
+        var keyObj:FlxInput<FlxKey> = FlxG.keys._keyListMap.get(key);
+        if (keyObj != null) {
+            keyObj.press();
+        }
+        
+        keysHeld.set(keyName, true);
+        
+        var binding = getKeyBinding(key, playState);
+        if (binding.keyIndex >= 0) {
+            playState.keyPressed(binding.keyIndex, binding.bindIndex);
+        }
+    }
+    
+    /**
+     * 模拟按键释放 - 使用 @:privateAccess 访问 FlxKeyManager._keyListMap
+     */
+    private function simulateKeyRelease(keyName:String, playState:PlayState):Void
+    {
+        var key:FlxKey = InputFormatter.getKeyFromName(keyName);
+        if (key == FlxKey.NONE || key == FlxKey.ANY) return;
+        
+        // 使用 @:privateAccess 访问 FlxKeyManager 的 _keyListMap
+        @:privateAccess
+        var keyObj:FlxInput<FlxKey> = FlxG.keys._keyListMap.get(key);
+        if (keyObj != null) {
+            keyObj.release();
+        }
+        
+        keysHeld.remove(keyName);
+        
+        var binding = getKeyBinding(key, playState);
+        if (binding.keyIndex >= 0) {
+            playState.keyReleased(binding.keyIndex, binding.bindIndex);
+        }
+    }
+    
+    /**
+     * 获取键名对应的按键索引
+     */
+    private function getKeyBinding(targetKey:FlxKey, playState:PlayState):{keyIndex:Int, bindIndex:Int}
+    {
+        if (targetKey == FlxKey.NONE || targetKey == FlxKey.ANY) return {keyIndex: -1, bindIndex: 0};
+        
+        var keysArray:Array<String> = playState.keysArray;
+        var binding = findKeyBinding(targetKey, keysArray);
+        if (binding.keyIndex >= 0) return binding;
+
+        if (keysArray.length == 4)
+            return findKeyBinding(targetKey, ['note_left', 'note_down', 'note_up', 'note_right']);
+
+        return {keyIndex: -1, bindIndex: 0};
+    }
+
+    private function findKeyBinding(targetKey:FlxKey, keysArray:Array<String>):{keyIndex:Int, bindIndex:Int}
+    {
+        for (i in 0...keysArray.length) {
+            var binds = Controls.instance.keyboardBinds.get(keysArray[i]);
+            if (binds != null) {
+                for (bindIndex in 0...binds.length) {
+                    if (binds[bindIndex] == targetKey)
+                        return {keyIndex: i, bindIndex: bindIndex};
+                }
+            }
+        }
+        return {keyIndex: -1, bindIndex: 0};
+    }
+    
+    /**
+     * 每帧更新按键状态 - 需要调用来让 JUST_PRESSED 转为 PRESSED
+     * 使用 @:privateAccess 访问 FlxKeyManager 的 update()
+     */
+    public function updateKeyStates():Void
+    {
+        @:privateAccess
+        FlxG.keys.update();
+    }
+
+    public function shouldUseRecordedJudgment(note:Note):Bool
+    {
+        if (!hasJudgments || !ClientPrefs.data.replayQuality) return false;
+        return getRecordedJudgment(note.strumTime, note.noteData) != null;
+    }
+    
+    /**
+     * 获取强制判定并应用到 note
+     * 返回 true 表示使用了录制判定
+     */
+    public function applyRecordedJudgment(note:Note, ratingsData:Array<Rating>):Bool
+    {
+        var recorded:NoteJudgment = getRecordedJudgment(note.strumTime, note.noteData);
+        if (recorded == null) return false;
+        
+        // 查找对应的 Rating 对象
+        for (rating in ratingsData) {
+            if (rating.name == recorded.rating) {
+                note.rating = recorded.rating;
+                note.ratingMod = rating.ratingMod;
+                note.ratingDisabled = true; // 防止被重新计算
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // ========== 文件管理 ==========
+    
     public static function getReplayRootDir():String
     {
         return "assets/replays/";
     }
     
-    /**
-    * 获取当前Mod对应的Replay子目录路径
-    * 如果没有Mod，则返回 "base" 子目录
-    */
     public static function getReplayModDir(?modName:String = null):String
     {
         var rootDir:String = getReplayRootDir();
@@ -189,20 +729,14 @@ class Replay
             modName = Mods.currentModDirectory;
         }
         
-        // 如果 modName 为空或者是 "base"，都保存到 base 子目录
         if (modName != null && modName.length > 0 && modName != "base") {
-            // 直接返回原始 modName，不做任何字符替换
             return rootDir + modName + "/";
         }
         #end
         
-        // 默认保存到 base 子目录（包括原版 FNF 曲目）
         return rootDir + "base/";
     }
     
-    /**
-     * 确保Replay目录存在（递归创建）
-     */
     public static function ensureReplayDirExists(?modName:String = null):String
     {
         #if sys
@@ -217,9 +751,6 @@ class Replay
         #end
     }
     
-    /**
-     * 获取所有Replay文件（从所有子目录）
-     */
     public static function getAllReplayFiles():Array<String>
     {
         #if sys
@@ -230,19 +761,16 @@ class Replay
             return allFiles;
         }
         
-        // 遍历根目录下的所有文件和文件夹
         for (entry in FileSystem.readDirectory(rootDir)) {
             var fullPath:String = rootDir + entry;
             
             if (FileSystem.isDirectory(fullPath)) {
-                // 遍历子文件夹中的.replay文件
                 for (file in FileSystem.readDirectory(fullPath)) {
-                    if (file.endsWith(".kadeReplay")) {
+                    if (file.endsWith(".replay")) {
                         allFiles.push(entry + "/" + file);
                     }
                 }
-            } else if (entry.endsWith(".kadeReplay")) {
-                // 根目录下的.replay文件（兼容旧版本）
+            } else if (entry.endsWith(".replay")) {
                 allFiles.push(entry);
             }
         }
@@ -253,9 +781,6 @@ class Replay
         #end
     }
     
-    /**
-     * 获取指定Mod目录下的Replay文件
-     */
     public static function getReplayFilesForMod(?modName:String = null):Array<String>
     {
         #if sys
@@ -267,8 +792,7 @@ class Replay
         }
         
         for (file in FileSystem.readDirectory(dir)) {
-            if (file.endsWith(".kadeReplay")) {
-                // 返回相对于根目录的路径
+            if (file.endsWith(".replay")) {
                 var modDirName:String = (modName != null && modName.length > 0) ? modName : "";
                 if (modDirName.length > 0) {
                     files.push(modDirName + "/" + file);
@@ -283,403 +807,18 @@ class Replay
         return [];
         #end
     }
-
-    // ========== 修改：LoadReplay 支持子文件夹路径 ==========
-    
-    public static function LoadReplay(path:String):Replay
-    {
-        var rep:Replay = new Replay(path);
-        rep.LoadFromJSON();
-        return rep;
-    }
-
-    // ========== 修改：SaveReplay 按Mod分类保存 ==========
-    
-    public function SaveReplay(notearray:Array<Dynamic>, judge:Array<String>, ana:Analysis)
-    {
-        #if sys
-        var currentMod:String = "";
-        
-        #if MODS_ALLOWED
-        if (Mods.currentModDirectory != null && Mods.currentModDirectory.length > 0)
-        {
-            currentMod = Mods.currentModDirectory;
-            trace('Saving replay with mod directory: $currentMod');
-        }
-        else
-        {
-            trace('Saving replay without mod (base game)');
-        }
-        #end
-        
-        var chartPath:String = Paths.currentChartDirectory != null ? Paths.currentChartDirectory : "";
-        var modDirectory:String = currentMod;
-        
-        var missCount:Int = 0;
-        for (j in judge) {
-            if (j == "miss") missCount++;
-        }
-
-        var totalNotes:Int = notearray.length;
-        var totalHits:Int = totalNotes - missCount;
-        var computedAccuracy:Float = totalNotes > 0 ? (totalHits / totalNotes) * 100 : 0;
-
-        var accuracy:Float = (PlayState.instance != null) ? (PlayState.instance.ratingPercent * 100) : computedAccuracy;
-        
-        var difficultyName:String = Difficulty.getString();
-        var songDiff:Int = PlayState.storyDifficulty;
-        
-        var rating:String = "N/A";
-        var ratingFC:String = "N/A";
-        
-        if (PlayState.instance != null)
-        {
-            rating = PlayState.instance.ratingName;
-            ratingFC = PlayState.instance.ratingFC;
-        }
-        
-        var roundedNotes:Array<Dynamic> = roundReplayNotes(notearray, 2);
-        var roundedAccuracy:Float = roundFloat(accuracy, 2);
-        var roundedNoteSpeed:Float = roundFloat(PlayState.SONG != null ? PlayState.SONG.speed : 1.5, 2);
-        var roundedAna:Analysis = roundAnalysisData(ana, 2);
-
-        var json = {
-            "songName": PlayState.SONG != null ? PlayState.SONG.song : "Unknown",
-            "songDiff": songDiff,
-            "difficultyName": difficultyName,
-            "chartPath": chartPath,
-            "chartCategory": Paths.currentChartCategory != null ? Paths.currentChartCategory : "",
-            "chartDirectory": chartPath,
-            "chartHasVSliceMetadata": Paths.currentChartHasVSliceMetadata,
-            "chartAudioSuffix": Paths.currentChartAudioSuffix != null ? Paths.currentChartAudioSuffix : "",
-            "modDirectory": modDirectory,
-            "sm": false,
-            "timestamp": Date.now(),
-            "replayGameVer": version,
-            "sf": 10,
-            "noteSpeed": roundedNoteSpeed,
-            "isDownscroll": ClientPrefs.data.downScroll,
-            "songNotes": roundedNotes,
-            "songJudgements": judge,
-            "ana": roundedAna,
-            "accuracy": roundedAccuracy,
-            "score": PlayState.instance != null ? PlayState.instance.songScore : 0,
-            "misses": missCount,
-            "rating": rating,
-            "ratingFC": ratingFC
-        };
-
-        var data:String = Json.stringify(json, null, "\t");
-        var time = Date.now().getTime();
-
-        // ========== 使用Mod子目录 ==========
-        var replayDir:String = ensureReplayDirExists(currentMod);
-
-        var songNameForFile:String = PlayState.SONG != null ? 
-            StringTools.replace(StringTools.replace(PlayState.SONG.song, " ", "_"), ":", "_") : "Unknown";
-        var diffName:String = Difficulty.getString().toLowerCase();
-        
-        var fileName:String = 'replay_${songNameForFile}_${diffName}_${time}.kadeReplay';
-        var fullFilePath:String = replayDir + fileName;
-        File.saveContent(fullFilePath, data);
-        
-        // 存储完整路径和相对路径
-        this.fullPath = fullFilePath;
-        if (currentMod != null && currentMod.length > 0) {
-            this.path = currentMod + "/" + fileName;
-        } else {
-            this.path = fileName;
-        }
-        
-        trace('=== REPLAY SAVED ===');
-        trace('File: $fileName');
-        trace('Full Path: $fullFilePath');
-        trace('Mod Directory: $modDirectory');
-        trace('Difficulty ID: $songDiff');
-        trace('Difficulty Name: $difficultyName');
-        trace('Notes: ${notearray.length}');
-        trace('Accuracy: ${accuracy}%');
-        trace('Misses: ${missCount}');
-        trace('====================');
-        #end
-    }
-
-    // ========== 修改：LoadFromJSON 支持子文件夹路径 ==========
-    
-    public function LoadFromJSON()
-    {
-        #if sys
-        try
-        {
-            // 尝试多种可能的路径
-            var possiblePaths:Array<String> = [];
-            var rootDir:String = getReplayRootDir();
-            
-            // 1. 原始路径（可能包含子文件夹）
-            if (path != null && path.length > 0) {
-                possiblePaths.push(rootDir + path);
-            }
-            
-            // 2. 如果路径不包含 "/"，尝试在所有Mod子目录中查找
-            if (path != null && path.length > 0 && path.indexOf("/") == -1) {
-                // 遍历所有子目录
-                if (FileSystem.exists(rootDir)) {
-                    for (entry in FileSystem.readDirectory(rootDir)) {
-                        var fullPath:String = rootDir + entry;
-                        if (FileSystem.isDirectory(fullPath)) {
-                            var filePath:String = fullPath + "/" + path;
-                            if (FileSystem.exists(filePath)) {
-                                possiblePaths.push(filePath);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // 3. 尝试将路径拆分为 Mod名/文件名 格式
-            if (path != null && path.length > 0 && path.indexOf("/") > 0) {
-                var parts:Array<String> = path.split("/");
-                if (parts.length == 2) {
-                    var modName:String = parts[0];
-                    var fileName:String = parts[1];
-                    var modPath:String = rootDir + modName + "/" + fileName;
-                    if (!possiblePaths.contains(modPath)) {
-                        possiblePaths.push(modPath);
-                    }
-                }
-            }
-            
-            // 4. 如果路径为空或者是旧格式，尝试用文件名在所有子目录中查找
-            if (path != null && path.length > 0) {
-                var fileNameOnly:String = path.split("/").pop();
-                if (fileNameOnly != null && fileNameOnly.length > 0) {
-                    // 遍历所有子目录查找同名文件
-                    if (FileSystem.exists(rootDir)) {
-                        for (entry in FileSystem.readDirectory(rootDir)) {
-                            var fullPath:String = rootDir + entry;
-                            if (FileSystem.isDirectory(fullPath)) {
-                                var filePath:String = fullPath + "/" + fileNameOnly;
-                                if (FileSystem.exists(filePath) && !possiblePaths.contains(filePath)) {
-                                    possiblePaths.push(filePath);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // 查找存在的文件
-            var filePath:String = null;
-            for (p in possiblePaths) {
-                if (FileSystem.exists(p)) {
-                    filePath = p;
-                    break;
-                }
-            }
-            
-            // 如果还是找不到，尝试直接使用根目录+路径
-            if (filePath == null && path != null && path.length > 0) {
-                var testPath:String = rootDir + path;
-                if (FileSystem.exists(testPath)) {
-                    filePath = testPath;
-                }
-            }
-            
-            if (filePath == null) {
-                trace('Replay file not found. Tried paths: $possiblePaths');
-                return;
-            }
-            
-            trace('Loading replay from: $filePath');
-            
-            var fileContent:String = File.getContent(filePath);
-            var repl:ReplayJSON = cast Json.parse(fileContent);
-            replay = repl;
-            
-            // 存储完整路径
-            this.fullPath = filePath;
-            
-            if (repl.replayGameVer != version)
-            {
-                trace('Warning: Replay version mismatch. Replay: ${repl.replayGameVer}, Current: $version');
-            }
-            
-            // 补齐可能缺失的字段
-            if (replay.songNotes == null) replay.songNotes = [];
-            if (replay.songJudgements == null) replay.songJudgements = [];
-            if (replay.ana == null) replay.ana = new Analysis();
-            if (replay.modDirectory == null) replay.modDirectory = "";
-            if (replay.songName == null) replay.songName = "Unknown";
-            if (replay.difficultyName == null) replay.difficultyName = "Normal";
-            if (replay.rating == null) replay.rating = "N/A";
-            if (replay.ratingFC == null) replay.ratingFC = "N/A";
-            
-            // 修复 timestamp
-            var ts = replay.timestamp;
-            if (ts != null)
-            {
-                if (Std.isOfType(ts, String))
-                {
-                    var str:String = cast ts;
-                    try {
-                        var parsed:Date = Date.fromString(str);
-                        if (parsed != null) replay.timestamp = parsed;
-                        else {
-                            var num:Float = Std.parseFloat(str);
-                            if (!Math.isNaN(num)) {
-                                replay.timestamp = Date.fromTime(num);
-                            }
-                        }
-                    } catch(e:Dynamic) {
-                        trace('Failed to parse timestamp string: $str');
-                    }
-                }
-                else if (Std.isOfType(ts, Float) || Std.isOfType(ts, Int))
-                {
-                    var num:Float = Std.parseFloat(Std.string(ts));
-                    if (!Math.isNaN(num)) {
-                        replay.timestamp = Date.fromTime(num);
-                    }
-                }
-            }
-            if (replay.timestamp == null) {
-                replay.timestamp = Date.now();
-            }
-            
-            currentIndex = 0;
-            judgementIndex = 0;
-            
-            trace('Successfully loaded replay:');
-            trace('  Song: ${repl.songName}');
-            trace('  Difficulty: ${repl.difficultyName}');
-            trace('  Mod Directory: ${repl.modDirectory}');
-            trace('  Accuracy: ${repl.accuracy}%');
-            trace('  Notes: ${repl.songNotes.length}');
-            trace('  Timestamp: ${replay.timestamp}');
-            trace('  File: $filePath');
-        }
-        catch(e:Dynamic)
-        {
-            trace('Failed to load replay: ' + e);
-        }
-        #end
-    }
-    
-    // ========== 回放录制方法 ==========
-    
-    public function startRecording():Void
-    {
-        noteRecording = [];
-        judgementRecording = [];
-        anaRecording = new Analysis();
-        trace('Started recording replay');
-    }
-    
-    public function recordNote(strumTime:Float, noteData:Int, sustainLength:Float, diff:Float):Void
-    {
-        noteRecording.push([strumTime, sustainLength, noteData, diff]);
-    }
-    
-    public function recordMiss(noteData:Int, strumTime:Float):Void
-    {
-        noteRecording.push([strumTime, 0, noteData, -10000]);
-        judgementRecording.push("miss");
-        
-        var ana:Ana = new Ana(
-            strumTime,
-            [],
-            false,
-            "miss",
-            noteData
-        );
-        anaRecording.anaArray.push(ana);
-        
-        trace('Recorded miss at $strumTime, key: $noteData');
-    }
-    
-    public function recordJudgement(judge:String):Void
-    {
-        judgementRecording.push(judge);
-    }
-    
-    public function finishRecording():Void
-    {
-        replay.songNotes = noteRecording;
-        replay.songJudgements = judgementRecording;
-        replay.ana = anaRecording;
-        
-        if (PlayState.instance != null)
-        {
-            replay.songName = PlayState.SONG.song;
-            replay.songDiff = PlayState.storyDifficulty;
-            replay.difficultyName = Difficulty.getString();
-            replay.noteSpeed = PlayState.SONG.speed;
-            replay.isDownscroll = ClientPrefs.data.downScroll;
-            replay.accuracy = PlayState.instance.ratingPercent * 100;
-            replay.score = PlayState.instance.songScore;
-            replay.misses = PlayState.instance.songMisses;
-            replay.rating = PlayState.instance.ratingName;
-            replay.ratingFC = PlayState.instance.ratingFC;
-            
-            #if MODS_ALLOWED
-            replay.modDirectory = Mods.currentModDirectory;
-            #else
-            replay.modDirectory = "";
-            #end
-        }
-    }
-    
-    // ========== 回放播放方法 ==========
-    
-    public function startPlayback():Void
-    {
-        trace('Starting replay playback for: ' + replay.songName);
-        trace('Difficulty: ' + replay.difficultyName);
-        trace('Mod Directory: ' + replay.modDirectory);
-        trace('Total notes in replay: ' + replay.songNotes.length);
-        currentIndex = 0;
-        judgementIndex = 0;
-    }
-    
-    public function getNextNote(strumTime:Float):Array<Dynamic>
-    {
-        while (currentIndex < replay.songNotes.length)
-        {
-            var note:Array<Dynamic> = replay.songNotes[currentIndex];
-            if (note[0] <= strumTime + 10)
-            {
-                currentIndex++;
-                return note;
-            }
-            break;
-        }
-        return null;
-    }
-    
-    public function getNextJudgement():String
-    {
-        if (judgementIndex < replay.songJudgements.length)
-        {
-            return replay.songJudgements[judgementIndex++];
-        }
-        return null;
-    }
     
     // ========== 辅助方法 ==========
     
     public function isValid():Bool
     {
-         return replay != null && 
-             replay.songName != null && 
-             replay.songName != "No Song Found" &&
-             replay.songNotes != null && replay.songNotes.length > 0;
+        return replay != null &&
+               replay.songName != null &&
+               replay.songName != "Unknown" &&
+               replay.frameData != null &&
+               replay.frameData.length > 0;
     }
     
-    public function getReplay():ReplayJSON
-    {
-        return replay;
-    }
-
     public function getReplayInfo():String
     {
         if (!isValid()) return "Invalid Replay";
@@ -689,13 +828,43 @@ class Replay
         if (replay.modDirectory != null && replay.modDirectory.length > 0) {
             info += 'Mod: ${replay.modDirectory}\n';
         }
-        info += 'Accuracy: ${Math.round(replay.accuracy * 100) / 100}%\n';
-        info += 'Score: ${replay.score}\n';
-        info += 'Misses: ${replay.misses}\n';
-        info += 'Rating: ${replay.rating} (${replay.ratingFC})\n';
-        info += 'Notes: ${replay.songNotes.length}\n';
+        info += 'Accuracy: ${Math.round(replay.finalAccuracy * 100) / 100}%\n';
+        info += 'Score: ${replay.finalScore}\n';
+        info += 'Misses: ${replay.finalMisses}\n';
+        info += 'Rating: ${replay.finalRating} (${replay.finalRatingFC})\n';
+        info += 'Frames: ${replay.frameData.length}\n';
         info += 'Date: ${replay.timestamp}';
         
         return info;
+    }
+    
+    public function getReplayData():ReplayData
+    {
+        return replay;
+    }
+    
+    public function getPlaybackProgress():Float
+    {
+        if (replay.frameData.length == 0) return 0;
+        return currentFrameIndex / replay.frameData.length;
+    }
+    
+    public function isPlaying():Bool
+    {
+        return currentFrameIndex < replay.frameData.length;
+    }
+    
+    // ========== 静态工厂方法 ==========
+    
+    public static function LoadReplay(path:String):Replay
+    {
+        var rep:Replay = new Replay(path);
+        rep.LoadFromJSON();
+        return rep;
+    }
+    
+    public static function CreateRecorder():Replay
+    {
+        return new Replay("");
     }
 }

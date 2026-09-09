@@ -1,5 +1,6 @@
 package backend;
 
+import objects.HitErrorBar;
 import flixel.util.FlxSave;
 import flixel.input.keyboard.FlxKey;
 import flixel.input.gamepad.FlxGamepadInputID;
@@ -195,6 +196,8 @@ import states.TitleState;
 
 	//FE Advanced Options
 	public var saveReplays:Bool = true;
+	public var legacyReplay:Bool = true;
+	public var replayQuality:Bool = true;
 	public var luadebugPrint:Bool = true;
 
 	public var beamparticle:Bool = false;
@@ -219,7 +222,7 @@ import states.TitleState;
 	public var hitErrorBarOffsetY:Int = 0;
 	public var noteSustainsOffset:Float = 0.0;
 	public var legacymp:Bool = true;
-	public var useSystemCursor:Bool = #if mobile true #else false #end;
+	public var useSystemCursor:Bool = false;
 	public var showEarlyLate:Bool = true;
 	public var showCombo:Bool = false;
 	public var forceNoteSkins:Bool = false;
