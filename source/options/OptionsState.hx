@@ -1,258 +1,367 @@
 package options;
 
+import options.objects.main.CategoryCard;
+
 import states.MainMenuState;
+import states.FreeplayState;
+import states.PlayState;
+
+import backend.MusicBeatState;
 import backend.StageData;
+import backend.MouseEvent;
+import backend.ui.PsychUIInputText;
+
+import openfl.Lib;
+import shapeEx.Rect;
 
 class OptionsState extends MusicBeatState
 {
-	var options:Array<String> = [
-		'Note Colors',
-		'Controls',
-		'Adjust Delay and Combo',
-		'Graphics',
-		'Visuals',
-		'Gameplay'
-		#if TRANSLATIONS_ALLOWED , 'Language' #end
-		,'Mobile Options'
-	];
-	private var grpOptions:FlxTypedGroup<Alphabet>;
-	private static var curSelected:Int = 0;
-	public static var menuBG:FlxSprite;
-	public static var onPlayState:Bool = false;
+    public static var instance:OptionsState;
 
-	function openSelectedSubstate(label:String) {
-		if (label != "Adjust Delay and Combo"){
-			removeTouchPad();
-			persistentUpdate = false;
-		}
-		switch(label)
+    // Win10 配色
+    public var baseColor:FlxColor = 0xFF1F1F1F;
+    public var mainColor:FlxColor = 0xFF2B2B2B;
+
+    // 背景
+    var background:FlxSprite;
+    var overlay:Rect;
+
+    // 鼠标事件
+    public var mouseEvent:MouseEvent;
+    public var specBG:FlxSprite;
+    public var downBG:FlxSprite;
+    public var cataMove:Dynamic;
+
+    var searchComp:Win10SearchBar;
+
+    // 卡片网格
+    var cardGroup:Array<CategoryCard> = [];
+    var cardContainer:FlxSpriteGroup;
+
+    // 分类数据
+    var categoryData:Array<CategoryData> = [];
+
+    // 底部返回按钮
+    var backButton:Win10BackButton;
+
+    // 返回状态
+    public static var stateType:Int = 0;
+    var backCheck:Bool = false;
+
+    override function create()
+    {
+		FlxG.mouse.visible = true;
+        if (stateType != 2) {
+            Paths.clearStoredMemory();
+            Paths.clearUnusedMemory();
+        }
+
+        persistentUpdate = persistentDraw = true;
+        instance = this;
+
+        // ---------- 分类数据 ----------
+        buildCategoryData();
+
+        // ---------- 鼠标事件 ----------
+        mouseEvent = new MouseEvent();
+        add(mouseEvent);
+
+        specBG = new FlxSprite();
+        specBG.makeGraphic(1, 1, FlxColor.TRANSPARENT);
+        specBG.visible = false;
+        add(specBG);
+
+        downBG = new FlxSprite();
+        downBG.makeGraphic(1, 1, FlxColor.TRANSPARENT);
+        downBG.visible = false;
+        add(downBG);
+
+        cataMove = { velocity: 0.0, inputAllow: true };
+
+        // ---------- 背景 ----------
+        background = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
+        background.scrollFactor.set();
+        add(background);
+
+        // 半透明遮罩
+        overlay = new Rect(0, 0, FlxG.width, FlxG.height, 0, 0, 0x000000, 0.5);
+        overlay.scrollFactor.set();
+        add(overlay);
+
+        var searchW = FlxG.width * 0.2;
+        var searchH = FlxG.height * 0.04;
+        var searchX = (FlxG.width - searchW) / 2;
+        var searchY = FlxG.height * 0.06;
+
+        searchComp = new Win10SearchBar(searchX, searchY, searchW, searchH, 16);
+        searchComp.setPlaceholder(Language.getPhrase('options.search.hint', 'Search settings'));
+        searchComp.onChange = function(oldText:String, newText:String) {
+            buildCards(newText);
+        };
+        searchComp.scrollFactor.set();
+        add(searchComp);
+
+        // ---------- 卡片网格 ----------
+        cardContainer = new FlxSpriteGroup();
+        cardContainer.scrollFactor.set();
+        add(cardContainer);
+        buildCards();
+
+        buildBackButton();
+
+        // ---------- 底部返回按钮 ----------
+        // 预留：backButton = new GeneralBack(...);
+        // add(backButton);
+
+        super.create();
+    }
+
+    // =========================================================
+    // 分类数据：8 大类，默认英文
+    // =========================================================
+    function buildCategoryData()
+    {
+        categoryData = [
+            new CategoryData(
+                'Basics',
+                ['Basic Settings', 'Basics'],
+                ['Language', 'Keybinds', 'Note Colors'],
+                ''
+            ),
+            new CategoryData(
+                'Gameplay',
+                ['Gameplay', 'Gameplay'],
+                ['Downscroll', 'Ghost Tapping', 'Timing'],
+                ''
+            ),
+            new CategoryData(
+                'Skin',
+                ['Skin', 'Skin'],
+                ['Note Skins', 'Splashes', 'Judgements'],
+                ''
+            ),
+            new CategoryData(
+                'Components',
+                ['Components', 'Components'],
+                ['Hit Error Bar', 'Keyboard', 'Counter'],
+                ''
+            ),
+            new CategoryData(
+                'GameUI',
+                ['In-Game UI', 'Game UI'],
+                ['HUD', 'Time Bar', 'Score Screen'],
+                ''
+            ),
+            new CategoryData(
+                'OuterUI',
+                ['Outer UI', 'Outer UI'],
+                ['Freeplay', 'Main Menu', 'Transition'],
+                ''
+            ),
+            new CategoryData(
+                'Graphics',
+                ['Graphics', 'Graphics'],
+                ['Resolution', 'Framerate', 'Shaders'],
+                ''
+            ),
+            new CategoryData(
+                'Advanced',
+                ['Engine', 'Advanced'],
+                ['Updates', 'Discord RPC', 'Reset'],
+                ''
+            ),
+        ];
+    }
+
+    // =========================================================
+    // 构建卡片网格（Win10 风格）
+    // =========================================================
+    function buildCards(filterText:String = '')
+    {
+        cardContainer.clear();
+        cardGroup = [];
+
+        var filteredCategoryData:Array<CategoryData> = [];
+        var query = filterText.trim().toLowerCase();
+
+        for (data in categoryData) {
+            if (query.length == 0 || categoryMatchesQuery(data, query)) {
+                filteredCategoryData.push(data);
+            }
+        }
+
+        var cols = 4;
+        var cardW = FlxG.width * 0.20;   // 稍宽
+        var cardH = FlxG.height * 0.11;  // 更矮 → 长方形
+        var gapX = FlxG.width * 0.012;
+        var gapY = FlxG.height * 0.012;
+
+        var totalW = cols * cardW + (cols - 1) * gapX;
+        var startX = (FlxG.width - totalW) / 2;
+        var startY = FlxG.height * 0.2;
+
+        for (i in 0...filteredCategoryData.length) {
+            var col = i % cols;
+            var row = Math.floor(i / cols);
+            var cx = startX + col * (cardW + gapX);
+            var cy = startY + row * (cardH + gapY);
+
+            var card = new CategoryCard(cx, cy, cardW, cardH, filteredCategoryData[i], onCardClick);
+            cardGroup.push(card);
+            cardContainer.add(card);
+        }
+    }
+
+    function buildBackButton()
+    {
+        var btnW = 220;
+        var btnH = 44;
+        var btnX = 0;
+        var btnY = FlxG.height - btnH - 20;
+
+        backButton = new Win10BackButton(
+            btnX, btnY, btnW, btnH,
+            Language.getPhrase('options.back', 'back'),
+            function() { backMenu(); }
+        );
+        backButton.scrollFactor.set();
+        add(backButton);
+    }
+
+    function categoryMatchesQuery(data:CategoryData, query:String):Bool
+    {
+        var title = Language.getPhrase('options.category.' + data.id + '.title', data.getDisplayName());
+        var tagText = Language.getPhrase('options.category.' + data.id + '.tags', data.tags.join(' · '));
+        var haystack = [data.id, title, data.getSubName(), tagText, data.desc].join(' ').toLowerCase();
+        return haystack.indexOf(query) >= 0;
+    }
+
+    // =========================================================
+    // 卡片点击
+    // =========================================================
+	function onCardClick(data:CategoryData)
+	{
+		FlxG.sound.play(Paths.sound('confirmMenu'));
+
+		switch (data.id)
 		{
-			case 'Note Colors':
-				openSubState(new options.NotesColorSubState());
-			case 'Controls':
-				openSubState(new options.ControlsSubState());
-			case 'Graphics':
-				openSubState(new options.GraphicsSettingsSubState());
-			case 'Visuals':
-				openSubState(new options.VisualsSettingsSubState());
+			case 'Basics':
+				var cat = BasicsData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
 			case 'Gameplay':
-				openSubState(new options.GameplaySettingsSubState());
-			case 'Adjust Delay and Combo':
-				MusicBeatState.switchState(new options.NoteOffsetState());
-			case 'Mobile Options':
-				openSubState(new mobile.options.MobileOptionsSubState());
-			case 'Language':
-				openSubState(new options.LanguageSubState());
+				var cat = GameplayData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'Skin':
+				var cat = SkinData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'Components':
+				var cat = ComponentsData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'GameUI':
+				var cat = GameUIData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'OuterUI':
+				var cat = OuterUIData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'Graphics':
+				var cat = GraphicsData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			case 'Advanced':
+				var cat = AdvancedData.build();
+				MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}));
+
+			default:
+				trace('Category not wired yet: ' + data.id);
 		}
 	}
 
-	var selectorLeft:Alphabet;
-	var selectorRight:Alphabet;
-
-	override function create()
-	{
-		#if DISCORD_ALLOWED
-		DiscordClient.changePresence("Options Menu", null);
-		#end
-
-		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
-		bg.antialiasing = ClientPrefs.data.antialiasing;
-		bg.color = 0xFFea71fd;
-		bg.updateHitbox();
-
-		bg.screenCenter();
-		add(bg);
-
-		if (controls.mobileC)
-		{
-			var tipText:FlxText = new FlxText(150, FlxG.height - 24, 0, 'Press ' + (FlxG.onMobile ? 'C' : 'CTRL or C') + ' to Go Mobile Controls Menu', 16);
-			tipText.setFormat("VCR OSD Mono", 17, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-			tipText.borderSize = 1.25;
-			tipText.scrollFactor.set();
-			tipText.antialiasing = ClientPrefs.data.antialiasing;
-			add(tipText);
-		}
-
-		grpOptions = new FlxTypedGroup<Alphabet>();
-		add(grpOptions);
-
-		for (num => option in options)
-		{
-			var optionText:Alphabet = new Alphabet(0, 0, Language.getPhrase('options_$option', option), true);
-			optionText.screenCenter();
-			optionText.y += (92 * (num - (options.length / 2))) + 45;
-			grpOptions.add(optionText);
-		}
-
-		selectorLeft = new Alphabet(0, 0, '>', true);
-		add(selectorLeft);
-		selectorRight = new Alphabet(0, 0, '<', true);
-		add(selectorRight);
-
-		changeSelection();
-		ClientPrefs.saveSettings();
-
-		addTouchPad('UP_DOWN', 'A_B_C');
-
-		super.create();
-	}
-
-	override function closeSubState()
-	{
-		super.closeSubState();
-		ClientPrefs.saveSettings();
-		#if DISCORD_ALLOWED
-		DiscordClient.changePresence("Options Menu", null);
-		#end
-		controls.isInSubstate = false;
-		removeTouchPad();
-		addTouchPad('UP_DOWN', 'A_B_C');
-		persistentUpdate = true;
-	}
-
-	var exiting = false;
-	override function update(elapsed:Float) {
-    super.update(elapsed);
-    FlxG.mouse.visible = true;
-
-	  #if !mobile
-    if (FlxG.mouse.justPressedRight)
+    // =========================================================
+    // 返回
+    // =========================================================
+    function backMenu()
     {
-        FlxG.sound.play(Paths.sound('cancelMenu'));
-        if(onPlayState)
-        {
-            StageData.loadDirectory(PlayState.SONG);
-            LoadingState.loadAndSwitchState(new PlayState());
-            FlxG.sound.music.volume = 0;
-        }
-        else MusicBeatState.switchState(new MainMenuState());
-        return;
-    }
-    #end
-    
-    // 键盘控制
-    if (controls.UI_UP_P)
-        changeSelection(-1);
-    if (controls.UI_DOWN_P)
-        changeSelection(1);
+        if (!backCheck) {
+            backCheck = true;
+            FlxG.sound.play(Paths.sound('cancelMenu'));
+            ClientPrefs.saveSettings();
 
-			if (touchPad.buttonC.justPressed || FlxG.keys.justPressed.CONTROL && controls.mobileC)
-			{
-				persistentUpdate = false;
-				openSubState(new mobile.substates.MobileControlSelectSubState());
-			}
-
-			if (controls.BACK)
-    {
-				exiting = true;
-        FlxG.sound.play(Paths.sound('cancelMenu'));
-        if(onPlayState)
-        {
-            StageData.loadDirectory(PlayState.SONG);
-            LoadingState.loadAndSwitchState(new PlayState());
-            FlxG.sound.music.volume = 0;
-        }
-        else MusicBeatState.switchState(new MainMenuState());
-    }
-    else if (controls.ACCEPT) openSelectedSubstate(options[curSelected]);
-    
-    // 鼠标支持
-    #if !mobile
-    // 鼠标滚轮支持
-    if (FlxG.mouse.wheel != 0)
-    {
-        if (FlxG.mouse.wheel > 0)
-        {
-            changeSelection(-1);
-        }
-        else if (FlxG.mouse.wheel < 0)
-        {
-            changeSelection(1);
-        }
-    }
-    
-    // 鼠标点击选项 - 直接打开菜单
-    if (FlxG.mouse.justPressed)
-    {
-        var mousePos = FlxG.mouse.getScreenPosition();
-        
-        for (i in 0...grpOptions.length)
-        {
-            var optionText = grpOptions.members[i];
-            if (optionText == null) continue;
-            
-            // 检查鼠标是否悬停在选项上
-            if (FlxG.mouse.overlaps(optionText))
-            {
-                // 直接打开对应的子菜单
-                FlxG.sound.play(Paths.sound('confirmMenu'));
-                openSelectedSubstate(options[i]);
-                break;
+            switch (stateType) {
+                case 0: MusicBeatState.switchState(new MainMenuState());
+                case 1: MusicBeatState.switchState(new FreeplayState());
+                case 2:
+                    MusicBeatState.switchState(new PlayState());
+                    FlxG.mouse.visible = false;
             }
+            stateType = 0;
         }
     }
-    
-    // 修复悬停效果
-    var hoveredIndex = -1;
-    for (i in 0...grpOptions.length)
+
+    override function update(elapsed:Float)
     {
-        var optionText = grpOptions.members[i];
-        if (optionText != null && FlxG.mouse.overlaps(optionText))
-        {
-            hoveredIndex = i;
-            break;
+        super.update(elapsed);
+
+        if (controls.BACK || FlxG.mouse.justPressedRight) {
+            if (PsychUIInputText.focusOn != null) {
+                 PsychUIInputText.focusOn = null;
+                FlxG.sound.play(Paths.sound('cancelMenu'));
+             } else {
+                backMenu();
+             }
         }
     }
-    
-    // 更新所有选项的透明度
-    for (i in 0...grpOptions.length)
-    {
-        var optionText = grpOptions.members[i];
-        if (optionText != null)
-        {
-            if (i == curSelected)
-            {
-                // 当前选中项：完全可见
-                optionText.alpha = 1;
-            }
-            else if (i == hoveredIndex)
-            {
-                // 鼠标悬停项：半透明
-                optionText.alpha = 0.8;
-            }
-            else
-            {
-                // 其他项：更透明
-                optionText.alpha = 0.6;
-            }
-        }
+
+    // =========================================================
+    // 预留接口，供 Level 1 / Level 2 调用
+    // =========================================================
+    public function changeTip(str:String) {}
+    public function resetData() {}
+    public function changeLanguage() {
+        for (card in cardGroup) card.changeLanguage();
     }
-    #end
+
+    public function changeCata(cataSort:Int, memSort:Int) {}
+    public function addCata(type:String, follow:Dynamic, mem:Dynamic, extraPath:String = '') {}
+    public function addMove(tar:Dynamic) {}
+    public function cataMoveEvent() {}
+    public function cataMoveChange() {}
+    public function naviMoveEvent() {}
+    public function changeNavi(navi:Dynamic, isOpened:Bool, naviTime:Float = 0.45) {}
+    public function specChange() {}
+    public function moveState(type:Int) {}
 }
-	
-	function changeSelection(change:Int = 0)
-	{
-		curSelected = FlxMath.wrap(curSelected + change, 0, options.length - 1);
 
-		for (num => item in grpOptions.members)
-		{
-			item.targetY = num - curSelected;
-			item.alpha = 0.6;
-			if (item.targetY == 0)
-			{
-				item.alpha = 1;
-				selectorLeft.x = item.x - 63;
-				selectorLeft.y = item.y;
-				selectorRight.x = item.x + item.width + 15;
-				selectorRight.y = item.y;
-			}
-		}
-		FlxG.sound.play(Paths.sound('scrollMenu'));
-	}
+// =========================================================
+// 分类数据
+// =========================================================
+class CategoryData
+{
+    public var id:String;           // 英文标识，用于 switch
+    public var names:Array<String>; // [主名称, 副名称]
+    public var tags:Array<String>;  // 卡片上显示的 3 个小标签
+    public var desc:String;         // 描述（当前卡片未使用，保留供分类页使用）
 
-	override function destroy()
-	{
-		ClientPrefs.loadPrefs();
-		super.destroy();
-	}
+    public function new(id:String, names:Array<String>, tags:Array<String>, desc:String)
+    {
+        this.id = id;
+        this.names = names;
+        this.tags = tags;
+        this.desc = desc;
+    }
+
+    public function getDisplayName():String
+    {
+        return names[0];
+    }
+
+    public function getSubName():String
+    {
+        return names.length > 1 ? names[1] : '';
+    }
 }

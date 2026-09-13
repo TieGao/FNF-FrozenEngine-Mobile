@@ -18,7 +18,7 @@ import objects.CharacterArtDisplay;
 import objects.SongArtDisplay;
 import objects.ToolBar;
 
-import options.GameplayChangersSubstate;
+import options.psychoptions.GameplayChangersSubstate;
 import substates.ResetScoreSubState;
 import substates.ModFolderSubstate;
 import substates.SearchSubState;
@@ -147,8 +147,8 @@ class FreeplayState extends MusicBeatState
         PlayState.isStoryMode = false;
         freeplaySongCache = loadFreeplaySongCache();
         WeekData.reloadWeekFiles(false);
-        options.KEOptionsMenu.isFreeplay = true;
-        options.KEOptionsMenu.onPlayState = false;
+        options.keoptions.KEOptionsMenu.isFreeplay = true;
+        options.keoptions.KEOptionsMenu.onPlayState = false;
 
         #if DISCORD_ALLOWED
         DiscordClient.changePresence("In the Freeplay Menu", null);

@@ -4,8 +4,9 @@ import flixel.FlxObject;
 import flixel.effects.FlxFlicker;
 import lime.app.Application;
 import states.editors.MasterEditorMenu;
+import options.psychoptions.PsychOptionsState;
+import options.keoptions.KEOptionsMenu;
 import options.OptionsState;
-import options.KEOptionsMenu;
 import backend.Highscore;
 
 enum MainMenuColumn {
@@ -16,7 +17,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var frozenEngineVersion:String = '0.6.0';
+	public static var frozenEngineVersion:String = '0.6.1';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -381,17 +382,22 @@ class MainMenuState extends MusicBeatState
 						case 'credits':
 							MusicBeatState.switchState(new CreditsState());
 						case 'options':
-							if(ClientPrefs.data.keOptions)
+							var optionType:String = ClientPrefs.getOptionType();
+							if(optionType == 'new')
+							{
+								MusicBeatState.switchState(new OptionsState());
+								KEOptionsMenu.onMainMenuState = true;
+							}
+							else if(optionType == 'ke')
 							{
 							MusicBeatState.switchState(new KEOptionsMenu());
-							KEOptionsMenu.onMainMenuState = true;
 							}
 							else
 							{
-							MusicBeatState.switchState(new OptionsState());
+								MusicBeatState.switchState(new PsychOptionsState());
 							}
 
-							OptionsState.onPlayState = false;
+							PsychOptionsState.onPlayState = false;
 							KEOptionsMenu.onPlayState = false;
 							
 							if (PlayState.SONG != null)

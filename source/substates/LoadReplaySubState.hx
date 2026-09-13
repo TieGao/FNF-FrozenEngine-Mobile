@@ -8,7 +8,7 @@ import backend.Mods;
 import backend.Song;
 import backend.Paths;
 import backend.CustomChartData;
-import backend.ClientPrefs;
+
 
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
@@ -88,7 +88,6 @@ class LoadReplaySubState extends MusicBeatSubstate
 
     override function create()
     {
-        controls.isInSubstate = true;
         // 昏暗背景
         bgDim = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
         bgDim.alpha = 0;
@@ -238,8 +237,6 @@ class LoadReplaySubState extends MusicBeatSubstate
 
         updateItemsPosition();
 
-        addTouchPad("UP_DOWN","A_B");
-
         super.create();
     }
 
@@ -333,7 +330,7 @@ class LoadReplaySubState extends MusicBeatSubstate
         });
         #end
     }
-
+    
     function extractDateFromReplay(json:Dynamic):String
     {
         var timestamp = json.timestamp;
