@@ -28,17 +28,17 @@ class JudgementCounter {
         this.side = if (side == null) "player" else side;
         if (!ClientPrefs.data.Counter) return;
 
-        var font:String = Paths.font("vcr.ttf");
+        var font:String = Paths.font("playvcr.ttf");
         var textSize:Int = 20;
         var textWidth:Float = 280;
         var verticalSpacing:Float = 24;
-        var startX:Float = if (this.side == "player") FlxG.width - textWidth - 10 else #if ios 90 #elseif mobile 40 #else 10#end;
+        var startX:Float = if (this.side == "player") FlxG.width - textWidth - 10 else 10;
         var textAlign = if (this.side == "player") RIGHT else LEFT;
         var baseColor:FlxColor = if (this.side == "opponent") FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]) else FlxColor.fromRGB(state.boyfriend.healthColorArray[0], state.boyfriend.healthColorArray[1], state.boyfriend.healthColorArray[2]);
         var startY:Float = FlxG.height / 2;
         if(!state.isSplitCoopMode()) 
         {
-            startX = #if ios 90 #elseif mobile 40 #else 10#end;
+            startX = 10;
             textAlign = LEFT;
             baseColor = FlxColor.fromRGB(state.dad.healthColorArray[0], state.dad.healthColorArray[1], state.dad.healthColorArray[2]);       
         }
