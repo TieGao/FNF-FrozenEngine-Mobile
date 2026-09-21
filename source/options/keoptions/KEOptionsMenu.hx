@@ -1344,6 +1344,7 @@ function onScrollChange()
 			KEOption.create("Blur Effect", "Enable blur effect on background elements", "blurEffects", "bool"),
 			KEOption.create("Skip Results Screen Fade Out", "Skip the exit results screen animation", "skipResultExitAnim", "bool"),
 			KEOption.create("Charm Bar Pause", "Modern Pause Sub State", "charmPause", "bool"),
+			KEOption.create("Control Theme", "Button style: auto / win10 / win8", "controlTheme", "string", ['auto', 'win10', 'win8']),
 		];
 	}
 
@@ -1404,6 +1405,7 @@ function onScrollChange()
 			KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"),
 			KEOption.create("Customize Mobile Extra Controls", "Customize extra keys you required","","action"),
 			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']),
+			KEOption.create("Color Mode", "Switch between dark and white mode", "colorMode", "string", ['dark', 'white']),
 			KEOption.createResetOption("Reset KeyBinds", "keybinds"),
 		];
 	}

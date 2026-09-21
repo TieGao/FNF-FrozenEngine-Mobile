@@ -188,6 +188,9 @@ class HScript extends Iris
 		#if flxanimate
 		set('FlxAnimate', FlxAnimate);
 		#end
+		set('options.OptionsState', options.psychoptions.PsychOptionsState);
+		set('options.ModSettingsSubState', options.ModSettingsSubState);
+		set('options.GameplayChangersSubstate', options.psychoptions.GameplayChangersSubstate);
 
 		// Functions & Variables
 		set('setVar', function(name:String, value:Dynamic) {

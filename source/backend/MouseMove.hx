@@ -1,11 +1,27 @@
 package backend;
 
 import flixel.FlxBasic;
+import options.objects.OptionInput;
 
 class MouseMove extends FlxBasic
 {
     public var allowUpdate:Bool = true;
     public var enableMouseWheel:Bool = true;
+
+    /**
+     * 命中判定 / 拖拽基准用的鼠标坐标空间。
+     * false（默认）= `FlxG.mouse.x/y`，即相对 `FlxG.camera` 的世界坐标（会被相机滚动推着走）；
+     * true = 走 `options.objects.OptionInput` 的指针位置，也就是"宿主界面实际绘制所在的相机"
+     * 的坐标空间（与 `FlxObject.overlapsPoint` 的指针侧同一套算法）。
+     * 界面把内容按屏幕坐标排版、却画在"不滚动、不缩放"的相机上时要打开它，
+     * 否则 mouseLimit 区域与拖拽基准会整体偏掉（scroll 差一个游戏相机的滚动量，
+     * zoom != 1 时还多一个缩放误差）。
+     */
+    public var useViewSpace:Bool = false;
+
+    inline function mouseX():Float return useViewSpace ? OptionInput.mouseX() : FlxG.mouse.x;
+
+    inline function mouseY():Float return useViewSpace ? OptionInput.mouseY() : FlxG.mouse.y;
     
     public var follow:Dynamic; //数据跟谁
     public var followData:String; //数据变量的名称
@@ -85,9 +101,12 @@ class MouseMove extends FlxBasic
 
     var mouse = FlxG.mouse;
 
+    var mx:Float = mouseX();
+    var my:Float = mouseY();
+
     var checkInput:Bool = true;
 
-    if (!(mouse.x > mouseLimit[0][0] && mouse.x < mouseLimit[0][1] && mouse.y > mouseLimit[1][0] && mouse.y < mouseLimit[1][1])) {
+    if (!(mx > mouseLimit[0][0] && mx < mouseLimit[0][1] && my > mouseLimit[1][0] && my < mouseLimit[1][1])) {
         endDrag();
         _dragPending = false;
         checkInput = false;
@@ -98,16 +117,16 @@ class MouseMove extends FlxBasic
         if (mouse.justPressed) {
             _dragPending = true;
             _dragPendingTick = FlxG.game.ticks;
-            _dragPendingY = mouse.y;
-            lastMouseY = mouse.y;
+            _dragPendingY = my;
+            lastMouseY = my;
         }
 
         if (_dragPending && mouse.pressed) {
             var heldMs = FlxG.game.ticks - _dragPendingTick;
-            var moved = Math.abs(mouse.y - _dragPendingY);
+            var moved = Math.abs(my - _dragPendingY);
             if (heldMs >= dragStartDelayMs || moved >= dragStartDistance) {
                 _dragPending = false;
-                startDrag(mouse.y);
+                startDrag(my);
                 cancelMoveTo();
             }
         }
@@ -122,7 +141,7 @@ class MouseMove extends FlxBasic
         
         // 拖动中更新位置
         if (isDragging && mouse.pressed) {
-            updateDrag(mouse.y);
+            updateDrag(my);
         }
 
         // 鼠标释放时停止拖动
@@ -131,7 +150,7 @@ class MouseMove extends FlxBasic
             endDrag();
         }
     } else {
-        lastMouseY = mouse.y;
+        lastMouseY = my;
         _dragPending = false;
     }
 
@@ -233,6 +252,11 @@ private function startDrag(startY:Float) {
         tweenData = value;
         hasTweenData = true;
         if (!doNotStop) moveTo(tweenData);
+        // 目标值没变、但当前位置还没到位时也要重新武装 lerp。
+        // 典型场景：静止状态下 tweenData 已被复位成 0，此时再设置 0（比如按 HOME 回到第一个）
+        // 会被判成“同值”而跳过 moveTo，allowLerp 一直是 false，导致永远不会滚动过去。
+        // （拖拽中不武装，拖拽优先级高于程序化滚动）
+        else if (useLerp && !isDragging && Math.abs(target - tweenData) > 0.001) allowLerp = true;
 
         return tweenData;
     }
@@ -248,10 +272,33 @@ private function startDrag(startY:Float) {
     }
 
     private function cancelMoveTo() {
-        allowLerp = false;
+        // 注意顺序：tweenData 是 (default, set) 属性，这里的赋值会走 set_tweenData
+        // （可能顺带把 allowLerp 打开），所以这几个标志必须放在它之后再复位。
         tweenData = 0;
         hasTweenData = false;
+        allowLerp = false;
         if (moveTween != null) moveTween.cancel();
+    }
+
+    /**
+     * 丢弃残留的鼠标输入状态（待拖拽 / 拖拽中 / 速度）。
+     *
+     * 宿主 state 弹出子状态时通常会暂停更新，这段时间内的按下与松开事件都不会被处理，
+     * 于是 `_dragPending` 会一直挂着。恢复更新的第一帧就会命中 `_dragPending && mouse.pressed`
+     * 而误判成“开始拖拽”，进而调用 `cancelMoveTo()` 把刚设置好的 `tweenData`
+     * （例如 Freeplay 搜索结果的跳转）直接取消掉。
+     * 因此凡是“暂停更新后即将恢复”的地方，都应该先调用本方法清理一次。
+     */
+    public function resetInputState():Void
+    {
+        _dragPending = false;
+        isDragging = false;
+        _pendingDragDelta = 0;
+        velocity = 0;
+        velocityArray = [];
+        lastMouseY = mouseY();
+        velocLastMouseY = lastMouseY;
+        _lastUpdateTime = FlxG.game.ticks;
     }
 
     var isPositive:Bool = true; //正数检测

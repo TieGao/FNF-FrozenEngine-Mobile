@@ -1,4 +1,4 @@
-#if !macro
+﻿#if !macro
 //Discord API
 #if DISCORD_ALLOWED
 import backend.Discord;
@@ -52,11 +52,13 @@ import backend.MusicBeatState;
 import backend.MusicBeatSubstate;
 import backend.CustomFadeTransition;
 import backend.ClientPrefs;
+import backend.UITheme;
 import backend.Conductor;
 import backend.BaseStage;
 import backend.Difficulty;
 import backend.Mods;
 import backend.Language;
+import backend.PsychText;
 import mobile.backend.StorageUtil;
 
 import backend.ui.*; //Psych-UI
@@ -94,6 +96,8 @@ import shaders.flixel.system.FlxShader;
 import backend.FlxFilteredSprite;
 import openfl.filters.BlurFilter;
 import openfl.filters.BitmapFilterQuality;
+import shapeEx.Rect;
+
 
 using StringTools;
 #end
