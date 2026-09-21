@@ -83,6 +83,9 @@ class NewPauseSubState extends MusicBeatSubstate
 		initDifficultyChoices();
 		initPauseMusic();
 		createCharmUI();
+
+		addTouchPad('LEFT_FULL', 'A');
+		addTouchPadCamera();
 	}
 	
 	function initMenuItems()

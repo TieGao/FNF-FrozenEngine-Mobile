@@ -1,4 +1,4 @@
-package options.psychoptions;
+﻿package options.psychoptions;
 
 import options.Option;
 import options.Option.OptionType;
@@ -23,6 +23,9 @@ class GameplayChangersSubstate extends Win8CharmSettings
 	{
 		optionsArray = [];
 		super();
+
+		addTouchPad('LEFT_FULL', 'A_B_C');
+		addTouchPadCamera();
 	}
 
 	// =========================================================
