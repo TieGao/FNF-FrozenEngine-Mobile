@@ -1,13 +1,13 @@
 package options.objects.backend;
 
-import options.psychoptions.PsychOption;
+import options.Option;
 import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
 import flixel.util.FlxColor;
 
 class StringSelect extends FlxSpriteGroup
 {
-    var follow:PsychOption;
+    var follow:Option;
 
     var bg:Rect;          // 当前值的条
     var dis:FlxText;
@@ -40,7 +40,7 @@ class StringSelect extends FlxSpriteGroup
     // 手动绘制的箭头
     var arrowGfx:FlxSprite;
 
-    public function new(X:Float, Y:Float, width:Float, height:Float, follow:PsychOption, ?topLayer:FlxSpriteGroup)
+    public function new(X:Float, Y:Float, width:Float, height:Float, follow:Option, ?topLayer:FlxSpriteGroup)
     {
         super(X, Y);
         this.follow = follow;

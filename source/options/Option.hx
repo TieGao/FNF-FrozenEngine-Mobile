@@ -1,6 +1,5 @@
-package options.psychoptions;
+package options;
 
-import options.objects.OptionCategory;
 import flixel.util.FlxColor;
 
 typedef Keybind = {
@@ -19,7 +18,7 @@ enum OptionType {
 	COLOR;   // ← 新增
 }
 
-class PsychOption
+class Option
 {
 	public var child:Alphabet;
 	public var text(get, set):String;
@@ -38,7 +37,7 @@ class PsychOption
 	public var maxValue:Dynamic = null;
 	public var decimals:Int = 1;
 
-	public static var onValueSaved:PsychOption->Void = null;
+	public static var onValueSaved:Option->Void = null;
 
 	public var displayFormat:String = '%v';
 	public var description:String = '';

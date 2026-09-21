@@ -1,12 +1,12 @@
 package options.objects.backend;
 
-import options.psychoptions.PsychOption;
+import options.Option;
 import openfl.display.Shape;
 import openfl.display.BitmapData;
 
 class NumButton extends FlxSpriteGroup {
 
-    var follow:PsychOption;
+    var follow:Option;
 
     var innerX:Float;
     var innerY:Float;
@@ -25,7 +25,7 @@ class NumButton extends FlxSpriteGroup {
     static inline var COLOR_HOVER:Int  = 0xFFFFFF;
     static inline var COLOR_PRESS:Int  = 0x808080;
 
-    public function new(X:Float, Y:Float, width:Float, height:Float, follow:PsychOption) {
+    public function new(X:Float, Y:Float, width:Float, height:Float, follow:Option) {
         super(X, Y);
 
         this.follow = follow;

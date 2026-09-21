@@ -1,8 +1,8 @@
 package options.groupData;
 
 import options.objects.OptionCategory;
-import options.psychoptions.PsychOption;
-import options.psychoptions.PsychOption.OptionType;
+import options.Option;
+import options.Option.OptionType;
 
 class BasicsData
 {
@@ -10,7 +10,7 @@ class BasicsData
     {
         var cat = new OptionCategory('Basics', 'Basics', 'specIcon');
 
-        var openControls = new PsychOption('Open Controls', 'Customize key bindings', '', ACTION);
+        var openControls = new Option('Open Controls', 'Customize key bindings', '', ACTION);
         openControls.actionLabel = 'Open';
         openControls.action = function() {
             if (OptionsPageState.instance != null)
@@ -20,7 +20,7 @@ class BasicsData
         };
         cat.add(openControls);
 
-        var openEKControls = new PsychOption('Open EK Controls', 'Customize key bindings for EK mode', '', ACTION);
+        var openEKControls = new Option('Open EK Controls', 'Customize key bindings for EK mode', '', ACTION);
         openEKControls.actionLabel = 'Open';
         openEKControls.action = function() {
             if (OptionsPageState.instance != null)
@@ -30,7 +30,7 @@ class BasicsData
         };
         cat.add(openEKControls);
 
-        var adjustDelay = new PsychOption('Adjust Delay and Combo', 'Customize ingame experience', '', ACTION);
+        var adjustDelay = new Option('Adjust Delay and Combo', 'Customize ingame experience', '', ACTION);
         adjustDelay.actionLabel = 'Open';
         adjustDelay.action = function() {
             MusicBeatState.switchState(new options.psychoptions.NoteOffsetState());
@@ -38,7 +38,7 @@ class BasicsData
         cat.add(adjustDelay);
 
         // Mobile Settings 二级菜单
-        var mobileSettings = new PsychOption('Mobile Settings', 'Configure mobile-specific settings', '', ACTION);
+        var mobileSettings = new Option('Mobile Settings', 'Configure mobile-specific settings', '', ACTION);
         mobileSettings.actionLabel = 'Open';
         mobileSettings.action = function() {
             if (OptionsPageState.instance != null)
@@ -48,7 +48,7 @@ class BasicsData
         };
         cat.add(mobileSettings);
 
-        var customizeMobileControls = new PsychOption('Customize Mobile Controls', 'Customize mobile controls layout and appearance', '', ACTION);
+        var customizeMobileControls = new Option('Customize Mobile Controls', 'Customize mobile controls layout and appearance', '', ACTION);
         customizeMobileControls.actionLabel = 'Open';
         customizeMobileControls.action = function() {
             if (OptionsPageState.instance != null)
@@ -58,7 +58,7 @@ class BasicsData
         };
         cat.add(customizeMobileControls);
 
-        var customizeMobileExtraControls = new PsychOption('Customize Mobile Extra Controls', 'Customize extra keys you required', '', ACTION);
+        var customizeMobileExtraControls = new Option('Customize Mobile Extra Controls', 'Customize extra keys you required', '', ACTION);
         customizeMobileExtraControls.actionLabel = 'Open';
         customizeMobileExtraControls.action = function() {
             if (OptionsPageState.instance != null)
@@ -68,9 +68,9 @@ class BasicsData
         };
         cat.add(customizeMobileExtraControls);
 
-        cat.add(new PsychOption('Language', 'Change the game\'s language', 'language', STRING, ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
+        cat.add(new Option('Language', 'Change the game\'s language', 'language', STRING, ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
 
-        var resetKeyBinds = new PsychOption('Reset KeyBinds', 'Reset key bindings', 'keybinds', ACTION);
+        var resetKeyBinds = new Option('Reset KeyBinds', 'Reset key bindings', 'keybinds', ACTION);
         resetKeyBinds.actionLabel = 'Reset';
         resetKeyBinds.action = function() {
             ClientPrefs.resetKeys();
