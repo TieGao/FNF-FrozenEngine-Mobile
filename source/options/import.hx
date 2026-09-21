@@ -1,5 +1,7 @@
 ﻿package options;
 
+import options.OptionsState;
+
 import options.base.*;
 import options.groupData.*;
 

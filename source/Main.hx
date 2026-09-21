@@ -1,4 +1,4 @@
-package;
+﻿package;
 
 import debug.FPSCounter;
 import backend.Highscore;
@@ -100,6 +100,24 @@ class Main extends Sprite
 		var stageWidth:Int = Lib.current.stage.stageWidth;
 		var stageHeight:Int = Lib.current.stage.stageHeight;
 
+		// 加载保存的数据
+		FlxG.save.bind('funkin', CoolUtil.getSavePath());
+
+		var renderResIdx:Int = 0;
+		var wideScreen:Bool = false;
+
+		if (FlxG.save.data != null)
+		{
+			if (Reflect.hasField(FlxG.save.data, 'wideScreen'))
+				wideScreen = cast FlxG.save.data.wideScreen;
+			if (Reflect.hasField(FlxG.save.data, 'renderResolution'))
+				renderResIdx = getRenderResolutionIndex(FlxG.save.data.renderResolution, wideScreen);
+		}
+
+		// 根据宽屏模式设置游戏舞台尺寸
+		game.width = wideScreen ? Math.round(720 * 21.0 / 9.0) : 1280;
+		game.height = 720;
+
 		if (game.zoom == -1.0)
 		{
 			var ratioX:Float = stageWidth / game.width;
@@ -119,7 +137,6 @@ class Main extends Sprite
 		#end
 		Mods.loadTopMod();
 
-		FlxG.save.bind('funkin', CoolUtil.getSavePath());
 		Highscore.load();
 
 
@@ -197,38 +214,9 @@ class Main extends Sprite
 		// 应用保存的渲染分辨率（如果设置）并尝试改善字体清晰度
 		#if !mobile
 		#if (cpp || hl)
-		try {
-			var resIdx:Int = ClientPrefs.data.renderResolution;
-			var _resolutions = [
-				[1280, 720],
-				[1600, 900],
-				[1920, 1080],
-				[2560, 1440],
-				[3840, 2160]
-			];
-			if (resIdx >= 0 && resIdx < _resolutions.length) {
-				var w:Int = _resolutions[resIdx][0];
-				var h:Int = _resolutions[resIdx][1];
-				var window = Lib.current.stage.window;
-				window.resize(w, h);
-				var displayBounds = window.display.bounds;
-				window.x = Std.int(displayBounds.x + (displayBounds.width - w) / 2);
-				window.y = Std.int(displayBounds.y + (displayBounds.height - h) / 2);
-				flixel.FlxG.resizeGame(w, h);
-				flixel.FlxG.scaleMode = new flixel.system.scaleModes.RatioScaleMode(false);
-				// 提高舞台质量以减少字体缩放模糊
-				try { Lib.current.stage.quality = openfl.display.StageQuality.BEST; } catch(e:Dynamic) {}
-				// 刷新缓存以确保文本/精灵使用新的分辨率渲染更清晰
-				try {
-					if (flixel.FlxG.cameras != null) {
-						for (cam in flixel.FlxG.cameras.list) {
-							try { resetSpriteCache(cam.flashSprite); } catch(e:Dynamic) {}
-						}
-					}
-					try { resetSpriteCache(flixel.FlxG.game); } catch(e:Dynamic) {}
-				} catch(e:Dynamic) {}
-			}
-		} catch(e:Dynamic) {}
+		// 启动时：如果 useDpiSettings 为 true，则不 resize 物理窗口
+		var startupResize:Bool = !ClientPrefs.data.useDpiSettings;
+		applyRenderResolution(renderResIdx, wideScreen, startupResize);
 		#end
 		#end
 
@@ -283,23 +271,181 @@ class Main extends Sprite
 			if (FlxG.game != null)
 			resetSpriteCache(FlxG.game);
 		});
-		
-		// 添加退出时保存游戏时间的逻辑
-		var currentApp = Application.current;
-		if (currentApp != null)
-		{
-			currentApp.onExit.add(function(code:Int) {
-				saveSessionPlaytime();
-			});
-		}
-		
-		#if (cpp || hl)
-		Lib.current.stage.window.onClose.add(function() {
-			saveSessionPlaytime();
-			return true;
-		});
-		#end
+
+        ClientPrefs.data.sessionStartTime = Date.now().getTime();
+
+        var currentApp = Application.current;
+        if (currentApp != null)
+        {
+            currentApp.onExit.add(function(code:Int) {
+                saveSessionPlaytime();
+            });
+        }
+
+        #if (cpp || hl)
+        Lib.current.stage.window.onClose.add(function() {
+            saveSessionPlaytime();
+            return true;
+        });
+        #end
 	}
+
+	public static function getResolutionNames(?wideScreen:Bool = null):Array<String>
+	{
+		if (wideScreen == null)
+		{
+			wideScreen = ClientPrefs.data != null && Reflect.hasField(ClientPrefs.data, 'wideScreen') && cast ClientPrefs.data.wideScreen;
+		}
+
+		if (wideScreen)
+		{
+			return [
+				"1680x720",
+				"2520x1080",
+				"3360x1440",
+				"5040x2160"
+			];
+		}
+
+		return [
+			"1280x720",
+			"1600x900",
+			"1920x1080",
+			"2560x1440",
+			"3840x2160"
+		];
+	}
+
+	public static function getRenderResolutionIndex(value:Dynamic, ?wideScreen:Bool = null, ?fallback:Int = 0):Int
+	{
+		var names:Array<String> = getResolutionNames(wideScreen);
+		if (value == null) return fallback;
+
+		if (Std.isOfType(value, String))
+		{
+			var label:String = StringTools.trim(cast value);
+			var idx:Int = names.indexOf(label);
+			if (idx >= 0) return idx;
+
+			var parsed:Null<Int> = Std.parseInt(label);
+			if (parsed != null) return parsed;
+
+			return fallback;
+		}
+
+		try
+		{
+			return Std.int(value);
+		}
+		catch (e:Dynamic)
+		{
+			return fallback;
+		}
+	}
+
+	// 分辨率预设 - 宽屏模式下直接返回21:9比例
+	public static function getResolutionPreset(resIdx:Int, ?wideScreen:Bool = null):Array<Int>
+	{
+		var presets:Array<Array<Int>> = [
+			[1280, 720],
+			[1600, 900],
+			[1920, 1080],
+			[2560, 1440],
+			[3840, 2160]
+		];
+
+		if (wideScreen == null)
+		{
+			wideScreen = ClientPrefs.data != null && Reflect.hasField(ClientPrefs.data, 'wideScreen') && cast ClientPrefs.data.wideScreen;
+		}
+
+		// 宽屏模式：返回21:9比例的分辨率
+		if (wideScreen)
+		{
+			var widePresets:Array<Array<Int>> = [
+				[Math.round(720 * 21.0 / 9.0), 720],   // 1680x720
+				[Math.round(1080 * 21.0 / 9.0), 1080], // 2520x1080
+				[Math.round(1440 * 21.0 / 9.0), 1440], // 3360x1440
+				[Math.round(2160 * 21.0 / 9.0), 2160]  // 5040x2160
+			];
+			if (resIdx >= 0 && resIdx < widePresets.length)
+				return widePresets[resIdx];
+			return widePresets[0];
+		}
+
+		// 普通模式
+		if (resIdx >= 0 && resIdx < presets.length)
+			return presets[resIdx];
+		return presets[0];
+	}
+
+	#if (cpp || hl)
+	/**
+	 * 应用渲染分辨率。
+	 * @param resIdx       可以是标签字符串 / 整数索引；-1 或 null 表示从 ClientPrefs 读取
+	 * @param wideScreen   null 表示从 ClientPrefs 读取
+	 * @param resizeWindow 是否调整物理窗口大小（DPI 模式下应当为 false）
+	 *
+	 * 关键修复：不再内部重复判断 useDpiSettings，完全由调用方通过 resizeWindow 决定。
+	 */
+	public static function applyRenderResolution(?resIdx:Dynamic = -1, ?wideScreen:Bool = null, ?resizeWindow:Bool = true):Void
+	{
+		if (ClientPrefs.data == null) return;
+
+		if (resIdx == null || (Std.isOfType(resIdx, Int) && (cast resIdx:Int) == -1))
+			resIdx = ClientPrefs.data.renderResolution;
+
+		if (wideScreen == null)
+			wideScreen = Reflect.hasField(ClientPrefs.data, 'wideScreen')
+				&& cast Reflect.field(ClientPrefs.data, 'wideScreen');
+
+		var resolvedIndex:Int = getRenderResolutionIndex(resIdx, wideScreen, 0);
+		var resolved:Array<Int> = getResolutionPreset(resolvedIndex, wideScreen);
+
+		var stageW:Int = resolved[0];
+		var stageH:Int = resolved[1];
+
+		// ---- 1. 窗口物理尺寸（仅由 resizeWindow 决定，不再叠加 useDpi 判断）----
+		if (resizeWindow)
+		{
+			try
+			{
+				var window = Lib.current.stage.window;
+				window.resize(stageW, stageH);
+				var b = window.display.bounds;
+				window.x = Std.int(b.x + (b.width  - stageW) / 2);
+				window.y = Std.int(b.y + (b.height - stageH) / 2);
+				Lib.current.stage.quality = openfl.display.StageQuality.BEST;
+			}
+			catch (e:Dynamic) {}
+		}
+
+		// ---- 2. OpenFL stage 逻辑尺寸 ----
+		var logicalOK:Bool = false;
+		try
+		{
+			@:privateAccess Lib.current.stage.__setLogicalSize(stageW, stageH);
+			logicalOK = true;
+		}
+		catch (e:Dynamic) {}
+
+		// ---- 3. Flixel 逻辑画布尺寸（这一步失败必须让上层知道）----
+		FlxG.resizeGame(stageW, stageH);
+
+		// ---- 4. 缩放模式 ----
+		FlxG.scaleMode = new flixel.system.scaleModes.RatioScaleMode(false);
+
+		// ---- 5. 清理渲染缓存 ----
+		try
+		{
+			if (FlxG.cameras != null)
+				for (cam in FlxG.cameras.list)
+					try { resetSpriteCache(cam.flashSprite); } catch (e:Dynamic) {}
+			resetSpriteCache(FlxG.game);
+		}
+		catch (e:Dynamic) {}
+	}
+	#end
 
 	static function resetSpriteCache(sprite:Sprite):Void {
 		@:privateAccess {

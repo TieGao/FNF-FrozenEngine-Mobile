@@ -211,7 +211,7 @@ class NotesColorSubState extends MusicBeatSubstate
 
 		// Early controller checking
 		if(FlxG.gamepads.anyJustPressed(ANY)) controls.controllerMode = true;
-		else if(FlxG.mouse.justPressed || FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0) controls.controllerMode = false;
+		else if(FlxG.mouse.justPressed || FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0) controls.controllerMode = false;
 		//
 		
 		var changedToController:Bool = false;
@@ -528,8 +528,8 @@ class NotesColorSubState extends MusicBeatSubstate
 	}
 	function pointerFlxPoint():FlxPoint
 	{
-		if (!controls.controllerMode) return FlxG.mouse.getScreenPosition();
-		return controllerPointer.getScreenPosition();
+		if (!controls.controllerMode) return FlxG.mouse.getViewPosition();
+		return controllerPointer.getViewPosition();
 	}
 
 	function centerHexTypeLine()

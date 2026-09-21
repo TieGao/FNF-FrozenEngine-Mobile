@@ -6,6 +6,7 @@ import flixel.input.gamepad.FlxGamepadInputID;
 
 import objects.CheckboxThingie;
 import objects.AttachedText;
+import options.Option;
 import backend.InputFormatter;
 import backend.MouseMove;
 
@@ -155,7 +156,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		}
 
 		// 鼠标移动显示并更新悬停
-		if (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0)
+		if (FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0)
 		{
 			FlxG.mouse.visible = true;
 			timeNotMoving = 0;

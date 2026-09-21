@@ -1,4 +1,4 @@
-package states;
+﻿package states;
 
 import backend.WeekData;
 import backend.Highscore;
@@ -361,7 +361,7 @@ class OldFreeplayState extends MusicBeatState
 						
 						if(loadedVocals != null && loadedVocals.length > 0)
 						{
-							vocals.loadEmbedded(loadedVocals);
+							vocals.load(loadedVocals);
 							FlxG.sound.list.add(vocals);
 							vocals.persist = vocals.looped = true;
 							vocals.volume = 0.8;
@@ -384,7 +384,7 @@ class OldFreeplayState extends MusicBeatState
 						
 						if(loadedVocals != null && loadedVocals.length > 0)
 						{
-							opponentVocals.loadEmbedded(loadedVocals);
+							opponentVocals.load(loadedVocals);
 							FlxG.sound.list.add(opponentVocals);
 							opponentVocals.persist = opponentVocals.looped = true;
 							opponentVocals.volume = 0.8;

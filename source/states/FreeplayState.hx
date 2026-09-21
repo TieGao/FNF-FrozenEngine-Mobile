@@ -1,6 +1,6 @@
 package states;
 
-import backend.DifficultyCalculator;
+import backend.DiffRating;
 import backend.WeekData;
 import backend.Highscore;
 import backend.Song;
@@ -345,7 +345,7 @@ class FreeplayState extends MusicBeatState
         difficultyRatingText = new FlxText(scoreText.x, scoreText.y + 90, 0, "", 20);
         difficultyRatingText.antialiasing = ClientPrefs.data.antialiasing;
         difficultyRatingText.font = scoreText.font;
-        difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
+        difficultyRatingText.color = DiffRating.getColorFromRating(0);
         add(difficultyRatingText);
 
         if (ClientPrefs.data.freeplayspace)
@@ -1053,11 +1053,12 @@ class FreeplayState extends MusicBeatState
     function getModeDifficultyRating(diffInfo:ParsedSongInfo):Float
     {
         if (diffInfo == null) return 0.0;
-        var mode:String = DifficultyCalculator.normalizeMode(ClientPrefs.getGameplaySetting('opponentplay'));
+        var mode:String = ClientPrefs.getGameplaySetting('opponentplay');
         switch (mode)
         {
             case 'opponent': return diffInfo.difficultyRatingOpponent;
             case 'coop': return diffInfo.difficultyRatingCoop;
+            case 'coop-split': return diffInfo.difficultyRatingCoop;
             default: return diffInfo.difficultyRatingPlayer;
         }
     }
@@ -1098,7 +1099,7 @@ class FreeplayState extends MusicBeatState
             if (difficultyRatingText != null)
             {
                 difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
-                difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
+                difficultyRatingText.color = DiffRating.getColorFromRating(0);
             }
             return;
         }
@@ -1113,13 +1114,13 @@ class FreeplayState extends MusicBeatState
             noteCountText.text = Language.getPhrase('freeplay_notes_side', 'PLAYER: {1} / OPPONENT: {2}', [diffInfo.playerNoteCount, diffInfo.opponentNoteCount]);
             var rating:Float = getModeDifficultyRating(diffInfo);
             difficultyRatingText.text = Language.getPhrase('freeplay_rating', 'RATING: {1}', [rating]);
-            difficultyRatingText.color = DifficultyCalculator.getRatingColor(rating);
+            difficultyRatingText.color = DiffRating.getColorFromRating(rating);
         }
         else
         {
             noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
             difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
-            difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
+            difficultyRatingText.color = DiffRating.getColorFromRating(0);
         }
     }
     
@@ -1224,7 +1225,7 @@ class FreeplayState extends MusicBeatState
                     
                     if(loadedVocals != null && loadedVocals.length > 0)
                     {
-                        vocals.loadEmbedded(loadedVocals);
+                        vocals.load(loadedVocals);
                         FlxG.sound.list.add(vocals);
                         vocals.persist = vocals.looped = true;
                         vocals.volume = 0.8;
@@ -1247,7 +1248,7 @@ class FreeplayState extends MusicBeatState
                     
                     if(loadedVocals != null && loadedVocals.length > 0)
                     {
-                        opponentVocals.loadEmbedded(loadedVocals);
+                        opponentVocals.load(loadedVocals);
                         FlxG.sound.list.add(opponentVocals);
                         opponentVocals.persist = opponentVocals.looped = true;
                         opponentVocals.volume = 0.8;
@@ -1265,11 +1266,11 @@ class FreeplayState extends MusicBeatState
             {
                 // 无声音轨，创建空声音
                 vocals = new FlxSound();
-                vocals.loadEmbedded(Paths.voices(PlayState.SONG.song, "empty"));
+                vocals.load(Paths.voices(PlayState.SONG.song, "empty"));
                 FlxG.sound.list.add(vocals);
                 
                 opponentVocals = new FlxSound();
-                opponentVocals.loadEmbedded(Paths.voices(PlayState.SONG.song, "empty"));
+                opponentVocals.load(Paths.voices(PlayState.SONG.song, "empty"));
                 FlxG.sound.list.add(opponentVocals);
             }
             
@@ -1435,7 +1436,7 @@ class FreeplayState extends MusicBeatState
 
         if (!musicPlayer.playingMusic)
         {
-            if (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0 || FlxG.mouse.justPressed || FlxG.mouse.wheel != 0)
+            if (FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0 || FlxG.mouse.justPressed || FlxG.mouse.wheel != 0)
                 updateMouseInteraction();
         }
 
@@ -1800,7 +1801,7 @@ class FreeplayState extends MusicBeatState
         
         var previousFolder:String = Mods.currentModDirectory;
 
-        difficultyRatingText.color = DifficultyCalculator.getRatingColor(0);
+        difficultyRatingText.color = DiffRating.getColorFromRating(0);
         
            curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
             cardScrollPos = curSelected * CARD_SPACING;

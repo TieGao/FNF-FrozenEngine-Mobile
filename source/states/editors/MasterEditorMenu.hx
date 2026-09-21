@@ -91,7 +91,7 @@ class MasterEditorMenu extends MusicBeatState
 	override function update(elapsed:Float)
 	{
 		// 检测鼠标移动
-		if (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0)
+		if (FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0)
 		{
 			allowMouse = true;
 			checkMouseOver(); // 更新悬停检测
