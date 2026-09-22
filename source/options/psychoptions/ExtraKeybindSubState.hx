@@ -111,6 +111,7 @@ class ExtraKeybindSubState extends MusicBeatSubstate
 
         createTexts();
 
+        addTouchPad("NONE","B");
         // 显示鼠标
         FlxG.mouse.visible = true;
     }

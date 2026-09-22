@@ -6,6 +6,7 @@ art/buildScripts/build_x64-officialrelease.bat
 art/buildScripts/test_x64-debug-officialrelease.bat
 
 ### VS Code
+.workbuddy-ai/*
 export/*
 .vscode/*
 .haxelib/

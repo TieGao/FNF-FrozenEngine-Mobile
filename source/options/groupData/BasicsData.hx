@@ -37,6 +37,9 @@ class BasicsData
         };
         cat.add(adjustDelay);
 
+        // Mobile 相关设置单独一页。id 不能和父分类的 'Basics' 重复，否则页头标题会印两遍。
+        var mobileCat = cat.section('Mobile', 'Mobile');
+
         // Mobile Settings 二级菜单
         var mobileSettings = new Option('Mobile Settings', 'Configure mobile-specific settings', '', ACTION);
         mobileSettings.actionLabel = 'Open';
@@ -46,7 +49,7 @@ class BasicsData
             else if (options.keoptions.KEOptionsMenu.instance != null)
                 options.keoptions.KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
         };
-        cat.add(mobileSettings);
+        mobileCat.add(mobileSettings);
 
         var customizeMobileControls = new Option('Customize Mobile Controls', 'Customize mobile controls layout and appearance', '', ACTION);
         customizeMobileControls.actionLabel = 'Open';
@@ -56,7 +59,7 @@ class BasicsData
             else if (options.keoptions.KEOptionsMenu.instance != null)
                 options.keoptions.KEOptionsMenu.instance.openSubState(new mobile.substates.MobileControlSelectSubState());
         };
-        cat.add(customizeMobileControls);
+        mobileCat.add(customizeMobileControls);
 
         var customizeMobileExtraControls = new Option('Customize Mobile Extra Controls', 'Customize extra keys you required', '', ACTION);
         customizeMobileExtraControls.actionLabel = 'Open';
@@ -66,7 +69,7 @@ class BasicsData
             else if (options.keoptions.KEOptionsMenu.instance != null)
                 options.keoptions.KEOptionsMenu.instance.openSubState(new mobile.substates.MobileExtraControl());
         };
-        cat.add(customizeMobileExtraControls);
+        mobileCat.add(customizeMobileExtraControls);
 
         cat.add(new Option('Language', 'Change the game\'s language', 'language', STRING, ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
         cat.add(new Option('Color Mode', 'Switch between dark and white mode', 'colorMode', STRING, ['dark', 'white']));
