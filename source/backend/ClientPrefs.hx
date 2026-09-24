@@ -105,6 +105,10 @@ import states.TitleState;
 	public var checkForUpdates:Bool = true;
 	public var comboStacking:Bool = true;
 
+	// 同屏数量限制：0 或 100 表示不限制
+	public var maxNoteSplashes:Int = 8;     // 每条轨道同时存活的 note splash 上限
+	public var maxJudgementPopups:Int = 15; // 同屏判定弹窗组数上限
+
 	//FE Options
 	public var centerPause:Bool = false;
 	public var coolBackdrop:Bool = true;
@@ -192,7 +196,8 @@ import states.TitleState;
 		'instakill' => false,
 		'practice' => false,
 		'botplay' => false,
-		'opponentplay' => 'player'
+		'opponentplay' => 'player',
+		'mirrornotes' => false
 	];
 
 	public var comboOffset:Array<Int> = [0, 0, 0, 0];
@@ -210,7 +215,6 @@ import states.TitleState;
 
 	//FE Advanced Options
 	public var saveReplays:Bool = true;
-	public var legacyReplay:Bool = true;
 	public var replayQuality:Bool = true;
 	public var luadebugPrint:Bool = true;
 
