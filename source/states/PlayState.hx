@@ -268,21 +268,6 @@ class PlayState extends MusicBeatState
 	public static var inReplay:Bool = false; 
 	public static var replayFileName:String = "";
 
-	// ===== 重开卡顿打点（临时排查用，整批带 [restart] 标记，定位完可整段删）=====
-	public static var debugRestartTiming:Bool = false; // 改成 true 后每次重开/切歌在 console 打印各段耗时
-	static inline function _t():Float return haxe.Timer.stamp() * 1000;
-	static function _lap(label:String, t0:Float):Float
-	{
-		var t:Float = _t();
-		if (debugRestartTiming) trace('[restart] $label: ${Std.int(t - t0)}ms');
-		return t;
-	}
-
-	// 置位后下一次 closeSubState() 不走「恢复」分支。
-	// 重开/退出类路径的恢复结果会被紧随其后的 FlxG.resetState() 整个丢弃，白跑一遍 resyncVocals（重建 3 条流式音源）。
-	public var skipResumeOnClose:Bool = false;
-	// ===== 打点结束 =====
-
 	public static var chartCategory:String = null;
 	public static var chartDirectory:String = null;
 	public static var chartHasVSliceMetadata:Bool = false;
@@ -487,7 +472,6 @@ class PlayState extends MusicBeatState
 
 	override public function create()
 	{
-		var _rt:Float = _t();
 		if (Paths.currentChartCategory == null && chartCategory != null)
 			Paths.currentChartCategory = chartCategory;
 		if (Paths.currentChartDirectory == null && chartDirectory != null)
@@ -528,16 +512,11 @@ class PlayState extends MusicBeatState
         trace('Replay mode activated with ${frameRep.replay.frameData.length} entries');
     }
 
-	FlxG.mouse.visible = false;
+		FlxG.mouse.visible = false;
 	
-		//trace('Playback Rate: ' + playbackRate);
 		_lastLoadedModDirectory = Mods.currentModDirectory;
-		_rt = _lap('pre-create', _rt);
-		Paths.clearStoredMemory();
-		_rt = _lap('clearStoredMemory', _rt);
 		if(nextReloadAll)
 		{
-			Paths.clearUnusedMemory();
 			Language.reloadPhrases();
 		}
 		nextReloadAll = false;
@@ -1085,27 +1064,20 @@ class PlayState extends MusicBeatState
 		addTouchPad('NONE', 'P');
 		addTouchPadCamera();
 
-		_rt = _lap('create body (generateSong/startCountdown 等)', _rt);
 		super.create();
-		_rt = _lap('super.create', _rt);
 		if (!loadRep && !inReplay)
 		{
 			frameRep = new FrameReplay("");
 			frameRep.startRecording();
 		}
-		_rt = _lap('replay recorder new', _rt);
 
 		// 使用新的 JudgementCounter 模块替代旧的 createCounterUI
 		if (judgementCounterObj == null && !isSplitCoopMode()) judgementCounterObj = new objects.JudgementCounter(this);
-
-		Paths.clearUnusedMemory();
-		_rt = _lap('clearUnusedMemory + System.gc', _rt);
 
 		cacheCountdown();
 		cachePopUpScore();
 
 		if(eventNotes.length < 1) checkEventNote();
-		_rt = _lap('create total', _rt);
 	}
 
 	function set_songSpeed(value:Float):Float
@@ -2192,34 +2164,23 @@ public function reloadCounterColors()
 	public var canResync:Bool = true;
 	override function closeSubState()
 	{
-		var _rt:Float = _t();
 		super.closeSubState();
 		
 		stagesFunc(function(stage:BaseStage) stage.closeSubState());
-		_rt = _lap('closeSubState pre-resume', _rt);
-		if (paused && !skipResumeOnClose)
+		if (paused)
 		{
 			if (FlxG.sound.music != null && !startingSong && canResync)
 			{
 				resyncVocals();
-				_rt = _lap('resyncVocals', _rt);
 			}
 			FlxTimer.globalManager.forEach(function(tmr:FlxTimer) if(!tmr.finished) tmr.active = true);
 			FlxTween.globalManager.forEach(function(twn:FlxTween) if(!twn.finished) twn.active = true);
-			_rt = _lap('tween-restore', _rt);
 
 			paused = false;
 			callOnScripts('onResume');
-			_rt = _lap('onResume', _rt);
 			resetRPC(startTimer != null && startTimer.finished);
-			_rt = _lap('resetRPC', _rt);
 			runSongSyncThread();
 		}
-		else if (paused)
-		{
-			_rt = _lap('resume SKIPPED (restart/exit)', _rt);
-		}
-		skipResumeOnClose = false;
 	}
 
 	#if DISCORD_ALLOWED
@@ -4674,7 +4635,6 @@ public function reloadCounterColors()
 	}
 
 	override function destroy() {
-		var _rt:Float = _t();
 		if (psychlua.CustomSubstate.instance != null)
 		{
 			closeSubState();
@@ -4750,7 +4710,6 @@ public function reloadCounterColors()
 
 		keyboardViewer.save();
 		super.destroy();
-		_lap('destroy total', _rt);
 	}
 
 	var lastStepHit:Int = -1;
