@@ -50,8 +50,8 @@ class FreeplayState extends MusicBeatState
 {
     public static var selectedCustomChartCategory:String = null;
     public var songs:Array<NewSongMetaData> = [];
+    // 只保留当前可视范围的卡片对象；歌曲全集仍由 songs 元数据保存。
     var cards:Array<FreeplayCard> = [];
-    var allCards:Array<FreeplayCard> = [];
     
     // 用于模组文件夹管理
     var allSongs:Array<NewSongMetaData> = []; // 所有歌曲
@@ -89,6 +89,7 @@ class FreeplayState extends MusicBeatState
     var scoreText:FlxText;
     var diffText:FlxText;
     var noteCountText:FlxText;
+    var keysText:FlxText;
     var difficultyRatingText:FlxText;
     var modFolderText:FlxText;
     var lerpScore:Int = 0;
@@ -115,6 +116,8 @@ class FreeplayState extends MusicBeatState
     var mouseOverCard:Int = -1;
     var visibleCardMin:Int = 0;
     var visibleCardMax:Int = -1;
+    // 卡片绘制的锚点：懒加载的卡片插入到它之前，保证始终画在背景/信息栏的底层。
+    var cardLayer:FlxSprite;
     
     public var musicPlayer:MusicPlayerLegacy;
 
@@ -143,6 +146,9 @@ class FreeplayState extends MusicBeatState
 
     override function create()
     {
+        // 状态边界先清掉上一界面留下的非本地资源，再建立本界面的局部缓存。
+        Paths.clearStoredMemory();
+        Paths.clearUnusedMemory();
         persistentUpdate = true;
         PlayState.isStoryMode = false;
         freeplaySongCache = loadFreeplaySongCache();
@@ -223,8 +229,7 @@ class FreeplayState extends MusicBeatState
             Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
 
         SongArtConfig.loadAllConfigs();
-        //preloadConfiguredArts();
-        cacheMenuBgGraphics();
+        // 艺术图与背景按当前歌曲懒加载，避免歌曲/模组数量把 Freeplay 入口峰值推高。
 
         if (songs.length == 0)
         {
@@ -296,19 +301,14 @@ class FreeplayState extends MusicBeatState
             cornerGlow.alpha = 0.7;
         }
         
-        cards = [];
-        allCards = [];
-        for (i in 0...songs.length)
-        {
-            var oldModDir = Mods.currentModDirectory;
-            Mods.currentModDirectory = songs[i].folder;
-            
-            var card = new FreeplayCard(0, 0, songs[i].songName, songs[i].songCharacter, songs[i].color, songs[i].week);
-            card.targetY = i;
-            cards.push(card);
-            allCards.push(card);
-            add(card);
-        }
+        initializeCardSlots();
+
+        // 卡片分层的占位锚点：必须是不可见、不参与鼠标判定的普通元素，
+        // 懒加载的卡片都插在它前面，绘制顺序等价于“卡片在背景之上、UI 之下”。
+        cardLayer = new FlxSprite();
+        cardLayer.visible = false;
+        cardLayer.active = false;
+        add(cardLayer);
 
         cardScrollPos = curSelected * CARD_SPACING;
 
@@ -342,7 +342,13 @@ class FreeplayState extends MusicBeatState
         noteCountText.color = 0xFFAAAAAA;
         add(noteCountText);
 
-        difficultyRatingText = new FlxText(scoreText.x, scoreText.y + 90, 0, "", 20);
+        keysText = new FlxText(scoreText.x, scoreText.y + 90, 0, "", 20);
+        keysText.antialiasing = ClientPrefs.data.antialiasing;
+        keysText.font = scoreText.font;
+        keysText.color = 0xFFAAAAAA;
+        add(keysText);
+
+        difficultyRatingText = new FlxText(scoreText.x, scoreText.y + 114, 0, "", 20);
         difficultyRatingText.antialiasing = ClientPrefs.data.antialiasing;
         difficultyRatingText.font = scoreText.font;
         difficultyRatingText.color = DiffRating.getColorFromRating(0);
@@ -938,84 +944,89 @@ class FreeplayState extends MusicBeatState
 
     function updateCardsRating()
     {
-        if (cards.length == 0)
-            return;
-
-        var start:Int = visibleCardMin;
-        var end:Int = visibleCardMax;
-        if (start < 0) start = 0;
-        if (end < start || end >= cards.length)
-            end = cards.length - 1;
-
+        if (songs.length == 0) return;
+        var start:Int = Std.int(Math.max(0, visibleCardMin));
+        var end:Int = Std.int(Math.min(songs.length - 1, visibleCardMax));
+        if (end < start) return;
         for (i in start...end + 1)
         {
-            if (i >= 0 && i < cards.length && cards[i] != null)
-                cards[i].updateRatingSprite();
+            var card:FreeplayCard = cards[i];
+            if (card != null) card.updateRatingSprite();
         }
-
-        if (curSelected >= 0 && curSelected < cards.length && cards[curSelected] != null)
-            cards[curSelected].updateRatingSprite();
     }
 
     inline function computeVisibleCardRange():Void
     {
         if (inModFolderSelector) return;
-        if (cards.length == 0)
+        if (songs.length == 0)
         {
             visibleCardMin = 0;
             visibleCardMax = -1;
             return;
         }
 
-        for (card in cards)
-        {
-            var distance = Math.abs(card.targetY - lerpSelected);
-            var isVisible = distance <= 5;
-            card.updatePosition(lerpSelected, curSelected, isVisible);
-        }
-        
         visibleCardMin = Std.int(Math.floor(lerpSelected - 5));
         if (visibleCardMin < 0) visibleCardMin = 0;
         visibleCardMax = Std.int(Math.ceil(lerpSelected + 5));
-        if (visibleCardMax >= cards.length) visibleCardMax = cards.length - 1;
+        if (visibleCardMax >= songs.length) visibleCardMax = songs.length - 1;
+    }
+
+    private function initializeCardSlots():Void
+    {
+        cards = [];
+        for (i in 0...songs.length) cards.push(null);
+        visibleCardMin = 0;
+        visibleCardMax = -1;
+    }
+
+    private function ensureCard(index:Int):FreeplayCard
+    {
+        if (index < 0 || index >= songs.length) return null;
+        var card:FreeplayCard = cards[index];
+        if (card != null) return card;
+
+        var oldModDir:String = Mods.currentModDirectory;
+        Mods.currentModDirectory = songs[index].folder;
+        card = new FreeplayCard(0, 0, songs[index].songName, songs[index].songCharacter, songs[index].color, songs[index].week);
+        Mods.currentModDirectory = oldModDir;
+        card.targetY = index;
+        cards[index] = card;
+        // 懒加载会让卡片在后续帧才创建：FlxGroup.draw 按 members 顺序绘制，
+        // 直接 add 会排在背景/分数栏之后。这里显式插到背景组之前，保证卡片仍在底层。
+        if (cardLayer != null) insert(members.indexOf(cardLayer), card);
+        else add(card);
+        return card;
+    }
+
+    private function releaseCard(index:Int):Void
+    {
+        if (index < 0 || index >= cards.length) return;
+        var card:FreeplayCard = cards[index];
+        if (card == null) return;
+        remove(card);
+        card.destroy();
+        cards[index] = null;
     }
 
     function updateCardsPosition()
     {
-        if (cards.length == 0) return;
-        if (inModFolderSelector) return;
+        if (songs.length == 0 || inModFolderSelector) return;
 
-        var oldMin = visibleCardMin;
-        var oldMax = visibleCardMax;
+        var oldMin:Int = visibleCardMin;
+        var oldMax:Int = visibleCardMax;
         computeVisibleCardRange();
 
-        if (visibleCardMin < 0) visibleCardMin = 0;
-        if (visibleCardMax >= cards.length) visibleCardMax = cards.length - 1;
-        if (visibleCardMin > visibleCardMax) return;
-
-        if (oldMax < 0)
+        if (oldMax >= 0)
         {
-            for (i in 0...visibleCardMin)
-                if (i >= 0 && i < cards.length) cards[i].updatePosition(lerpSelected, curSelected, false);
-            for (i in visibleCardMax + 1...cards.length)
-                if (i >= 0 && i < cards.length) cards[i].updatePosition(lerpSelected, curSelected, false);
-        }
-        else
-        {
-            if (visibleCardMin > oldMin)
-            {
-                for (i in oldMin...visibleCardMin)
-                    if (i >= 0 && i < cards.length) cards[i].updatePosition(lerpSelected, curSelected, false);
-            }
-            if (visibleCardMax < oldMax)
-            {
-                for (i in visibleCardMax + 1...oldMax + 1)
-                    if (i >= 0 && i < cards.length) cards[i].updatePosition(lerpSelected, curSelected, false);
-            }
+            for (i in oldMin...oldMax + 1)
+                if (i < visibleCardMin || i > visibleCardMax) releaseCard(i);
         }
 
         for (i in visibleCardMin...visibleCardMax + 1)
-            if (i >= 0 && i < cards.length) cards[i].updatePosition(lerpSelected, curSelected, true);
+        {
+            var card:FreeplayCard = ensureCard(i);
+            if (card != null) card.updatePosition(lerpSelected, curSelected, true);
+        }
     }
 
     function updateTexts()
@@ -1071,26 +1082,19 @@ class FreeplayState extends MusicBeatState
     {
         if (songs.length == 0) return;
         var currentDiffName = Difficulty.getString(curDifficulty, false);
+        var start:Int = Std.int(Math.max(0, visibleCardMin));
+        var end:Int = Std.int(Math.min(songs.length - 1, visibleCardMax));
+        if (end < start) return;
 
-        for (i in 0...cards.length)
+        for (i in start...end + 1)
         {
-            var diffInfo:ParsedSongInfo = null;
-            if (i >= 0 && i < songs.length)
-                diffInfo = songs[i].difficultyInfo.get(currentDiffName);
-
+            var card:FreeplayCard = cards[i];
+            if (card == null) continue;
+            var diffInfo:ParsedSongInfo = songs[i].difficultyInfo.get(currentDiffName);
             if (diffInfo != null)
-            {
-                cards[i].updateDifficultyInfo(
-                    diffInfo.bpm,
-                    diffInfo.formattedLength,
-                    diffInfo.noteCount,
-                    getModeDifficultyRating(diffInfo)
-                );
-            }
+                card.updateDifficultyInfo(diffInfo.bpm, diffInfo.formattedLength, diffInfo.noteCount, getModeDifficultyRating(diffInfo));
             else
-            {
-                cards[i].updateDifficultyInfo(0, "0:00", 0, 0.0);
-            }
+                card.updateDifficultyInfo(0, "0:00", 0, 0.0);
         }
     }
     
@@ -1100,6 +1104,8 @@ class FreeplayState extends MusicBeatState
         {
             if (noteCountText != null)
                 noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
+            if (keysText != null)
+                keysText.text = Language.getPhrase('freeplay_keys_missing', 'KEYS: --');
             if (difficultyRatingText != null)
             {
                 difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
@@ -1116,6 +1122,7 @@ class FreeplayState extends MusicBeatState
         if (diffInfo != null)
         {
             noteCountText.text = Language.getPhrase('freeplay_notes_side', 'PLAYER: {1} / OPPONENT: {2}', [diffInfo.playerNoteCount, diffInfo.opponentNoteCount]);
+            keysText.text = Language.getPhrase('freeplay_keys', 'KEYS: {1}', [diffInfo.keyCount]);
             var rating:Float = getModeDifficultyRating(diffInfo);
             difficultyRatingText.text = Language.getPhrase('freeplay_rating', 'RATING: {1}', [rating]);
             difficultyRatingText.color = DiffRating.getColorFromRating(rating);
@@ -1123,6 +1130,7 @@ class FreeplayState extends MusicBeatState
         else
         {
             noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
+            keysText.text = Language.getPhrase('freeplay_keys_missing', 'KEYS: --');
             difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
             difficultyRatingText.color = DiffRating.getColorFromRating(0);
         }
@@ -1135,8 +1143,7 @@ class FreeplayState extends MusicBeatState
         // 如果已经在播放音乐，则停止
         if (musicPlayer.playingMusic)
         {
-            musicPlayer.stopMusic();
-            destroyFreeplayVocals();
+            releasePreviewAudio();
             if (FlxG.sound.music != null)
             {
                 FlxG.sound.music.stop();
@@ -1204,16 +1211,11 @@ class FreeplayState extends MusicBeatState
             // 音乐结束回调
             FlxG.sound.music.onComplete = function()
             {
-                destroyFreeplayVocals();
+                releasePreviewAudio();
                 if (FlxG.sound.music != null)
                     FlxG.sound.music.time = 0;
-                if (musicPlayer.playingMusic)
-                    musicPlayer.stopMusic();
                 if (ClientPrefs.data.toolBar && toolBar != null)
-                {
                     toolBar.setNormalMode();
-                }
-                instPlaying = -1;
             };
             
             // ========== 加载人声 ==========
@@ -1302,7 +1304,7 @@ class FreeplayState extends MusicBeatState
     {
         if (musicPlayer.playingMusic)
         {
-            musicPlayer.stopMusic();
+            releasePreviewAudio();
             FlxG.sound.play(Paths.sound('cancelMenu'));
             
             FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
@@ -1319,8 +1321,7 @@ class FreeplayState extends MusicBeatState
     {
         if (musicPlayer.playingMusic)
         {
-            musicPlayer.stopMusic();
-            destroyFreeplayVocals();
+            releasePreviewAudio();
             FlxG.sound.music.stop();
             
             var newIndex = curSelected - 1;
@@ -1335,8 +1336,7 @@ class FreeplayState extends MusicBeatState
     {
         if (musicPlayer.playingMusic)
         {
-            musicPlayer.stopMusic();
-            destroyFreeplayVocals();
+            releasePreviewAudio();
             FlxG.sound.music.stop();
             
             var newIndex = curSelected + 1;
@@ -1405,7 +1405,7 @@ class FreeplayState extends MusicBeatState
                         if (songs[i].customChart == item.customChart)
                         {
                             songs[i].difficultyInfo = cast item.customChart.difficultyInfo;
-                            if (i < cards.length)
+                            if (i < cards.length && cards[i] != null)
                                 cards[i].updateRatingSprite();
                             break;
                         }
@@ -1552,7 +1552,7 @@ class FreeplayState extends MusicBeatState
             
             if (musicPlayer.playingMusic)
             {
-                musicPlayer.stopMusic();
+                releasePreviewAudio();
                 FlxG.sound.play(Paths.sound('cancelMenu'));
 
                 FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
@@ -1610,16 +1610,6 @@ class FreeplayState extends MusicBeatState
 
         super.update(elapsed);
 
-        // ★★★ 性能优化关键点 ★★★
-        // 使用索引循环，避免 cards.indexOf(card) 导致 O(n²)
-        for (i in 0...cards.length)
-        {
-            var card = cards[i];
-            if (card != null)
-            {
-                card.updateSelection(i == curSelected);
-            }
-        }
     }
     
     function updateMouseInteraction()
@@ -1635,9 +1625,10 @@ class FreeplayState extends MusicBeatState
         var newMouseOverCard:Int = -1;
         for (i in visibleCardMin...visibleCardMax + 1)
         {
-            if (cards[i].checkMouseOver())
+            var card:FreeplayCard = cards[i];
+            if (card != null && card.checkMouseOver())
             {
-                cards[i].setAlpha(0.7);
+                card.setAlpha(0.7);
                 newMouseOverCard = i;
                 break;
             }
@@ -1651,7 +1642,8 @@ class FreeplayState extends MusicBeatState
                 {
                     curSelected = newMouseOverCard;
                     changeSelection();
-                    for (i in visibleCardMin...visibleCardMax + 1) cards[i].setAlpha(0.9);
+                    for (i in visibleCardMin...visibleCardMax + 1)
+                        if (cards[i] != null) cards[i].setAlpha(0.9);
                     FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
                 }
                 else
@@ -1674,6 +1666,7 @@ class FreeplayState extends MusicBeatState
         if (curSelected < 0 || curSelected >= songs.length) return;
 
         persistentUpdate = false;
+        releasePreviewAudio();
         var songLowercase:String = Paths.formatToSongPath(songs[curSelected].songName);
         var poop:String = Highscore.formatSong(songLowercase, curDifficulty);
 
@@ -1747,12 +1740,38 @@ class FreeplayState extends MusicBeatState
         return null;
     }
 
-    public static function destroyFreeplayVocals() {
-        if(vocals != null) vocals.stop();
-        vocals = FlxDestroyUtil.destroy(vocals);
+    public static function destroyFreeplayVocals():Void
+    {
+        var playerVocals:FlxSound = vocals;
+        vocals = null;
+        if (playerVocals != null)
+        {
+            playerVocals.onComplete = null;
+            playerVocals.stop();
+            playerVocals.persist = false;
+            FlxDestroyUtil.destroy(playerVocals);
+        }
 
-        if(opponentVocals != null) opponentVocals.stop();
-        opponentVocals = FlxDestroyUtil.destroy(opponentVocals);
+        var opponent:FlxSound = opponentVocals;
+        opponentVocals = null;
+        if (opponent != null)
+        {
+            opponent.onComplete = null;
+            opponent.stop();
+            opponent.persist = false;
+            FlxDestroyUtil.destroy(opponent);
+        }
+    }
+
+    private function releasePreviewAudio():Void
+    {
+        // 音乐回调闭包会捕获整个 FreeplayState，必须先断开再销毁音频。
+        if (FlxG.sound.music != null)
+            FlxG.sound.music.onComplete = null;
+        if (musicPlayer != null && musicPlayer.playingMusic)
+            musicPlayer.stopMusic();
+        destroyFreeplayVocals();
+        instPlaying = -1;
     }
 
     function changeDiff(change:Int = 0)
@@ -1900,24 +1919,6 @@ class FreeplayState extends MusicBeatState
         changeDiff();
         _updateSongLastDifficulty();
         
-        if (musicPlayer.playingMusic)
-        {
-            musicPlayer.switchPlayMusic();
-            destroyFreeplayVocals();
-            FlxG.sound.music.stop();
-            if (!stopMusicPlay)
-                FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
-        }
-
-        if (musicPlayer.playingMusic)
-        {
-            musicPlayer.switchPlayMusic();
-            destroyFreeplayVocals();
-            FlxG.sound.music.stop();
-            if (!stopMusicPlay)
-                FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
-        }
-
         showArtForIndex(curSelected, true);
         showCharacterForIndex(curSelected, true);
 
@@ -1929,9 +1930,10 @@ class FreeplayState extends MusicBeatState
         else
         modFolderText.text = "Mod: " + songs[curSelected].folder;
 
-        for (i in 0...cards.length)
+        for (i in visibleCardMin...visibleCardMax + 1)
         {
-            cards[i].updateSelection(i == curSelected);
+            if (i >= 0 && i < cards.length && cards[i] != null)
+                cards[i].updateSelection(i == curSelected);
         }
     }
 
@@ -2006,6 +2008,8 @@ class FreeplayState extends MusicBeatState
 
     public function onModFolderChanged()
     {
+        // 队列项持有旧歌曲元数据；筛选变化后必须丢弃，不能让旧任务继续占内存。
+        difficultyPreloadQueue = [];
         selectedCustomChartCategory = Paths.currentChartCategory;
         if (Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0)
         {
@@ -2032,6 +2036,13 @@ class FreeplayState extends MusicBeatState
             }
         }
 
+        // 只销毁已物化的卡片，歌曲元数据数组不受影响。
+        for (i in 0...cards.length)
+            releaseCard(i);
+        cards = [];
+        visibleCardMin = 0;
+        visibleCardMax = -1;
+
         if (songs.length == 0)
         {
             curSelected = 0;
@@ -2042,27 +2053,7 @@ class FreeplayState extends MusicBeatState
         cardScrollPos = 0;
         lerpSelected = 0;
 
-        for (card in cards)
-        {
-            remove(card);
-            card.destroy();
-        }
-        cards = [];
-        allCards = [];
-
-        for (i in 0...songs.length)
-        {
-            var oldModDir = Mods.currentModDirectory;
-            Mods.currentModDirectory = songs[i].folder;
-            
-            var card = new FreeplayCard(0, 0, songs[i].songName, songs[i].songCharacter, songs[i].color, songs[i].week);
-            card.targetY = i;
-            cards.push(card);
-            allCards.push(card);
-            add(card);
-
-            Mods.currentModDirectory = oldModDir;
-        }
+        initializeCardSlots();
 
         var modDisplayText:String = "Mod: ";
         if (Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0)
@@ -2102,7 +2093,30 @@ class FreeplayState extends MusicBeatState
         if (freeplayCacheDirty)
             saveFreeplaySongCache();
 
+        releasePreviewAudio();
+        difficultyPreloadQueue = [];
+        if (cardScroller != null)
+        {
+            remove(cardScroller);
+            cardScroller.destroy();
+            cardScroller = null;
+        }
+        if (bgEffectTween != null)
+        {
+            bgEffectTween.cancel();
+            bgEffectTween = null;
+        }
+        menuBgGraphicCache.clear();
+        cards = [];
+
         super.destroy();
+
+        // 返回普通菜单时没有下一状态替我们做资源边界清理；进入 PlayState 则交给其加载阶段保护预加载资源。
+        if (!stopMusicPlay)
+        {
+            Paths.clearStoredMemory();
+            Paths.clearUnusedMemory();
+        }
 
         FlxG.autoPause = ClientPrefs.data.autoPause;
         if (!FlxG.sound.music.playing && !stopMusicPlay)
@@ -2157,6 +2171,7 @@ class FreeplayCard extends FlxTypedGroup<FlxSprite>
     
     public var bpmText:FlxText;
     public var lengthText:FlxText;
+    private var ratingText:FlxText;
 
     public var isCardSelected:Bool = false;
 
@@ -2290,6 +2305,7 @@ class FreeplayCard extends FlxTypedGroup<FlxSprite>
         try
         {
             ratingSprite.loadGraphic(Paths.image('freeplay/ratings/$ratingImage'));
+            if (ratingText != null) ratingText.visible = false;
             ratingSprite.scale.set(0.7, 0.7);
             ratingSprite.updateHitbox();
             
@@ -2301,12 +2317,22 @@ class FreeplayCard extends FlxTypedGroup<FlxSprite>
             trace('Failed to load rating image: $ratingImage');
             ratingSprite.makeGraphic(40, 40, FlxColor.TRANSPARENT);
             
-            var ratingText = new FlxText(ratingSprite.x, ratingSprite.y, 40, ratingImage, 20);
-            ratingText.antialiasing = ClientPrefs.data.antialiasing;
-            ratingText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER);
-            ratingText.borderSize = 2;
-            ratingText.borderColor = FlxColor.BLACK;
-            add(ratingText);
+            if (ratingText == null)
+            {
+                ratingText = new FlxText(ratingSprite.x, ratingSprite.y, 40, ratingImage, 20);
+                ratingText.antialiasing = ClientPrefs.data.antialiasing;
+                ratingText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER);
+                ratingText.borderSize = 2;
+                ratingText.borderColor = FlxColor.BLACK;
+                add(ratingText);
+            }
+            else
+            {
+                ratingText.text = ratingImage;
+                ratingText.x = ratingSprite.x;
+                ratingText.y = ratingSprite.y;
+            }
+            ratingText.visible = true;
         }
     }
     
