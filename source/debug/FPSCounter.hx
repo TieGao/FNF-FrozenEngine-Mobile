@@ -185,8 +185,11 @@ class FPSCounter extends TextField
 		var platformVersion = LimeSystem.platformVersion;
 		
 		#if ios
-		// iOS 只显示系统版本，不显示架构
-		return platformVersion != null ? 'iOS $platformVersion' : 'iOS';
+		// iOS 系统版本 + 机型。机型名比架构有意义得多，所以这里不显示架构
+		return 'iOS' + (platformVersion != null ? ' $platformVersion' : '') + getDeviceSuffix(true);
+		#elseif android
+		// Android 系统版本(lime 已带 "(API xx)") + 机型
+		return 'Android' + (platformVersion != null ? ' $platformVersion' : '') + getDeviceSuffix(false);
 		#else
 		// 其他平台显示系统名称 + 架构 + 版本
 		var arch = #if cpp getArch() #else "" #end;
@@ -196,6 +199,35 @@ class FPSCounter extends TextField
 			return platformName + (arch != 'Unknown' && arch != '' ? ' $arch' : '') + ' - $platformVersion';
 		#end
 	}
+	
+	/**
+		把机型拼成 `' | 机型名'` 形式的尾巴；拿不到机型时返回空串。
+		
+		机型是可选的附加信息：任何异常都必须吞掉并退化成"不显示机型"。
+		这里每帧都会走到，让 FPS 计数器自己抛异常会把整个渲染循环带崩，
+		代价远大于少显示一行机型。
+	**/
+	#if (ios || android)
+	private function getDeviceSuffix(isIOS:Bool):String
+	{
+		try
+		{
+			var model = LimeSystem.deviceModel;
+			// 模拟器 / 部分设备上 deviceModel 可能是 null 或空串
+			if (model == null || StringTools.trim(model) == '') return '';
+			
+			var name = isIOS ? DeviceModelMap.resolveIOS(model) : DeviceModelMap.resolveAndroid(model);
+			// 未知机型回退成机型号本身，比编一个猜的名字有用
+			if (name == null || StringTools.trim(name) == '') name = model;
+			
+			return ' | ${DeviceModelMap.shorten(name)}';
+		}
+		catch (e:Dynamic)
+		{
+			return '';
+		}
+	}
+	#end
 
 	public dynamic function updateText():Void
 	{
