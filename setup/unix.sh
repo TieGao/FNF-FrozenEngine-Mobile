@@ -16,7 +16,8 @@ haxelib install flixel-tools 1.5.1 --quiet
 haxelib install hscript-iris 1.1.3 --quiet
 haxelib install tjson 1.4.0 --quiet
 haxelib git flxanimate https://github.com/Dot-Stuff/flxanimate 768740a56b26aa0c072720e0d1236b94afe68e3e --quiet
-haxelib git linc_luajit https://github.com/kittycathy233/linc_luajit --quiet
+haxelib git linc_luajit https://github.com/TieGao/linc_luajit_largs 8e8340e67fe08560f3205110cc95d3279ecb3973 --quiet
+haxelib git luahscript https://github.com/VapireMox/luahscript 122acb150ba5a55d02b138c2530fa5619fb06c3a --quiet
 haxelib install hxdiscord_rpc 1.2.4 --quiet --skip-dependencies
 haxelib install hxvlc 2.3.1 --quiet --skip-dependencies
 haxelib install extension-androidtools 2.2.2 --skip-dependencies --quiet
