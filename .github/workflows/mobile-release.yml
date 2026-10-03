@@ -1,5 +1,15 @@
 name: Mobile + Release
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      no_erect:
+        description: '打包时剔除 Erect 变体难度（省约 255MB 音频资源，包体明显变小）'
+        type: boolean
+        default: false
+      no_extra_base_game:
+        description: '剔除全部额外变体难度（Erect / Pico / BF / Collab，不含原版 week 资源）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -14,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit_hash: ${{ steps.get_commit_hash.outputs.COMMIT_HASH }}
+      no_erect_flag: ${{ steps.build_flags.outputs.NO_ERECT_FLAG }}
+      no_extra_flag: ${{ steps.build_flags.outputs.NO_EXTRA_FLAG }}
     steps:
       - name: Check Repository
         run: |
@@ -32,6 +44,23 @@ jobs:
           commit_hash=${GITHUB_SHA::7}
           echo "Latest commit hash is $commit_hash"
           echo "::set-output name=COMMIT_HASH::$commit_hash"
+
+      # 把布尔开关翻译成 lime 的 -D 编译参数。
+      # Project.xml 里 BASE_GAME_ERECT 定义为 unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_ERECT"，
+      # 所以 NO_EXTRA_BASE_GAME 已经隐含关掉 Erect，不需要再补 NO_BASE_GAME_ERECT。
+      - name: Resolve variant flags
+        id: build_flags
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.no_erect }}" = "true" ]; then
+            FLAGS="-D NO_BASE_GAME_ERECT"
+          fi
+          if [ "${{ inputs.no_extra_base_game }}" = "true" ]; then
+            FLAGS="$FLAGS -D NO_EXTRA_BASE_GAME"
+          fi
+          echo "Compile flags:$FLAGS"
+          echo "::set-output name=NO_ERECT_FLAG::$FLAGS"
+          echo "::set-output name=NO_EXTRA_FLAG::$FLAGS"
 
   build:
     name: ${{ matrix.name }}
@@ -56,7 +85,7 @@ jobs:
         name: ${{ matrix.name }}
         os: ${{ matrix.os }}
         setupCommand: ${{ matrix.setupCommand }}
-        buildArgs: ${{ matrix.buildArgs }}
+        buildArgs: ${{ needs.get-commit-hash.outputs.no_erect_flag != '' && format('{0} {1}', matrix.buildArgs, needs.get-commit-hash.outputs.no_erect_flag) || matrix.buildArgs }}
         artifactName: ${{ matrix.artifactName }}
         artifactPath: ${{ matrix.artifactPath }}
 

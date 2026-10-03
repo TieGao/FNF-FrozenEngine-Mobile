@@ -103,6 +103,30 @@
 		<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
 	</section>
 
+	<!-- 变体难度资源。各自独立目录，靠 rename="assets" 和 base_game 合流到同一个 assets/ 虚拟树：
+	     assets/base_game_erect/songs/fresh/Inst-erect.ogg -> assets/songs/fresh/Inst-erect.ogg
+	     整段由 BASE_GAME_* 把关，CI 传 -D NO_BASE_GAME_ERECT / -D NO_EXTRA_BASE_GAME 即可从打包中剔除。 -->
+	<section if="BASE_GAME_ERECT">
+		<assets path="assets/base_game_erect" rename="assets" exclude="*.ogg" if="web"/>
+		<assets path="assets/base_game_erect" rename="assets" exclude="*.mp3"  unless="web"/>
+	</section>
+
+	<section if="BASE_GAME_PICO">
+		<assets path="assets/base_game_pico" rename="assets" exclude="*.ogg" if="web"/>
+		<assets path="assets/base_game_pico" rename="assets" exclude="*.mp3"  unless="web"/>
+	</section>
+
+	<section if="BASE_GAME_BF">
+		<assets path="assets/base_game_bf" rename="assets" exclude="*.ogg" if="web"/>
+		<assets path="assets/base_game_bf" rename="assets" exclude="*.mp3"  unless="web"/>
+	</section>
+
+	<!-- 联动内容（原版目前只有 LE SSERAFIM：关卡 sserafim / 曲 spaghetti / 舞台 / 角色 / 过场） -->
+	<section if="BASE_GAME_COLLAB">
+		<assets path="assets/base_game_collab" rename="assets" exclude="*.ogg" if="web"/>
+		<assets path="assets/base_game_collab" rename="assets" exclude="*.mp3"  unless="web"/>
+	</section>
+
 	<define name="CHECK_FOR_UPDATES" if="desktop"/>
 
 	<section if="MODS_ALLOWED">
