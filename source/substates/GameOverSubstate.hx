@@ -188,7 +188,7 @@ class GameOverSubstate extends MusicBeatSubstate
 			{
 				switch(PlayState.SONG.stage)
 				{
-					case 'tank':
+					case 'tank' | 'tank-erect':
 						coolStartDeath(0.2);
 						
 						var exclude:Array<Int> = [];

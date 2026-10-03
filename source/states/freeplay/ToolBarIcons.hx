@@ -1,4 +1,4 @@
-package objects;
+package states.freeplay;
 
 import openfl.display.Shape;
 import openfl.display.Graphics;

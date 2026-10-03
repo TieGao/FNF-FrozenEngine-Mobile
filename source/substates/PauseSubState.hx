@@ -520,6 +520,7 @@ class PauseSubState extends MusicBeatSubstate
 					FlxG.sound.playMusic(Paths.music(Paths.formatToSongPath(ClientPrefs.data.pauseMusic)), pauseMusic.volume);
 					FlxTween.tween(FlxG.sound.music, {volume: 1}, 0.8);
 					FlxG.sound.music.time = pauseMusic.time;
+					pauseMusic.looped = true;  
 				}
 				PsychOptionsState.onPlayState = true;
 				KEOptionsMenu.onPlayState = true;
@@ -657,4 +658,4 @@ class PauseSubState extends MusicBeatSubstate
 		if(skipTimeText != null)
 			skipTimeText.text = FlxStringUtil.formatTime(Math.max(0, Math.floor(curTime / 1000)), false) + ' / ' + FlxStringUtil.formatTime(Math.max(0, Math.floor(FlxG.sound.music.length / 1000)), false);
 	}
-}
+}
