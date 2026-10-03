@@ -114,18 +114,30 @@ class Main extends Sprite
 				renderResIdx = getRenderResolutionIndex(FlxG.save.data.renderResolution, wideScreen);
 		}
 
-		// 根据宽屏模式设置游戏舞台尺寸
-		game.width = wideScreen ? Math.round(720 * 21.0 / 9.0) : 1280;
-		game.height = 720;
+	// 根据宽屏模式设置游戏舞台尺寸
+	game.width = wideScreen ? Math.round(720 * 21.0 / 9.0) : 1280;
+	game.height = 720;
 
-		if (game.zoom == -1.0)
+	if (game.zoom == -1.0)
+	{
+		var ratioX:Float = stageWidth / game.width;
+		var ratioY:Float = stageHeight / game.height;
+		game.zoom = Math.min(ratioX, ratioY);
+
+		#if mobile
+		// 移动端：只有 wideScreen 开启时才反推逻辑画布为屏幕比例（铺满）
+		// wideScreen 关闭时保持 1280x720，交给 MobileScaleMode 留黑边
+		if (wideScreen)
 		{
-			var ratioX:Float = stageWidth / game.width;
-			var ratioY:Float = stageHeight / game.height;
-			game.zoom = Math.min(ratioX, ratioY);
 			game.width = Math.ceil(stageWidth / game.zoom);
 			game.height = Math.ceil(stageHeight / game.zoom);
 		}
+		#else
+		// 非移动端保持原有行为
+		game.width = Math.ceil(stageWidth / game.zoom);
+		game.height = Math.ceil(stageHeight / game.zoom);
+		#end
+	}
 
 		// 从 1.0.4 保留的初始化代码（但移到 setupGame 中）
 		#if VIDEOS_ALLOWED
