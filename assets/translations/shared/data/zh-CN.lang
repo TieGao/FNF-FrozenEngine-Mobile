@@ -68,6 +68,8 @@ setting_lua_script_parser-check: "仅语法检测"
 setting_lua_script_parser-preload: "语法检测 + 预载资源"
 setting_enable_lua_debug_printer: "启用LUA调试"
 description_enable_lua_debug_printer: "取消勾选以隐藏Lua调试输出"
+setting_enable_marvelous: "Marvelous判定"
+description_enable_marvelous: "关闭后，落在 Marvelous 判定区间的命中按 Sick 结算"
 setting_discord_rpc: "Discord状态"
 setting_disable_gc_while_playing: "游玩时禁用 GC"
 description_disable_gc_while_playing: "游玩期间关闭垃圾回收以减少卡顿"
@@ -292,7 +294,6 @@ description_force_number_color: "强制将数字设置为特定颜色"
 // ============================================
 // 游戏玩法
 // ============================================
-botplay: "自动演奏"
 
 // ============================================
 // 对话
@@ -343,6 +344,9 @@ freeplay_notes_missing: "音符: --"
 freeplay_keys: "键数: {1}"
 freeplay_keys_missing: "键数: --"
 freeplay_rating_missing: "评级: --"
+freeplay_musican: "作曲: {1}"
+freeplay_charter: "谱师: {1}"
+freeplay_plays: "游玩: {1} 次"
 freeplay_tip: "按SPACE试听/按CTRL打开修改器菜单/按RESET清除分数"
 
 charting_help_prompt: "按F1查看帮助"
@@ -361,6 +365,13 @@ mod_restart: "* 移动或切换MOD会重启游戏"
 reload_button: "重新加载"
 enable_all_button: "全部启用"
 disable_all_button: "全部禁用"
+mod_folder_open: "打开文件夹"
+mod_info_folder: "目录: {1}"
+mod_info_songs: "歌曲: {1}"
+mod_info_charts: "谱面: {1}"
+mod_info_category: "分类: {1}"
+mod_info_enabled: "状态: 已启用"
+mod_info_disabled: "状态: 已禁用"
 
 // ============================================
 // 重置分数/成就
@@ -1014,7 +1025,6 @@ options.category.hiterrorbar.title: "命中误差条"
 options.category.judgements.title: "判定设置"
 options.category.judgementscounter.title: "判定计数器"
 options.category.keyboarddisplay.title: "键盘显示"
-options.category.mobile.title: "移动端"
 options.category.notes_and_splashes.title: "音符与特效"
 options.category.outer_ui.title: "外部界面"
 options.category.pausemenu.title: "暂停菜单"
@@ -1281,74 +1291,3 @@ stepmania_import_keep_prompt: "检测到 {1}K（{2} 键 mania）。\n你也可�
 stepmania_import_title: "从 StepMania 导入"
 stepmania_load_editor: "加载到编辑器"
 stepmania_target_keys: "目标键数:"
-
-// ============================================
-// 移动端专属（主版 lang 未覆盖的部分）
-// ============================================
-
-// ---- 移动端设置项 ----
-setting_mobile_settings: "移动端设置"
-description_mobile_settings: "配置移动端专属设置"
-setting_customize_mobile_controls: "自定义移动端控件"
-description_customize_mobile_controls: "自定义移动端控件的布局与外观"
-setting_customize_mobile_extra_controls: "自定义移动端额外按键"
-description_customize_mobile_extra_controls: "自定义你需要的额外按键"
-setting_extra_controls: "额外按键"
-description_extra_controls: "选择你希望拥有几个额外按键？\n它们可用于 LUA 或 HScript 机制。"
-setting_mobile_controls_opacity: "移动端按键透明度"
-description_mobile_controls_opacity: "设置移动端按键的透明度（注意不要设为 0，否则会找不到按键）。"
-setting_dynamic_controls_color: "按键颜色跟随音符"
-description_dynamic_controls_color: "开启后，移动端按键颜色会跟随设置中的音符颜色。\n（仅在对局中生效）"
-setting_hitbox_design: "判定线样式"
-description_hitbox_design: "选择判定线的外观。"
-setting_hitbox_position: "判定线位置"
-description_hitbox_position: "开启后判定线位于屏幕底部，否则位于顶部。"
-setting_allow_phone_screensaver: "允许手机息屏"
-description_allow_phone_screensaver: "开启后，手机在闲置数秒后会息屏。\n（具体时间取决于你的手机设置）"
-setting_wide_screen_mode: "宽屏模式"
-description_wide_screen_mode: "开启后游戏会拉伸以填满整个屏幕。（警告：可能导致画面异常，并破坏部分会调整游戏/摄像机尺寸的 mod）"
-
-// ---- 二级菜单与页面标题 ----
-setting_back: "返回"
-description_back: "返回上一级菜单"
-setting_freeplay: "自由游玩"
-description_freeplay: "配置自由游玩设置"
-setting_extra_settings: "额外设置"
-description_extra_settings: "配置自定义谱面播放设置"
-setting_chart_helper: "谱面助手"
-description_chart_helper: "配置谱面助手设置"
-setting_keyboard_display: "键盘显示"
-description_keyboard_display: "配置键盘显示设置"
-setting_skin_settings: "皮肤设置"
-description_skin_settings: "配置音符皮肤、特效与判定"
-setting_window_settings: "窗口设置"
-description_window_settings: "配置窗口与时间设置"
-setting_game_over_vibration: "游戏结束震动"
-description_game_over_vibration: "开启后，游戏结束时会震动。"
-setting_pop_up_score: "分数弹出提示"
-description_pop_up_score: "关闭后，命中音符不再弹出「Sick」「Good」等提示与连击弹窗\n（对低配设备有用）。"
-
-// ---- 移动端控件选择 ----
-mobilec_exitandsave: "退出并保存"
-mobilec_reset: "重置"
-mobilec_left: "左"
-mobilec_right: "右"
-mobilec_up: "上"
-mobilec_down: "下"
-pad-extra_save: "Pad-Extra 只是一个绑定选项\n请选择其它选项以退出。"
-
-// ---- 移动端提示 ----
-mobile_success: "成功！"
-mobile_error: "错误！"
-mobile_notice: "提示！"
-file_save_success: "{1} 已保存。"
-file_save_fail: "{1} 保存失败。\n（{2}）"
-create_directory_error: "请创建目录\n{1}\n按「确定」关闭游戏"
-touchpad_dpadmode_missing: "触摸板方向模式「{1}」不存在。"
-touchpad_actionmode_missing: "触摸板动作模式「{1}」不存在。"
-
-// ---- 核心 ----
-switch_on_button: "（按 {1} 切换）"
-ms: "毫秒"
-score_text: "分数: {1} | 失误: {2} | 评级: {3}"
-score_text_instakill: "分数: {1} | 评级: {2}"

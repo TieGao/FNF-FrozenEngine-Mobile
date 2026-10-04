@@ -42,7 +42,7 @@ class ToolBar extends FlxSpriteGroup
     // 按钮相关
     public var buttons:Array<PsychUIButton> = [];
     public var buttonTexts:Array<String> = [];
-    public var buttonWidth:Int = 250;
+    public var buttonWidth:Int = 200;
     public var buttonSpacing:Int = 5;
     
     // 播放器控制相关
@@ -227,8 +227,7 @@ class ToolBar extends FlxSpriteGroup
 
         // 导航按钮在"当前栏高"里垂直居中。不要用 background.height —— 那是按最大栏高造的，
         // 比可见栏高多 50px 的模糊出血
-        // 移动版按钮加高到 48：触屏要够大，正好占满 50px 的栏高
-        var btnH:Int = 48;
+        var btnH:Int = 32;
         var buttonY:Float = FlxG.height - barHeight / 2 - btnH / 2;
         var buttonData:Array<{label:String, action:Void->Void}> = [
             {label: Language.getPhrase("options", "OPTIONS"), action: openOptions},
@@ -821,4 +820,4 @@ class ToolBar extends FlxSpriteGroup
         
         super.destroy();
     }
-}
+}

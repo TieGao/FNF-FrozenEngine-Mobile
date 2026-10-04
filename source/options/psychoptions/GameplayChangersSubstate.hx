@@ -23,9 +23,6 @@ class GameplayChangersSubstate extends Win8CharmSettings
 	{
 		optionsArray = [];
 		super();
-
-		addTouchPad('LEFT_FULL', 'A_B_C');
-		addTouchPadCamera();
 	}
 
 	// =========================================================

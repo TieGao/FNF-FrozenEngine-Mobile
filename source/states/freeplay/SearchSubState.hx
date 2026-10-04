@@ -68,8 +68,6 @@ class SearchSubState extends MusicBeatSubstate
     {
         super.create();
 
-        controls.isInSubstate = true;
-        
         // ---------- 创建所有 UI 元素 ----------
         bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
         bg.alpha = 0.75;                   // 目标透明度
@@ -164,8 +162,6 @@ class SearchSubState extends MusicBeatSubstate
             obj.alpha = 0;   // 初始透明
             FlxTween.tween(obj, {alpha: target}, 0.5, {ease: FlxEase.cubeOut});
         }
-        
-        addTouchPad("UP_DOWN", "A_B");
     }
 
     // 辅助：注册需要 Fade 的元素及其目标透明度
@@ -579,4 +575,4 @@ class SearchCard extends FlxTypedGroup<FlxSprite>
         
         return over;
     }
-}
+}

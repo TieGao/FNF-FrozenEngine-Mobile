@@ -289,8 +289,6 @@ class ModFolderSubstate extends MusicBeatSubstate
 		updateItemsPosition();
 		updateScrollBar();
 
-		addTouchPad("NONE","A_B");
-
 		super.create();
 	}
 
@@ -796,4 +794,4 @@ class ModFolderItem extends FlxSpriteGroup
 			}
 		}
 	}
-}
+}
