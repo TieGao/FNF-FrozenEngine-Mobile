@@ -69,17 +69,13 @@ class PauseSubState extends MusicBeatSubstate
 		}
 		difficultyChoices.push('BACK');
 
-		pauseMusic = new FlxSound();
-		try
-		{
-			var pauseSong:String = getPauseSong();
-			if(pauseSong != null) pauseMusic.load(Paths.music(pauseSong), true);
+		var pauseSong:String = getPauseSong();
+		if(pauseSong != null) {
+			pauseMusic = FlxG.sound.load(Paths.music(pauseSong), 0, true);  // volume=0, looped=true
+			pauseMusic.play(false, FlxG.random.int(0, Std.int(pauseMusic.length / 2)));
+		} else {
+			pauseMusic = FlxG.sound.load(null, 0, false);  // 空对象防止后续调用报错
 		}
-		catch(e:Dynamic) {}
-		pauseMusic.volume = 0;
-		pauseMusic.play(false, FlxG.random.int(0, Std.int(pauseMusic.length / 2)));
-
-		FlxG.sound.list.add(pauseMusic);
 
 		if(ClientPrefs.data.coolBackdrop)
 		{
@@ -169,10 +165,10 @@ class PauseSubState extends MusicBeatSubstate
 
 		regenMenu();
 		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
-
+		
 		addTouchPad(menuItems.contains('Skip Time') ? 'LEFT_FULL' : 'UP_DOWN', 'A');
 		addTouchPadCamera();
-		
+
 		// 初始化鼠标
 		FlxG.mouse.visible = true;
 		lastMousePos = FlxPoint.get();
@@ -658,4 +654,4 @@ class PauseSubState extends MusicBeatSubstate
 		if(skipTimeText != null)
 			skipTimeText.text = FlxStringUtil.formatTime(Math.max(0, Math.floor(curTime / 1000)), false) + ' / ' + FlxStringUtil.formatTime(Math.max(0, Math.floor(FlxG.sound.music.length / 1000)), false);
 	}
-}
+}

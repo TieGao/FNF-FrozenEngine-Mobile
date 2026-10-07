@@ -27,9 +27,9 @@ import objects.AudioDisplay;
 class ToolBar extends FlxSpriteGroup
 {
     /** 正常模式（导航按钮）的栏高 */
-    public static inline var BAR_HEIGHT_NORMAL:Int = 50;
+    public static inline var BAR_HEIGHT_NORMAL:Int = #if mobile 75 #else 50 #end;
     /** 音乐播放器模式的栏高 */
-    public static inline var BAR_HEIGHT_PLAYER:Int = 64;
+    public static inline var BAR_HEIGHT_PLAYER:Int = #if mobile 80 #else 64 #end;
     /** 播放器控件的边长 */
     public static inline var PLAYER_BTN_SIZE:Int = 44;
     /** 播放/暂停按钮的边长 */

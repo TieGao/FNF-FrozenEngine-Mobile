@@ -126,6 +126,13 @@ class FreeplayState extends MusicBeatState
     public var musicPlayer:MusicPlayerLegacy;
 
     var replayButton:FlxSprite;
+    // Replay 按钮的悬停基准尺寸。origin 不动（故意留左上角）：setGraphicSize 已把 offset
+    // 补偿到居中，改 origin 会把 offset 的补偿拆掉、按钮整体位移。
+    static inline var REPLAY_BTN_SCALE:Float = 0.5;
+    // 按下时回落到哪一档。用 Boolean 记录"这一下是从按钮上按下去的"，
+    // 松手时才据此决定要不要触发，避免"别处按下、拖到按钮上松手"也算点击。
+    var replayPressed:Bool = false;
+    var modTextPressed:Bool = false;
     
     var freeplaySongCache:Map<String, Dynamic> = new Map<String, Dynamic>();
     var freeplayCacheDirty:Bool = false;
@@ -1512,28 +1519,28 @@ class FreeplayState extends MusicBeatState
                 }
                 else
                 #end
-            {
-                var info = SongInfoParser.preloadAllDifficulties(item.songName, item.folder, item.difficulties, item.weekData);
-
-                // 合并进已有的 map，不能整体替换：命中缓存时 item.difficulties 只是
-                // 「缺的那几档」，替换会把已经解析好的评级丢掉，缓存条目也会被改写成只剩一半
-                // —— 症状是难度评级时有时无，且每次启动在两个子集之间来回翻转。
-                if (item.song.difficultyInfo == null)
-                    item.song.difficultyInfo = new Map<String, ParsedSongInfo>();
-                for (diffName in info.keys())
-                    item.song.difficultyInfo.set(diffName, info.get(diffName));
-
-                if (ClientPrefs.data.saveFreeplayCache)
                 {
-                    var entry:Dynamic = freeplaySongCache.get(item.cacheKey);
-                    if (entry == null || entry.data == null)
-                        entry = {data: {}};
-                    var fresh:Dynamic = buildFreeplayCacheEntry(info);
-                    for (field in Reflect.fields(fresh.data))
-                        Reflect.setField(entry.data, field, Reflect.field(fresh.data, field));
-                    freeplaySongCache.set(item.cacheKey, entry);
-                    freeplayCacheDirty = true;
-                }
+                    var info = SongInfoParser.preloadAllDifficulties(item.songName, item.folder, item.difficulties, item.weekData);
+
+                    // 合并进已有的 map，不能整体替换：命中缓存时 item.difficulties 只是
+                    // 「缺的那几档」，替换会把已经解析好的评级丢掉，缓存条目也会被改写成只剩一半
+                    // —— 症状是难度评级时有时无，且每次启动在两个子集之间来回翻转。
+                    if (item.song.difficultyInfo == null)
+                        item.song.difficultyInfo = new Map<String, ParsedSongInfo>();
+                    for (diffName in info.keys())
+                        item.song.difficultyInfo.set(diffName, info.get(diffName));
+
+                    if (ClientPrefs.data.saveFreeplayCache)
+                    {
+                        var entry:Dynamic = freeplaySongCache.get(item.cacheKey);
+                        if (entry == null || entry.data == null)
+                            entry = {data: {}};
+                        var fresh:Dynamic = buildFreeplayCacheEntry(info);
+                        for (field in Reflect.fields(fresh.data))
+                            Reflect.setField(entry.data, field, Reflect.field(fresh.data, field));
+                        freeplaySongCache.set(item.cacheKey, entry);
+                        freeplayCacheDirty = true;
+                    }
                 }
                 if (item.customChart != null || item.song == songs[curSelected])
                 {
@@ -1561,8 +1568,19 @@ class FreeplayState extends MusicBeatState
                 updateMouseInteraction();
         }
 
-        // replay 按钮交互
-        if (FlxG.mouse.overlaps(replayButton))
+        // replay 按钮交互：悬停放大、按住缩回原大小 + 提亮。
+        // 命中区随 scale 变（FlxG.mouse.overlaps 走未缩放的 AABB）——鼠标划过边缘时会
+        // 出现"刚放大就脱出命中区"的抖动，用户基本察觉不到，先不动。
+        var replayHover:Bool = FlxG.mouse.overlaps(replayButton);
+        if (replayHover && FlxG.mouse.justPressed)
+            replayPressed = true;
+
+        if (replayPressed)
+        {
+            replayButton.alpha = 1.0;
+            replayButton.scale.set(REPLAY_BTN_SCALE, REPLAY_BTN_SCALE);
+        }
+        else if (replayHover)
         {
             replayButton.alpha = 1.0;
             replayButton.scale.set(0.55, 0.55);
@@ -1570,7 +1588,7 @@ class FreeplayState extends MusicBeatState
         else
         {
             replayButton.alpha = 0.8;
-            replayButton.scale.set(0.5, 0.5);
+            replayButton.scale.set(REPLAY_BTN_SCALE, REPLAY_BTN_SCALE);
         }
 
         if (searchHitbox != null && FlxG.mouse.justPressed && FlxG.mouse.overlaps(searchHitbox) && !musicPlayer.playingMusic)
@@ -1578,7 +1596,8 @@ class FreeplayState extends MusicBeatState
             openSearchSubstate();
         }
         
-        if (FlxG.mouse.justPressed && FlxG.mouse.overlaps(replayButton))
+        // 松手生效：按下时指针在按钮上（replayPressed）且松手时仍在上面才算点击
+        if (FlxG.mouse.justReleased && replayPressed && FlxG.mouse.overlaps(replayButton))
         {
             if (curSelected < 0 || curSelected >= songs.length) return;
             
@@ -1593,11 +1612,24 @@ class FreeplayState extends MusicBeatState
             ));
         }
 
-        if (ClientPrefs.data.freeplayModFolder && FlxG.mouse.justPressed && FlxG.mouse.overlaps(modFolderText) && !musicPlayer.playingMusic && !inModFolderSelector)
+        if (FlxG.mouse.justReleased)
+            replayPressed = false;
+
+        // Mod 文本同理：按住时提亮，松手仍在文本上才打开选择器
+        var modTextHover:Bool = ClientPrefs.data.freeplayModFolder && FlxG.mouse.overlaps(modFolderText);
+        if (modTextHover && FlxG.mouse.justPressed)
+            modTextPressed = true;
+
+        modFolderText.alpha = (modTextHover || modTextPressed) ? 1.0 : 0.8;
+
+        if (modTextPressed && FlxG.mouse.justReleased && modTextHover && !musicPlayer.playingMusic && !inModFolderSelector)
         {
             if (!ClientPrefs.data.toolBar) removeTouchPad();
             openModFolderSelector();
         }
+        // 处理完才清空
+        if (FlxG.mouse.justReleased)
+            modTextPressed = false;
 
         // 点难度方块：点别的块 = 切难度（音效由 changeDiff -> setSelected 放），
         // 点当前选中的那块 = 直接开始这首歌。
@@ -2028,13 +2060,13 @@ class FreeplayState extends MusicBeatState
 
         difficultyRatingText.color = DiffRating.getColorFromRating(0);
         
-           curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
-            cardScrollPos = curSelected * CARD_SPACING;
-            // 添加边界限制
-            var maxScroll = Math.max(0, (songs.length - 1) * CARD_SPACING);
-            cardScrollPos = Math.max(0, Math.min(cardScrollPos, maxScroll));
+        curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
+        var targetScroll:Float = curSelected * CARD_SPACING;
+        var maxScroll = Math.max(0, (songs.length - 1) * CARD_SPACING);
+        targetScroll = Math.max(0, Math.min(targetScroll, maxScroll));
         if (cardScroller != null && !inModFolderSelector)
-            cardScroller.tweenData = cardScrollPos;
+            cardScroller.tweenData = targetScroll;
+
         Mods.currentModDirectory = songs[curSelected].folder;
         Paths.currentChartDirectory = songs[curSelected].customChart == null ? null : songs[curSelected].customChart.directory;
         if (musicPlayer.playingMusic)
@@ -2112,15 +2144,18 @@ class FreeplayState extends MusicBeatState
         if (curDifficulty == -1 || curDifficulty >= Difficulty.list.length)
             curDifficulty = 0;
         
+        // 出图必须排在 changeDiff() 之前：changeDiff 会用 animated=false 先摆一次图
+        // （它要处理按难度换封面的情况），同图已显示时 display 的守卫会直接返回，
+        // 后面这里带动画的调用就再也放不出来了 —— 入场动画会被同一个帧里的静态出图吃掉。
+        showArtForIndex(curSelected, true);
+        showCharacterForIndex(curSelected, true);
+
         changeDiff();
         _updateSongLastDifficulty();
 
         // 难度列表刚按周/谱面重设过，carousel 得跟着重建；且必须放在 curDifficulty
         // 定稿之后 —— 上面那句 changeDiff() 就是定稿点。
         rebuildDifficultyCarousel();
-        
-        showArtForIndex(curSelected, true);
-        showCharacterForIndex(curSelected, true);
 
         missingText.visible = false;
         missingTextBG.visible = false;
@@ -2304,6 +2339,7 @@ class FreeplayState extends MusicBeatState
         if (songs.length == 0)
         {
             curSelected = 0;
+            resetCardScroller();
             return;
         }
 
@@ -2312,6 +2348,9 @@ class FreeplayState extends MusicBeatState
         lerpSelected = 0;
 
         initializeCardSlots();
+
+        // 重置滚动控制器
+        resetCardScroller();
 
         var modDisplayText:String = "Mod: ";
         if (Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0)
@@ -2738,4 +2777,4 @@ class FreeplayCard extends FlxTypedGroup<FlxSprite>
         lengthText.alpha = alphat;
         keysText.alpha = alphat;
     }
-}
+}

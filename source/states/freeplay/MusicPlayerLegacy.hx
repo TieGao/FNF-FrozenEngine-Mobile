@@ -388,4 +388,4 @@ class MusicPlayerLegacy extends FlxGroup
 		else if (value <= 0.25) value = 0.25;
 		return playbackRate = value;
 	}
-}
+}

@@ -107,4 +107,4 @@ class CharacterArtDisplay extends FlxSprite
         currentModFolder = "";
         currentArtName = "";
     }
-}
+}

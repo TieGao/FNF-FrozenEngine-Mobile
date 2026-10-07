@@ -4,22 +4,28 @@ import flixel.addons.display.FlxBackdrop;
 import flixel.addons.display.FlxGridOverlay;
 import flixel.addons.display.shapes.FlxShapeCircle;
 import flixel.input.keyboard.FlxKey;
-import flixel.input.gamepad.FlxGamepadInputID;
 import lime.system.Clipboard;
 import flixel.util.FlxGradient;
 import objects.StrumNote;
 import objects.Note;
 
-import shaders.RGBPalette;
 import shaders.RGBPalette.RGBShaderReference;
 
 class NotesColorSubState extends MusicBeatSubstate
 {
 	var onModeColumn:Bool = true;
 	var curSelectedMode:Int = 0;
-	var curSelectedNote:Int = 0;
+	var curSelectedNote:Int = 0;   // ★ 全局索引 0..(dataArray.length-1)
 	var onPixel:Bool = false;
 	var dataArray:Array<Array<FlxColor>>;
+
+	// ===== 分页相关 =====
+	var notePage:Int = 0;
+	final NOTES_PER_PAGE:Int = 4;
+	var totalPages:Int = 1;
+	var prevPageBtn:FlxSprite;
+	var nextPageBtn:FlxSprite;
+	var pageText:FlxText;
 
 	var hexTypeLine:FlxSprite;
 	var hexTypeNum:Int = -1;
@@ -90,7 +96,7 @@ class NotesColorSubState extends MusicBeatSubstate
 		bg.alpha = 0.25;
 		add(bg);
 		
-		var text:Alphabet = new Alphabet((controls.mobileC) ? 44 : 50, 86, (controls.mobileC) ? 'PRESS' : 'CTRL', false);
+		var text:Alphabet = new Alphabet(50, 86, 'CTRL', false);
 		text.alignment = CENTERED;
 		text.setScale(0.4);
 		add(text);
@@ -141,6 +147,32 @@ class NotesColorSubState extends MusicBeatSubstate
 		hexTypeLine.visible = false;
 		add(hexTypeLine);
 
+		// ===== 分页按钮 UI =====
+		// 放在 4 个 strum 下方（strum 在 y=200 左右），避免挡到 bigNote（y=325）
+		var btnY:Float = 130;
+		var btnLeftX:Float = 140;
+		var btnRightX:Float = 600;
+
+		var prevTxt:FlxText = new FlxText(btnLeftX, btnY, 40, "<", 36);
+		prevTxt.setFormat(Paths.font("vcr.ttf"), 36, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		prevTxt.borderSize = 2;
+		prevTxt.antialiasing = ClientPrefs.data.antialiasing;
+		add(prevTxt);
+		prevPageBtn = prevTxt; // 用 FlxText 本身当按钮
+
+		var nextTxt:FlxText = new FlxText(btnRightX, btnY, 40, ">", 36);
+		nextTxt.setFormat(Paths.font("vcr.ttf"), 36, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		nextTxt.borderSize = 2;
+		nextTxt.antialiasing = ClientPrefs.data.antialiasing;
+		add(nextTxt);
+		nextPageBtn = nextTxt;
+
+		pageText = new FlxText(340, btnY + 4, 100, "", 20);
+		pageText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+		pageText.borderSize = 2;
+		pageText.antialiasing = ClientPrefs.data.antialiasing;
+		add(pageText);
+
 		spawnNotes();
 		updateNotes(true);
 		FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
@@ -156,12 +188,14 @@ class NotesColorSubState extends MusicBeatSubstate
 			reset = "RESET";
 
 		var tip:FlxText = new FlxText(tipX, tipY, 0, Language.getPhrase('note_colors_tip', 'Press {1} to Reset the selected Note Part.', [reset]), 16);
+		tip.antialiasing = ClientPrefs.data.antialiasing;
 		tip.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		tip.borderSize = 2;
 		add(tip);
 
 		tipTxt = new FlxText(tipX, tipY + 24, 0, '', 16);
-		tipTxt.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		tipTxt.antialiasing = ClientPrefs.data.antialiasing;
+		tipTxt.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		tipTxt.borderSize = 2;
 		add(tipTxt);
 		updateTip();
@@ -200,7 +234,7 @@ class NotesColorSubState extends MusicBeatSubstate
 
 	override function update(elapsed:Float) {
 		if (controls.BACK) {
-			FlxG.mouse.visible = false;
+			FlxG.mouse.visible = true;
 			FlxG.sound.play(Paths.sound('cancelMenu'));
 			controls.isInSubstate = false;
 			close();
@@ -208,6 +242,13 @@ class NotesColorSubState extends MusicBeatSubstate
 		}
 
 		super.update(elapsed);
+
+		if (FlxG.mouse.justPressedRight)
+		{
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			close();
+			return;
+		}
 
 		// Early controller checking
 		if(FlxG.gamepads.anyJustPressed(ANY)) controls.controllerMode = true;
@@ -217,25 +258,15 @@ class NotesColorSubState extends MusicBeatSubstate
 		var changedToController:Bool = false;
 		if(controls.controllerMode != _lastControllerMode)
 		{
-			//trace('changed controller mode');
 			FlxG.mouse.visible = !controls.controllerMode;
 			controllerPointer.visible = controls.controllerMode;
 
-			// changed to controller mid state
 			if(controls.controllerMode)
 			{
 				controllerPointer.x = FlxG.mouse.x;
 				controllerPointer.y = FlxG.mouse.y;
 				changedToController = true;
 			}
-			// changed to keyboard mid state
-			/*else
-			{
-				FlxG.mouse.x = controllerPointer.x;
-				FlxG.mouse.y = controllerPointer.y;
-			}
-			// apparently theres no easy way to change mouse position that i know, oh well
-			*/
 			_lastControllerMode = controls.controllerMode;
 			updateTip();
 		}
@@ -262,9 +293,18 @@ class NotesColorSubState extends MusicBeatSubstate
 		if(FlxG.keys.justPressed.CONTROL)
 		{
 			onPixel = !onPixel;
+			// 保持当前页
+			notePage = Std.int(curSelectedNote / NOTES_PER_PAGE);
 			spawnNotes();
 			updateNotes(true);
 			FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
+		}
+
+		// 手柄肩键翻页（键盘用 [ ] 或 Q/E 也行，这里走手柄）
+		if (hexTypeNum < 0 && controls.controllerMode)
+		{
+			if (FlxG.gamepads.anyJustPressed(LEFT_SHOULDER))  changePage(-1);
+			if (FlxG.gamepads.anyJustPressed(RIGHT_SHOULDER)) changePage(1);
 		}
 
 		if(hexTypeNum > -1)
@@ -278,7 +318,6 @@ class NotesColorSubState extends MusicBeatSubstate
 				hexTypeNum++;
 			else if(allowedTypeKeys.exists(keyPressed))
 			{
-				//trace('keyPressed: $keyPressed, lil str: ' + allowedTypeKeys.get(keyPressed));
 				var curColor:String = alphabetHex.text;
 				var newColor:String = curColor.substring(0, hexTypeNum) + allowedTypeKeys.get(keyPressed) + curColor.substring(hexTypeNum + 1);
 
@@ -287,7 +326,6 @@ class NotesColorSubState extends MusicBeatSubstate
 				_storedColor = getShaderColor();
 				updateColors();
 				
-				// move you to next letter
 				hexTypeNum++;
 				changed = true;
 			}
@@ -297,7 +335,7 @@ class NotesColorSubState extends MusicBeatSubstate
 			var end:Bool = false;
 			if(changed)
 			{
-				if (hexTypeNum > 5) //Typed last letter
+				if (hexTypeNum > 5)
 				{
 					hexTypeNum = -1;
 					end = true;
@@ -365,7 +403,6 @@ class NotesColorSubState extends MusicBeatSubstate
 			{
 				var formattedText = Clipboard.text.trim().toUpperCase().replace('#', '').replace('0x', '');
 				var newColor:Null<FlxColor> = FlxColor.fromString('#' + formattedText);
-				//trace('#${Clipboard.text.trim().toUpperCase()}');
 				if(newColor != null && formattedText.length == 6)
 				{
 					setShaderColor(newColor);
@@ -373,7 +410,7 @@ class NotesColorSubState extends MusicBeatSubstate
 					_storedColor = getShaderColor();
 					updateColors();
 				}
-				else //errored
+				else
 					FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
 			}
 			hexTypeNum = -1;
@@ -383,7 +420,17 @@ class NotesColorSubState extends MusicBeatSubstate
 		if(generalPressed)
 		{
 			hexTypeNum = -1;
-			if (pointerOverlaps(modeNotes))
+
+			// ===== 翻页按钮优先 =====
+			if (pointerOverlaps(prevPageBtn))
+			{
+				changePage(-1);
+			}
+			else if (pointerOverlaps(nextPageBtn))
+			{
+				changePage(1);
+			}
+			else if (pointerOverlaps(modeNotes))
 			{
 				modeNotes.forEachAlive(function(note:FlxSprite) {
 					if (curSelectedMode != note.ID && pointerOverlaps(note))
@@ -402,7 +449,7 @@ class NotesColorSubState extends MusicBeatSubstate
 					if (curSelectedNote != note.ID && pointerOverlaps(note))
 					{
 						modeBG.visible = notesBG.visible = false;
-						curSelectedNote = note.ID;
+						curSelectedNote = note.ID;   // ★ 全局 ID
 						onModeColumn = false;
 						bigNote.rgbShader.parent = Note.globalRgbShaders[note.ID];
 						bigNote.shader = Note.globalRgbShaders[note.ID].shader;
@@ -429,6 +476,7 @@ class NotesColorSubState extends MusicBeatSubstate
 			else if (pointerOverlaps(skinNote))
 			{
 				onPixel = !onPixel;
+				notePage = Std.int(curSelectedNote / NOTES_PER_PAGE);
 				spawnNotes();
 				updateNotes(true);
 				FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
@@ -464,7 +512,7 @@ class NotesColorSubState extends MusicBeatSubstate
 				{
 					var newBrightness = 1 - FlxMath.bound((pointerY() - colorGradient.y) / colorGradient.height, 0, 1);
 					_storedColor.alpha = 1;
-					if(_storedColor.brightness == 0) //prevent bug
+					if(_storedColor.brightness == 0)
 						setShaderColor(FlxColor.fromRGBFloat(newBrightness, newBrightness, newBrightness));
 					else
 						setShaderColor(FlxColor.fromHSB(_storedColor.hue, _storedColor.saturation, newBrightness));
@@ -476,20 +524,22 @@ class NotesColorSubState extends MusicBeatSubstate
 					var mouse:FlxPoint = pointerFlxPoint();
 					var hue:Float = FlxMath.wrap(FlxMath.wrap(Std.int(mouse.degreesTo(center)), 0, 360) - 90, 0, 360);
 					var sat:Float = FlxMath.bound(mouse.dist(center) / colorWheel.width*2, 0, 1);
-					//trace('$hue, $sat');
 					if(sat != 0) setShaderColor(FlxColor.fromHSB(hue, sat, _storedColor.brightness));
 					else setShaderColor(FlxColor.fromRGBFloat(_storedColor.brightness, _storedColor.brightness, _storedColor.brightness));
 					updateColors();
 				}
 			} 
 		}
-		else if(touchPad.buttonC.justPressed || controls.RESET && hexTypeNum < 0)
+		else if(controls.RESET && hexTypeNum < 0)
 		{
+			// ★ 用 ID 找 strum
+			var targetStrum:StrumNote = getStrumById(curSelectedNote);
+
 			if(FlxG.keys.pressed.SHIFT || FlxG.gamepads.anyPressed(LEFT_SHOULDER))
 			{
 				for (i in 0...3)
 				{
-					var strumRGB:RGBShaderReference = myNotes.members[curSelectedNote].rgbShader;
+					var strumRGB:RGBShaderReference = targetStrum.rgbShader;
 					var color:FlxColor = !onPixel ? ClientPrefs.defaultData.arrowRGB[curSelectedNote][i] :
 													ClientPrefs.defaultData.arrowRGBPixel[curSelectedNote][i];
 					switch(i)
@@ -508,6 +558,40 @@ class NotesColorSubState extends MusicBeatSubstate
 			FlxG.sound.play(Paths.sound('cancelMenu'), 0.6);
 			updateColors();
 		}
+	}
+
+	// ===== 分页工具 =====
+	function changePage(change:Int)
+	{
+		if (totalPages <= 1) return;
+		var newPage:Int = notePage + change;
+		if (newPage < 0) newPage = totalPages - 1;
+		if (newPage >= totalPages) newPage = 0;
+		if (newPage == notePage) return;
+
+		notePage = newPage;
+		// 切页后选中该页第一个
+		curSelectedNote = notePage * NOTES_PER_PAGE;
+		spawnNotes();
+		updateNotes(true);
+		FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
+	}
+
+	function updatePageUI()
+	{
+		if (pageText != null)
+			pageText.text = (notePage + 1) + " / " + totalPages;
+		if (prevPageBtn != null) prevPageBtn.alpha = (notePage > 0) ? 1 : 0.3;
+		if (nextPageBtn != null) nextPageBtn.alpha = (notePage < totalPages - 1) ? 1 : 0.3;
+	}
+
+	/** 按全局 ID 找当前页里对应的 strum */
+	function getStrumById(id:Int):StrumNote
+	{
+		for (n in myNotes.members)
+			if (n != null && n.ID == id) return n;
+		// 兜底：返回第一个，避免空引用
+		return myNotes.members[0];
 	}
 
 	function pointerOverlaps(obj:Dynamic)
@@ -534,7 +618,6 @@ class NotesColorSubState extends MusicBeatSubstate
 
 	function centerHexTypeLine()
 	{
-		//trace(hexTypeNum);
 		if(hexTypeNum > 0)
 		{
 			var letter = alphabetHex.letters[hexTypeNum-1];
@@ -561,13 +644,28 @@ class NotesColorSubState extends MusicBeatSubstate
 		updateNotes();
 		FlxG.sound.play(Paths.sound('scrollMenu'));
 	}
+
 	function changeSelectionNote(change:Int = 0) {
-		curSelectedNote += change;
-		if (curSelectedNote < 0)
-			curSelectedNote = dataArray.length-1;
-		if (curSelectedNote >= dataArray.length)
-			curSelectedNote = 0;
-		
+		// ★ 在整份 dataArray 范围内循环；跨页时自动翻页
+		var newIdx:Int = curSelectedNote + change;
+		if (newIdx < 0)
+			newIdx = dataArray.length - 1;
+		if (newIdx >= dataArray.length)
+			newIdx = 0;
+
+		// 跨页了才重建
+		var newPage:Int = Std.int(newIdx / NOTES_PER_PAGE);
+		if (newPage != notePage)
+		{
+			notePage = newPage;
+			curSelectedNote = newIdx;
+			spawnNotes();
+			updateNotes(true);
+			FlxG.sound.play(Paths.sound('scrollMenu'));
+			return;
+		}
+
+		curSelectedNote = newIdx;
 		modeBG.visible = false;
 		notesBG.visible = true;
 		bigNote.rgbShader.parent = Note.globalRgbShaders[curSelectedNote];
@@ -591,18 +689,32 @@ class NotesColorSubState extends MusicBeatSubstate
 	var modeNotes:FlxTypedGroup<FlxSprite>;
 	var myNotes:FlxTypedGroup<StrumNote>;
 	var bigNote:Note;
+
 	public function spawnNotes()
 	{
 		dataArray = !onPixel ? ClientPrefs.data.arrowRGB : ClientPrefs.data.arrowRGBPixel;
 		if (onPixel) PlayState.stageUI = "pixel";
 
+		// 计算总页数
+		totalPages = Std.int(Math.ceil(dataArray.length / NOTES_PER_PAGE));
+		if (totalPages < 1) totalPages = 1;
+		if (notePage >= totalPages) notePage = totalPages - 1;
+		if (notePage < 0) notePage = 0;
+
+		var pageStart:Int = notePage * NOTES_PER_PAGE;
+		var pageEnd:Int = Std.int(Math.min(pageStart + NOTES_PER_PAGE, dataArray.length)) - 1;
+
+		// 保证 curSelectedNote 落在当前页
+		if (curSelectedNote < pageStart || curSelectedNote > pageEnd)
+			curSelectedNote = pageStart;
+
 		// clear groups
 		modeNotes.forEachAlive(function(note:FlxSprite) {
-			//note.kill();
+			note.kill();
 			note.destroy();
 		});
 		myNotes.forEachAlive(function(note:StrumNote) {
-			//note.kill();
+			note.kill();
 			note.destroy();
 		});
 		modeNotes.clear();
@@ -644,15 +756,20 @@ class NotesColorSubState extends MusicBeatSubstate
 			modeNotes.add(newNote);
 		}
 
+		// ===== 只渲染当前页的 4 个 note =====
 		Note.globalRgbShaders = [];
 		for (i in 0...dataArray.length)
-		{
 			Note.initializeGlobalRGBShader(i);
-			var newNote:StrumNote = new StrumNote(150 + (480 / dataArray.length * i), 200, i, 0);
+
+		var shownCount:Int = Std.int(Math.min(NOTES_PER_PAGE, dataArray.length - pageStart));
+		for (i in 0...shownCount)
+		{
+			var globalIdx:Int = pageStart + i;
+			var newNote:StrumNote = new StrumNote(150 + (480 / shownCount * i), 200, globalIdx, 0);
 			newNote.useRGBShader = true;
 			newNote.setGraphicSize(102);
 			newNote.updateHitbox();
-			newNote.ID = i;
+			newNote.ID = globalIdx;   // ★ 全局 ID
 			myNotes.add(newNote);
 		}
 
@@ -670,6 +787,8 @@ class NotesColorSubState extends MusicBeatSubstate
 		insert(members.indexOf(myNotes) + 1, bigNote);
 		_storedColor = getShaderColor();
 		PlayState.stageUI = "normal";
+
+		updatePageUI();
 	}
 
 	function updateNotes(?instant:Bool = false)
@@ -684,7 +803,8 @@ class NotesColorSubState extends MusicBeatSubstate
 			if(note.animation.curAnim == null || note.animation.curAnim.name != newAnim) note.playAnim(newAnim, true);
 			if(instant) note.animation.curAnim.finish();
 		}
-		bigNote.animation.play('note$curSelectedNote', true);
+		// bigNote 只有 note0~note3 4 个方向动画，用方向索引
+		bigNote.animation.play('note' + (curSelectedNote % 4), true);
 		updateColors();
 	}
 
@@ -708,15 +828,20 @@ class NotesColorSubState extends MusicBeatSubstate
 		}
 		colorGradientSelector.y = colorGradient.y + colorGradient.height * (1 - color.brightness);
 
-		var strumRGB:RGBShaderReference = myNotes.members[curSelectedNote].rgbShader;
-		switch(curSelectedMode)
+		// ★ 用 ID 找 strum（当前页里才存在）
+		var targetStrum:StrumNote = getStrumById(curSelectedNote);
+		if (targetStrum != null)
 		{
-			case 0:
-				getShader().r = strumRGB.r = color;
-			case 1:
-				getShader().g = strumRGB.g = color;
-			case 2:
-				getShader().b = strumRGB.b = color;
+			var strumRGB:RGBShaderReference = targetStrum.rgbShader;
+			switch(curSelectedMode)
+			{
+				case 0:
+					getShader().r = strumRGB.r = color;
+				case 1:
+					getShader().g = strumRGB.g = color;
+				case 2:
+					getShader().b = strumRGB.b = color;
+			}
 		}
 	}
 

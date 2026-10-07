@@ -37,6 +37,9 @@ import objects.Note;
  */
 class Hitbox extends MobileInputManager implements IMobileControls
 {
+	// MobileInputID 里只定义到 16K，再往上没有可用的输入 ID
+	static inline var MAX_COLUMNS:Int = 16;
+
 	final offsetFir:Int = (ClientPrefs.data.hitboxPos ? Std.int(FlxG.height / 4) * 3 : 0);
 	final offsetSec:Int = (ClientPrefs.data.hitboxPos ? 0 : Std.int(FlxG.height / 4));
 
@@ -47,9 +50,7 @@ class Hitbox extends MobileInputManager implements IMobileControls
 	public var buttonExtra:TouchButton = new TouchButton(0, 0, [MobileInputID.EXTRA_1]);
 	public var buttonExtra2:TouchButton = new TouchButton(0, 0, [MobileInputID.EXTRA_2]);
 
-	// ============================================
-	// 新增：多K区域列表
-	// ============================================
+	// 多 K（5K+）区域，下标即列号；4K 模式下为空
 	public var multiKHints:Array<TouchButton> = [];
 
 	public var instance:MobileInputManager;
@@ -57,6 +58,12 @@ class Hitbox extends MobileInputManager implements IMobileControls
 	public var onButtonUp:FlxTypedSignal<TouchButton->Void> = new FlxTypedSignal<TouchButton->Void>();
 
 	var storedButtonsIDs:Map<String, Array<MobileInputID>> = new Map<String, Array<MobileInputID>>();
+	var currentExtraMode:ExtraActions = NONE;
+	// 多 K 区域共用的位图，避免重排时反复新建 BitmapData 撑爆 FlxG.bitmap
+	var multiKGraphic:FlxGraphic = null;
+	var multiKLabelGraphic:FlxGraphic = null;
+	var multiKGraphicWidth:Int = 0;
+	var multiKGraphicHeight:Int = 0;
 
 	/**
 	 * Create the zone.
@@ -65,6 +72,8 @@ class Hitbox extends MobileInputManager implements IMobileControls
 	{
 		super();
 
+		currentExtraMode = (extraMode == null) ? NONE : extraMode;
+
 		for (button in Reflect.fields(this))
 		{
 			var field = Reflect.field(this, button);
@@ -72,25 +81,10 @@ class Hitbox extends MobileInputManager implements IMobileControls
 				storedButtonsIDs.set(button, Reflect.getProperty(field, 'IDs'));
 		}
 
-		// ============================================
-		// 修改：根据键位数决定创建4K还是多K
-		// ============================================
-		var totalColumns:Int = 4;
-		if (PlayState.SONG != null)
-		{
-			totalColumns = Note.getColumnsPerPlayer(PlayState.SONG);
-		}
-
-		if (totalColumns <= 4)
-		{
-			// 创建标准的4K Hitbox
-			createStandard4KHints(extraMode);
-		}
+		if (getColumnCount() <= 4)
+			createStandard4KHints(currentExtraMode);
 		else
-		{
-			// 创建多K Hitbox
-			createMultiKHints(extraMode);
-		}
+			createMultiKHints(currentExtraMode);
 
 		for (button in Reflect.fields(this))
 		{
@@ -105,9 +99,9 @@ class Hitbox extends MobileInputManager implements IMobileControls
 		instance = this;
 	}
 
-	// ============================================
-	// 新增：创建标准4K Hitbox
-	// ============================================
+	/**
+	 * 创建标准 4K 区域（含 SINGLE/DOUBLE 的 extra 布局）。
+	 */
 	private function createStandard4KHints(extraMode:ExtraActions):Void
 	{
 		switch (extraMode)
@@ -135,61 +129,85 @@ class Hitbox extends MobileInputManager implements IMobileControls
 		}
 	}
 
-	// ============================================
-	// 新增：创建多K Hitbox
-	// ============================================
+	/**
+	 * 当前谱面每个玩家的键位数（4 表示标准 4K）。
+	 */
+	private function getColumnCount():Int
+	{
+		return (PlayState.SONG != null) ? Note.getColumnsPerPlayer(PlayState.SONG) : 4;
+	}
+
+	/**
+	 * 按列数算出多 K 区域的宽高与起始 y。
+	 */
+	private function getMultiKLayout(totalColumns:Int):MultiKLayout
+	{
+		var hasExtra:Bool = (currentExtraMode != NONE);
+		var height:Float = hasExtra ? FlxG.height * 0.75 : FlxG.height;
+		return {
+			width: Math.ceil(FlxG.width / totalColumns),
+			height: Math.ceil(height),
+			y: hasExtra ? offsetSec : 0
+		};
+	}
+
+	/**
+	 * 创建多 K（5K+）区域，每列一个 hint，列号就是它在 multiKHints 里的下标。
+	 */
 	private function createMultiKHints(extraMode:ExtraActions):Void
 	{
-		var totalColumns:Int = 4;
-		if (PlayState.SONG != null)
-		{
-			totalColumns = Note.getColumnsPerPlayer(PlayState.SONG);
-		}
-
+		var totalColumns:Int = getColumnCount();
 		if (totalColumns <= 4) return;
 
-		// 清除之前的多K区域
-		for (hint in multiKHints)
-		{
-			if (hint != null && members.contains(hint))
-			{
-				remove(hint);
-				hint.destroy();
-			}
-		}
-		multiKHints = [];
-
-		var hintWidth:Float = FlxG.width / totalColumns;
-		var hintHeight:Float = FlxG.height;
-		if (extraMode != NONE)
-		{
-			hintHeight = FlxG.height * 0.75;
-		}
-
-		var colors:Array<FlxColor> = [
-			0xFFC24B99, 0xFF00FFFF, 0xFF12FA05, 0xFFF9393F
-		];
+		// 超过 16K 没有对应的 MobileInputID，按 16 列摆放，避免出现整屏点不动的空 hitbox
+		if (totalColumns > MAX_COLUMNS)
+			totalColumns = MAX_COLUMNS;
 
 		var ids:Array<MobileInputID> = getMultiKIDs(totalColumns);
+		if (ids.length <= 0) return;
+
+		var layout:MultiKLayout = getMultiKLayout(totalColumns);
+		var colors:Array<FlxColor> = [0xFFC24B99, 0xFF00FFFF, 0xFF12FA05, 0xFFF9393F];
+		var hintWidth:Float = FlxG.width / totalColumns;
 
 		for (i in 0...totalColumns)
 		{
-			if (i >= ids.length) break;
-			
-			var x:Float = i * hintWidth;
-			var y:Float = 0;
-			if (extraMode != NONE)
-			{
-				y = offsetSec;
-			}
-
 			var id:MobileInputID = ids[i];
 			if (id == NONE) continue;
 
-			var hint:TouchButton = createHint(x, y, Math.ceil(hintWidth), Math.ceil(hintHeight), colors[i % 4]);
+			// IDs 必须在 updateTrackedButtons() 之前设好，否则这一列查不到任何输入
+			var hint:TouchButton = createHint(i * hintWidth, layout.y, layout.width, layout.height, colors[i % colors.length], [id]);
 			multiKHints.push(hint);
 			add(hint);
 		}
+
+		createExtraHints(extraMode);
+	}
+
+	/**
+	 * 多 K 模式下 extra 占顶部 1/4 屏，布局与 4K 的 SINGLE/DOUBLE 一致。
+	 */
+	private function createExtraHints(extraMode:ExtraActions):Void
+	{
+		var extraHeight:Int = Std.int(FlxG.height / 4);
+		switch (extraMode)
+		{
+			case SINGLE:
+				add(buttonExtra = createHint(0, offsetFir, FlxG.width, extraHeight, 0xFF0066FF, [MobileInputID.EXTRA_1]));
+			case DOUBLE:
+				add(buttonExtra2 = createHint(Std.int(FlxG.width / 2), offsetFir, Std.int(FlxG.width / 2), extraHeight, 0xA6FF00,
+					[MobileInputID.EXTRA_2]));
+				add(buttonExtra = createHint(0, offsetFir, Std.int(FlxG.width / 2), extraHeight, 0xFF0066FF, [MobileInputID.EXTRA_1]));
+			default:
+		}
+	}
+
+	/**
+	 * 返回 hint 对应的列索引，不属于多 K 区域时返回 -1。
+	 */
+	public function getHintColumn(button:TouchButton):Int
+	{
+		return (button == null) ? -1 : multiKHints.indexOf(button);
 	}
 
 	/**
@@ -214,26 +232,46 @@ class Hitbox extends MobileInputManager implements IMobileControls
 			default: return [];
 		}
 	}
-	// ============================================
-	// 新增：更新多K区域位置
-	// ============================================
+	/**
+	 * 按当前屏幕尺寸重排多 K 区域。
+	 */
 	public function updateMultiKPositions():Void
 	{
 		var totalColumns:Int = multiKHints.length;
-		if (totalColumns == 0) return;
+		if (totalColumns <= 0) return;
+
+		var layout:MultiKLayout = getMultiKLayout(totalColumns);
+		var needsNewGraphic:Bool = (multiKGraphic == null
+			|| multiKLabelGraphic == null
+			|| multiKGraphicWidth != layout.width
+			|| multiKGraphicHeight != layout.height);
+
+		if (needsNewGraphic)
+		{
+			multiKGraphic = createHintGraphic(layout.width, layout.height);
+			multiKLabelGraphic = createHintGraphic(layout.width, Math.floor(layout.height * 0.035), true);
+			multiKGraphicWidth = layout.width;
+			multiKGraphicHeight = layout.height;
+		}
 
 		var hintWidth:Float = FlxG.width / totalColumns;
-		var hintHeight:Float = FlxG.height;
-
 		for (i in 0...totalColumns)
 		{
 			var hint:TouchButton = multiKHints[i];
-			if (hint != null)
+			if (hint == null) continue;
+
+			hint.x = i * hintWidth;
+			hint.y = layout.y;
+
+			if (needsNewGraphic)
 			{
-				hint.x = i * hintWidth;
-				hint.y = 0;
-				var newGraphic:FlxGraphic = createHintGraphic(Math.ceil(hintWidth), Math.ceil(hintHeight));
-				hint.loadGraphic(newGraphic);
+				hint.loadGraphic(multiKGraphic);
+				hint.label.loadGraphic(multiKLabelGraphic);
+				hint.label.offset.y = 0;
+				if (ClientPrefs.data.hitboxPos)
+					hint.label.offset.y -= (hint.height - hint.label.height) / 2;
+				else
+					hint.label.offset.y += (hint.height - hint.label.height) / 2;
 				hint.updateHitbox();
 			}
 		}
@@ -248,11 +286,10 @@ class Hitbox extends MobileInputManager implements IMobileControls
 		onButtonUp.destroy();
 		onButtonDown.destroy();
 
-		for (hint in multiKHints)
-		{
-			if (hint != null) FlxDestroyUtil.destroy(hint);
-		}
+		// 多 K 区域本身在 members 里，已由 super.destroy() 处理
 		multiKHints = [];
+		multiKGraphic = null;
+		multiKLabelGraphic = null;
 
 		for (fieldName in Reflect.fields(this))
 		{
@@ -262,9 +299,9 @@ class Hitbox extends MobileInputManager implements IMobileControls
 		}
 	}
 
-	private function createHint(X:Float, Y:Float, Width:Int, Height:Int, Color:Int = 0xFFFFFF):TouchButton
+	private function createHint(X:Float, Y:Float, Width:Int, Height:Int, Color:Int = 0xFFFFFF, ?IDs:Array<MobileInputID> = null):TouchButton
 	{
-		var hint = new TouchButton(X, Y);
+		var hint = new TouchButton(X, Y, IDs);
 		hint.statusAlphas = [];
 		hint.statusIndicatorType = NONE;
 		hint.loadGraphic(createHintGraphic(Width, Height));
@@ -386,4 +423,11 @@ class Hitbox extends MobileInputManager implements IMobileControls
 
 		return FlxG.bitmap.add(bitmap);
 	}
+}
+
+typedef MultiKLayout =
+{
+	width:Int,
+	height:Int,
+	y:Float
 }

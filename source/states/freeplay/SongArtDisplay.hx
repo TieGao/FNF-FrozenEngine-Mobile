@@ -101,4 +101,4 @@ class SongArtDisplay extends FlxSprite
         currentModFolder = "";
         currentArtName = "";
     }
-}
+}

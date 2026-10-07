@@ -28,6 +28,7 @@ import haxe.io.Path;
 import openfl.utils.Assets;
 import flixel.util.FlxSave;
 import flixel.math.FlxPoint;
+import objects.Note;
 
 /**
  * ...
@@ -104,10 +105,13 @@ class MobileData
 	}
 
 	/**
-	 * 设置按钮颜色 - 支持4K和多K
+	 * 设置控件颜色：4K 方向键取 arrowRGB 前四项，多 K 区域按列取色。
 	 */
 	public static function setButtonsColors(buttonsInstance:Dynamic):Dynamic
 	{
+		if (buttonsInstance == null)
+			return buttonsInstance;
+
 		// Dynamic Controls Color
 		var data:Dynamic;
 		if (ClientPrefs.data.dynamicColors)
@@ -115,7 +119,6 @@ class MobileData
 		else
 			data = ClientPrefs.defaultData;
 
-		// === 设置4K方向键颜色 ===
 		for (i => button in [
 			buttonsInstance.buttonLeft,
 			buttonsInstance.buttonDown,
@@ -133,82 +136,28 @@ class MobileData
 			}
 		}
 
-		// === 设置多K按钮颜色 ===
-		if (buttonsInstance.multiKButtons != null)
+		// Hitbox 的多 K 区域叫 multiKHints；TouchPad 没有多 K 区域，这里自然跳过
+		var multiKHints:Array<Dynamic> = buttonsInstance.multiKHints;
+		if (multiKHints != null)
 		{
-			var totalColumns:Int = buttonsInstance.multiKButtons.length;
-			var colorCount:Int = data.arrowRGB.length;  // 先获取为 Int
-			for (i in 0...totalColumns)
+			var colorCount:Int = data.arrowRGB.length;
+			for (i in 0...multiKHints.length)
 			{
-				var button:TouchButton = buttonsInstance.multiKButtons[i];
+				var button = multiKHints[i];
 				if (button != null)
 				{
-					var colorIndex:Int = i % colorCount;  // 使用 Int 变量
+					var colorIndex:Int = i % colorCount;
 					button.color = Std.int(data.arrowRGB[colorIndex][0]);
 					if (button.label != null)
 					{
 						button.label.color = Std.int(data.arrowRGB[colorIndex][0]);
-						//button.label.updateColorTransform();
+						button.label.updateColorTransform();
 					}
 				}
 			}
 		}
 
 		return buttonsInstance;
-	}
-
-	/**
-	 * 设置Hitbox颜色 - 支持4K和多K
-	 */
-	public static function setHitboxColors(hitboxInstance:Dynamic):Dynamic
-	{
-		// Dynamic Controls Color
-		var data:Dynamic;
-		if (ClientPrefs.data.dynamicColors)
-			data = ClientPrefs.data;
-		else
-			data = ClientPrefs.defaultData;
-
-		// === 设置4K Hitbox颜色 ===
-		for (i => button in [
-			hitboxInstance.buttonLeft,
-			hitboxInstance.buttonDown,
-			hitboxInstance.buttonUp,
-			hitboxInstance.buttonRight])
-		{
-			if (button != null)
-			{
-				button.color = Std.int(data.arrowRGB[i][0]);
-				if (button.label != null)
-				{
-					button.label.color = Std.int(data.arrowRGB[i][0]);
-					button.label.updateColorTransform();
-				}
-			}
-		}
-
-		// === 设置多K Hitbox颜色 ===
-		if (hitboxInstance.multiKHints != null)
-		{
-			var totalColumns:Int = hitboxInstance.multiKHints.length;
-			var colorCount:Int = data.arrowRGB.length;  // 先获取为 Int
-			for (i in 0...totalColumns)
-			{
-				var hint:TouchButton = hitboxInstance.multiKHints[i];
-				if (hint != null)
-				{
-					var colorIndex:Int = i % colorCount;  // 使用 Int 变量
-					hint.color = Std.int(data.arrowRGB[colorIndex][0]);
-					if (hint.label != null)
-					{
-						hint.label.color = Std.int(data.arrowRGB[colorIndex][0]);
-						//hint.label.updateColorTransform();
-					}
-				}
-			}
-		}
-
-		return hitboxInstance;
 	}
 
 	public static function readDirectory(folder:String, map:Dynamic)
@@ -242,6 +191,9 @@ class MobileData
 		if (forcedMode != null)
 			return forcedMode;
 
+		if (isMultiKChart())
+			return 3; // HITBOX
+
 		if (save.data.mobileControlsMode == null)
 		{
 			save.data.mobileControlsMode = 3;
@@ -249,6 +201,26 @@ class MobileData
 		}
 
 		return save.data.mobileControlsMode;
+	}
+
+	/**
+	 * 当前谱面是否为多 K（5K+）。
+	 * TouchPad 的按键只有 A~Z / 方向 / EXTRA，没有 NOTE_5K_* 及其以上，
+	 * 所以 5K+ 谱面在 TouchPad 模式下没有可点的键，必须回退到 Hitbox。
+	 */
+	public static function isMultiKChart():Bool
+	{
+		var state = FlxG.state;
+		if (state == null)
+			return false;
+
+		// 只有真正拿 PlayState.SONG 打谱面的 state 才判断；其余 state 里
+		// PlayState.SONG 是上一首歌的残留，不能拿来当依据。
+		var className:String = Type.getClassName(Type.getClass(state));
+		if (className != 'states.PlayState' && className != 'states.editors.content.EditorPlayState')
+			return false;
+
+		return Note.getColumnsPerPlayer() > 4;
 	}
 }
 

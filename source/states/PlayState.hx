@@ -4436,12 +4436,37 @@ public function reloadCounterColors()
 		return -1;
 	}
 
+	/**
+	 * 把按下的按钮换算成列索引。
+	 * 多 K 用 hint 在 hitbox 里的下标；4K 沿用 NOTE_LEFT/DOWN/UP/RIGHT 的数值
+	 * （这几个 ID 恰好等于列号，NOTE_5K_* 之类不是，不能拿来当列号）。
+	 */
+	private function getButtonColumn(button:TouchButton):Int
+	{
+		if (button == null || button.IDs == null || button.IDs.length <= 0)
+			return -1;
+
+		if (mobileControls != null && Std.isOfType(mobileControls.instance, Hitbox))
+		{
+			var column:Int = cast(mobileControls.instance, Hitbox).getHintColumn(button);
+			if (column >= 0)
+				return column;
+		}
+
+		if (button.IDs[0].toString().startsWith('NOTE'))
+			return button.IDs[0];
+
+		return (button.IDs.length > 1) ? button.IDs[1] : -1;
+	}
+
 	private function onButtonPress(button:TouchButton):Void
 	{
 		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
 			return;
 
-		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
+		var buttonCode:Int = getButtonColumn(button);
+		if (buttonCode < 0) return;
+
 		callOnScripts('onButtonPressPre', [buttonCode]);
 		if (button.justPressed) keyPressed(buttonCode);
 		callOnScripts('onButtonPress', [buttonCode]);
@@ -4452,9 +4477,11 @@ public function reloadCounterColors()
 		if (button.IDs.filter(id -> id.toString().startsWith("EXTRA")).length > 0)
 			return;
 
-		var buttonCode:Int = (button.IDs[0].toString().startsWith('NOTE')) ? button.IDs[0] : button.IDs[1];
+		var buttonCode:Int = getButtonColumn(button);
+		if (buttonCode < 0) return;
+
 		callOnScripts('onButtonReleasePre', [buttonCode]);
-		if(buttonCode > -1) keyReleased(buttonCode);
+		keyReleased(buttonCode);
 		callOnScripts('onButtonRelease', [buttonCode]);
 	}
 
@@ -4691,7 +4718,7 @@ public function reloadCounterColors()
 			var postfix:String = '';
 			if(note != null) postfix = note.animSuffix;
 
-			var idx:Int = Std.int(Math.abs(direction) % singAnimations.length);
+			var idx:Int = (note != null) ? Note.getNoteDirectionIndex(Note.getColumnsPerPlayer(), note.noteData) : Std.int(Math.abs(direction) % singAnimations.length);
 			var animToPlay:String;
 			if(char.hasMissAnimations)
 				animToPlay = singAnimations[idx] + 'miss' + postfix;
@@ -4738,7 +4765,7 @@ public function reloadCounterColors()
 		else if(!note.noAnimation)
 		{
 			var char:Character = (opponentMode == "opponent") ? boyfriend : dad;
-			var animToPlay:String = singAnimations[Std.int(Math.abs(note.noteData) % singAnimations.length)] + note.animSuffix;
+			var animToPlay:String = singAnimations[Note.getNoteDirectionIndex(Note.getColumnsPerPlayer(), note.noteData)] + note.animSuffix;
 			if(note.gfNote) char = gf;
 
 			if(char != null)
@@ -4802,7 +4829,7 @@ public function reloadCounterColors()
 		{
 			if(!note.noAnimation)
 			{
-				var animToPlay:String = singAnimations[Std.int(Math.abs(note.noteData) % singAnimations.length)] + note.animSuffix;
+				var animToPlay:String = singAnimations[Note.getNoteDirectionIndex(Note.getColumnsPerPlayer(), note.noteData)] + note.animSuffix;
 
 				var char:Character = boyfriend;
 				var animCheck:String = 'hey';
