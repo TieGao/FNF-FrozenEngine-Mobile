@@ -191,7 +191,7 @@ class PauseSubState extends MusicBeatSubstate
 	override function update(elapsed:Float)
 	{
 		cantUnpause -= elapsed;
-		if (pauseMusic.volume < 0.5)
+		if (pauseMusic != null && pauseMusic.volume < 0.5)
 			pauseMusic.volume += 0.01 * elapsed;
 
 		// ===== 鼠标控制开始 =====
@@ -576,7 +576,7 @@ class PauseSubState extends MusicBeatSubstate
 
 	override function destroy()
 	{
-		pauseMusic.destroy();
+		if (pauseMusic != null) pauseMusic.destroy();
 		if (lastMousePos != null) lastMousePos.put();
 		FlxG.mouse.visible = true;
 		super.destroy();

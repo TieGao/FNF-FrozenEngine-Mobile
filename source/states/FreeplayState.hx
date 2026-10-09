@@ -47,7 +47,6 @@ import sys.FileSystem;
 
 class FreeplayState extends MusicBeatState
 {
-    public static var selectedCustomChartCategory:String = null;
     public var songs:Array<NewSongMetaData> = [];
     // 只保留当前可视范围的卡片对象；歌曲全集仍由 songs 元数据保存。
     var cards:Array<FreeplayCard> = [];
@@ -147,12 +146,40 @@ class FreeplayState extends MusicBeatState
     var searchHitbox:FlxSprite;
     var searchLabel:FlxText;
 
-    inline function isPureChartMode():Bool
+    /**
+     * 是否处于 Content（自定义谱面）浏览模式。
+     * Paths.currentChartCategory 是唯一的模式标志：非空 = Content，空 = 默认 Mods 体系。
+     * 这里只读不回填 —— 回填会让已经切回 Mods 的界面被上一轮残留重新拉进 Content。
+     */
+    public function isContentMode():Bool
     {
-        if (Paths.currentChartCategory == null && selectedCustomChartCategory != null)
-            Paths.currentChartCategory = selectedCustomChartCategory;
-        return (Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0)
-            || (selectedCustomChartCategory != null && selectedCustomChartCategory.length > 0);
+        return Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0;
+    }
+
+    /**
+     * 进入 Content 模式的唯一入口：浏览指定分类（空 = 设置里的默认分类）。
+     * 模式标志、谱面上下文、资源 mod 目录一次写全，避免出现半套状态。
+     */
+    public function enterContentMode(?category:String):Void
+    {
+        var target:String = category;
+        if (target == null || target.length == 0) target = ClientPrefs.data.customChartFolder;
+        if (target == null || target.length == 0) target = 'custom';
+
+        Paths.setChartContext(target, null);
+        Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
+        onModFolderChanged();
+    }
+
+    /**
+     * 退出 Content 模式、回到默认 Mods 体系的唯一入口；folder 为空 = 显示全部模组。
+     * 必须把谱面上下文显式清空，否则下次进入 Freeplay 还会被当成 Content。
+     */
+    public function exitContentMode(?folder:String):Void
+    {
+        Paths.setChartContext(null, null);
+        Mods.currentModDirectory = (folder == null || folder.length == 0) ? null : folder;
+        onModFolderChanged();
     }
 
     override function create()
@@ -171,10 +198,7 @@ class FreeplayState extends MusicBeatState
         DiscordClient.changePresence("In the Freeplay Menu", null);
         #end
 
-        Paths.clearStoredMemory();
-		Paths.clearUnusedMemory();
-
-        if(WeekData.weeksList.length < 1 && !isPureChartMode())
+        if(WeekData.weeksList.length < 1 && !isContentMode())
         {
 			FlxTransitionableState.skipNextTransIn = true;
 			persistentUpdate = false;
@@ -216,7 +240,7 @@ class FreeplayState extends MusicBeatState
 
         }
 
-        if (isPureChartMode())
+        if (isContentMode())
         {
             songs = [];
             Paths.currentChartDirectory = null;
@@ -236,7 +260,7 @@ class FreeplayState extends MusicBeatState
         }
 
         Mods.loadTopMod();
-        if (isPureChartMode())
+        if (isContentMode())
             Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
 
         SongArtConfig.loadAllConfigs();
@@ -551,11 +575,15 @@ class FreeplayState extends MusicBeatState
         musicPlayer = new MusicPlayerLegacy(this);
         add(musicPlayer);
 
-        Mods.currentModDirectory = songs[curSelected].folder;
-        if (isPureChartMode())
+        if (isContentMode())
+        {
+            // Content 模式歌曲的 folder 是空的，资源要按设置里的资源 mod 目录取
+            Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
             setCustomDifficultyList(songs[curSelected]);
+        }
         else
         {
+            Mods.currentModDirectory = songs[curSelected].folder;
             PlayState.storyWeek = songs[curSelected].week;
             Difficulty.loadFromWeek();
         }
@@ -699,10 +727,9 @@ class FreeplayState extends MusicBeatState
     #if sys
     private function loadCustomChartSongs():Void
     {
-        var category:String = Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0
-            ? Paths.currentChartCategory : selectedCustomChartCategory;
-		if ((category == null || category.length == 0) && ClientPrefs.data.customChartFolder != null)
-			category = ClientPrefs.data.customChartFolder;
+        var category:String = Paths.currentChartCategory;
+        if (category == null || category.length == 0) category = ClientPrefs.data.customChartFolder;
+        if (category == null || category.length == 0) category = 'custom';
         for (customSong in CustomChartData.load(category))
         {
             var chart:NewSongMetaData = new NewSongMetaData(customSong.name, -1, 'bf', FlxColor.fromRGB(146, 113, 253));
@@ -732,16 +759,14 @@ class FreeplayState extends MusicBeatState
         var chart:NewSongMetaData = songs[index];
         try
         {
-            Paths.currentChartCategory = chart.customChart.category;
-            if (chart.customChart.sourceFolder != null && chart.customChart.sourceFolder.length > 0)
-                Paths.currentChartCategory = chart.customChart.sourceFolder;
-            selectedCustomChartCategory = Paths.currentChartCategory;
-            Paths.currentChartDirectory = chart.customChart.directory;
-            Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
+            // Paths.currentChartCategory 保持"浏览分类"不动（可能是 'custom' 聚合），
+            // 只写当前这首的目录与变体标志 —— 换回 Freeplay 时才能回到原来那一级列表。
             var difficultyName:String = Difficulty.getString(curDifficulty, false);
             var lowerDifficulty:String = difficultyName == null ? '' : difficultyName.toLowerCase();
-			Paths.currentChartHasVSliceMetadata = chart.customChart.category.toLowerCase() == 'v_slice';
-            Paths.currentChartAudioSuffix = Paths.currentChartHasVSliceMetadata && (lowerDifficulty == 'erect' || lowerDifficulty == 'pico') ? lowerDifficulty : null;
+            var hasVSlice:Bool = chart.customChart.category != null && chart.customChart.category.toLowerCase() == 'v_slice';
+            var audioSuffix:String = hasVSlice && (lowerDifficulty == 'erect' || lowerDifficulty == 'pico') ? lowerDifficulty : null;
+            Paths.setChartContext(Paths.currentChartCategory, chart.customChart.directory, hasVSlice, audioSuffix);
+            Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
             PlayState.chartCategory = Paths.currentChartCategory;
             PlayState.chartDirectory = Paths.currentChartDirectory;
             PlayState.chartHasVSliceMetadata = Paths.currentChartHasVSliceMetadata;
@@ -1297,6 +1322,9 @@ class FreeplayState extends MusicBeatState
             }
             else
             {
+                // 试听普通歌同样要清空上下文，否则下一次进入 PlayState 会继承上一首自定义谱面
+                Paths.setChartContext(null, null);
+                PlayState.clearChartContext();
                 PlayState.SONG = Song.loadFromJson(poop, songLowercase);
             }
             PlayState.isStoryMode = false;
@@ -1455,7 +1483,7 @@ class FreeplayState extends MusicBeatState
 
     override function update(elapsed:Float)
     {
-        if(WeekData.weeksList.length < 1 && !isPureChartMode())
+        if(WeekData.weeksList.length < 1 && !isContentMode())
             return;
         if (musicPlayer == null)
             return;
@@ -1844,12 +1872,15 @@ class FreeplayState extends MusicBeatState
             }
             else
             {
+                // 普通歌：显式清空自定义谱面上下文，别让上一首的残留跟进来
+                Paths.setChartContext(null, null);
+                PlayState.clearChartContext();
                 Song.loadFromJson(poop, songLowercase);
             }
             PlayState.isStoryMode = false;
             PlayState.storyDifficulty = curDifficulty;
 
-            if (!isPureChartMode())
+            if (!isContentMode())
                 trace('CURRENT WEEK: ' + WeekData.getWeekFileName());
         }
         catch(e:haxe.Exception)
@@ -2067,7 +2098,7 @@ class FreeplayState extends MusicBeatState
         if (cardScroller != null && !inModFolderSelector)
             cardScroller.tweenData = targetScroll;
 
-        Mods.currentModDirectory = songs[curSelected].folder;
+        Mods.currentModDirectory = isContentMode() ? ClientPrefs.data.customChartModFolder : songs[curSelected].folder;
         Paths.currentChartDirectory = songs[curSelected].customChart == null ? null : songs[curSelected].customChart.directory;
         if (musicPlayer.playingMusic)
             return;
@@ -2094,7 +2125,7 @@ class FreeplayState extends MusicBeatState
             }
         }
         
-        if (!isPureChartMode())
+        if (!isContentMode())
         {
             PlayState.storyWeek = songs[curSelected].week;
             var weekData = WeekData.weeksLoaded.get(WeekData.weeksList[PlayState.storyWeek]);
@@ -2161,7 +2192,8 @@ class FreeplayState extends MusicBeatState
         missingTextBG.visible = false;
         
         if (songs[curSelected].customChart != null && songs[curSelected].customChart.isValid())
-            modFolderText.text = "Chart Folder:" + Paths.currentChartCategory;
+            modFolderText.text = "Chart Folder:" + (songs[curSelected].customChart.sourceFolder != null
+                ? songs[curSelected].customChart.sourceFolder : Paths.currentChartCategory);
         else
         modFolderText.text = "Mod: " + songs[curSelected].folder;
 
@@ -2303,8 +2335,7 @@ class FreeplayState extends MusicBeatState
     {
         // 队列项持有旧歌曲元数据；筛选变化后必须丢弃，不能让旧任务继续占内存。
         difficultyPreloadQueue = [];
-        selectedCustomChartCategory = Paths.currentChartCategory;
-        if (Paths.currentChartCategory != null && Paths.currentChartCategory.length > 0)
+        if (isContentMode())
         {
             songs = [];
             Paths.currentChartDirectory = null;
@@ -2327,6 +2358,12 @@ class FreeplayState extends MusicBeatState
                 else
                     songs = [];
             }
+        }
+        else
+        {
+            // 没开模组文件夹筛选时也要回到全部歌曲，否则从 Content 切回来会残留谱面列表
+            Paths.currentChartDirectory = null;
+            songs = allSongs.copy();
         }
 
         // 只销毁已物化的卡片，歌曲元数据数组不受影响。
