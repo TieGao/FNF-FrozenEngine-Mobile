@@ -1197,7 +1197,7 @@ function onScrollChange()
 			KEOption.create("Hitsound Volume", "Volume of hit sounds", "hitsoundVolume", "float", 0, 0, 1, 0.1),
 			KEOption.create("Hitsound", "Choose the note hit sound", "hitsound", "string", hitsoundList),
 			KEOption.create("Pause Music", "Choose pause screen music", "pauseMusic", "string", pauseMusicList),
-			KEOption.create("Rating Offset", "Adjust note hit timing", "ratingOffset", "int", 0, -30, 30, 1),
+			KEOption.create("Rating Offset", "Adjust note hit timing", "ratingOffset", "int", 0, -100, 100, 1),
 			windowSettings,
 			KEOption.create("Show Stage", "Show the stage", "showStage", "bool"),
 			KEOption.create("Note Sustains Offset", "Adjust the timing offset for note sustains", "noteSustainsOffset", "float", 0, 0, 1, 0.05),
@@ -1453,4 +1453,4 @@ function onScrollChange()
         super.closeSubState();
         addTouchPad('LEFT_RIGHT', 'A_B');
 	}
-}
+}

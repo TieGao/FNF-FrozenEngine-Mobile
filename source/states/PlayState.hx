@@ -303,6 +303,9 @@ class PlayState extends MusicBeatState
 	public static var chartHasVSliceMetadata:Bool = false;
 	public static var chartAudioSuffix:String = null;
 
+	// 回放时按录制时的 mirror 开关还原谱面；null = 用玩家当前设置
+	public static var replayMirrorOverride:Null<Bool> = null;
+
 	/**
 	 * 清空自定义谱面上下文。加载普通歌 / 剧情歌时必须调用 ——
 	 * 这四个字段是 static，不清就会把上一首自定义谱面的来源残留到下一首，
@@ -614,6 +617,10 @@ class PlayState extends MusicBeatState
         
         trace('Replay mode activated with ${frameRep.replay.frameData.length} entries');
     }
+
+		// 回放时按录制时的 mirror 开关还原谱面；非回放时清空，避免 static 残留到下一首
+		replayMirrorOverride = (loadRep && frameRep != null && frameRep.replay != null)
+			? (frameRep.replay.mirrorNotes == true) : null;
 
 		FlxG.mouse.visible = false;
 	
@@ -2050,7 +2057,11 @@ public function reloadCounterColors()
 		var middleActive:Bool = middleScrollActive(); // coop 下恒 false
 		
 		// Apply mirror notes if enabled
-		if (ClientPrefs.getGameplaySetting('mirrornotes'))
+		// 回放时优先用录制时的 mirror 设置，保证 noteData 与录制一致
+		var mirrorOn:Bool = (replayMirrorOverride != null)
+			? (replayMirrorOverride == true)
+			: (ClientPrefs.getGameplaySetting('mirrornotes') == true);
+		if (mirrorOn)
 		{
 			for (sec in sectionsData)
 			{

@@ -216,9 +216,8 @@ class ModFolderSubstate extends MusicBeatSubstate
 		updateItemsPosition();
 		updateScrollBar();
 
-		
 		addTouchPad("NONE","A_B");
-		
+
 		super.create();
 	}
 
@@ -442,6 +441,13 @@ class ModFolderSubstate extends MusicBeatSubstate
 			return;
 		}
 
+		// 点击面板外空白处退出
+		if (FlxG.mouse.justPressed && !isMouseOverPanel())
+		{
+			close();
+			return;
+		}
+
 		// 「打开文件夹」按钮盖在列表底部，指针在它上面时列表不吃点击 / 不响应悬停
 		var overOpenFolder:Bool = (openFolderButton != null && FlxG.mouse.overlaps(openFolderButton));
 
@@ -516,6 +522,16 @@ class ModFolderSubstate extends MusicBeatSubstate
 	 */
 	function isMouseOverList():Bool
 	{
+		var mouseX = FlxG.mouse.viewX;
+		var mouseY = FlxG.mouse.viewY;
+		return mouseX >= bgList.x && mouseX <= bgList.x + bgList.width &&
+			   mouseY >= bgList.y && mouseY <= bgList.y + bgList.height;
+	}
+
+	/** 面板完整矩形——点它外面即退出。 */
+	function isMouseOverPanel():Bool
+	{
+		if (bgList == null) return false;
 		var mouseX = FlxG.mouse.viewX;
 		var mouseY = FlxG.mouse.viewY;
 		return mouseX >= bgList.x && mouseX <= bgList.x + bgList.width &&
