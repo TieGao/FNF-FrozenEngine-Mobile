@@ -10,6 +10,12 @@ name: Desktop Build
 
 on:
   workflow_dispatch:
+    inputs:
+      dependencies_to_update:
+        description: '填 all = 重新校验 / 安装全部 haxelib；留空（默认）= 直接用缓存里的 .haxelib/，跳过安装'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -55,3 +61,4 @@ jobs:
         buildArgs: ${{ matrix.buildArgs }}
         artifactName: ${{ matrix.artifactName }}
         artifactPath: ${{ matrix.artifactPath }}
+        dependencies_to_update: ${{ inputs.dependencies_to_update }}
