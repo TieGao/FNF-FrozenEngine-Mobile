@@ -40,7 +40,7 @@ class Difficulty
 			case 'normal':             0xFFFFE228;
 			case 'hard':               0xFFFF286C;
 			case 'erect':              0xFF28C3FF;
-			case 'pico':               0xFFF29B30;
+			case 'pico', 'pico easy', 'pico normal', 'pico hard': 0xFFF29B30;
 			case 'nightmare', 'hmnf':  0xFFB91C1C;
 			default:                   0xFF888888;
 		}
@@ -137,7 +137,13 @@ class Difficulty
 		for (base in defaultList)
 			if (base.toLowerCase() == lower) return null;
 
-		// 其余难度名即变体目录后缀，保留 week 的 difficulties 里写的原始大小写
-		return name;
+		// 变体目录名的大小写必须与磁盘一致（磁盘是 songs/<歌>-Erect）。
+		// 难度名可能来自 metadata 的小写形式（erect），直接返回 name 会 miss 掉目录、静默放成原曲。
+		return switch (lower)
+		{
+			case 'erect': 'Erect';
+			case 'pico', 'pico easy', 'pico normal', 'pico hard': 'Pico';
+			default: name;
+		}
 	}
 }

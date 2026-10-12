@@ -1,17 +1,16 @@
 name: Cache Release
 
-# everything-release.yml 的带缓存版：矩阵、Releaser、产物完全一样，只把编译那步换成
-# cache-build.yml（带 hxcpp 编译缓存）。7 个 target 全包，移动端也在里面。
+# main-release.yml 的带缓存版：矩阵、Releaser、产物完全一样，只把编译那步换成
+# cache-build.yml（带 hxcpp 编译缓存）。
 #
 # 两个版本并存，按需要挑：
-#   everything-release.yml / mobile-release.yml   全量重编。产物不受缓存状态影响，稳。
-#   cache-release.yml                             复用 .hxcpp_cache，快得多。缓存是内容寻址的，
-#                                                 命中与否不影响产物内容，但"这次发出去的包
-#                                                 用了多少缓存"就成了一个变量 —— 所以默认发版
-#                                                 还是走原来那两个。
+#   main-release.yml    全量重编。产物不受缓存状态影响，稳。
+#   cache-release.yml   复用 .hxcpp_cache，快得多。缓存是内容寻址的，命中与否不影响产物内容，
+#                       但"这次发出去的包用了多少缓存"就成了一个变量 —— 所以默认发版还是走
+#                       main-release.yml，这个留着急用时用。
 #
-# 注意：和 everything-release.yml 打的是同一个 tag（devbuild-<commit_hash>）。同一次提交
-# 别两边都跑，后跑的那个会往同一个 release 里覆盖资产。
+# 注意：两个 workflow 打的是同一个 tag（devbuild-<commit_hash>）。同一次提交别两边都跑，
+# 后跑的那个会往同一个 release 里覆盖资产。要对比就先删掉上一个 release。
 #
 # 缓存机制、key 的形状、清理入口见 hxcpp-cache.yml。
 
@@ -56,18 +55,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: Android
-            os: macos-latest
-            buildArgs: "android -final"
-            setupCommand: sh ./setup/unix.sh
-            artifactName: androidBuild
-            artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
-          - name: iOS
-            os: macos-latest
-            setupCommand: sh ./setup/unix.sh
-            buildArgs: "ios -final -nosign"
-            artifactName: iOSBuild
-            artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
           - name: Windows
             os: windows-latest
             buildArgs: windows
@@ -112,24 +99,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
-      - name: Download Android Build
-        uses: actions/download-artifact@main
-        with:
-           name: androidBuild
-           path: /home/runner
-
-      - name: Move Android File
-        run: mv /home/runner/${{ env.PROJECT_NAME }}-release.apk /home/runner/${{ env.PROJECT_NAME }}-Android.apk
-
-      - name: Download iOS Build
-        uses: actions/download-artifact@main
-        with:
-           name: iOSBuild
-           path: ${{ github.workspace }}
-
-      - name: Move iOS File
-        run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
-
       - name: Download Windows Build
         uses: actions/download-artifact@main
         with:
@@ -182,6 +151,4 @@ jobs:
           tag_name: "devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}"
           prerelease: true
           files: |
-            /home/runner/*.apk
             /home/runner/*.zip
-            /home/runner/*.ipa

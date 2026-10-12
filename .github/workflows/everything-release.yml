@@ -1,6 +1,21 @@
 name: Everything + Release
-on: 
+
+# 按主版 main-release.yml 的流程重做：矩阵 -> build.yml(干净复用) -> Releaser -> extra-content。
+# 矩阵 = 移动端两条（Android / iOS）+ 桌面端五条（Windows / Linux x86_64 / Linux ARM64 /
+# macOS x86_64 / macOS ARM64），即"什么都发一遍"。
+#
+# exclude_extra 语义同主版：
+#   - 桌面端：打包（zip）前从产物目录 rm 掉 content/VanillaSongs 四类；
+#   - 移动端：apk / ipa 无法打包后修改，改用编译期 -D NO_EXTRA_BASE_GAME。
+# 被剔除的额外内容数据由 extra-content.yml 以独立 zip 挂在同一个 release 上。
+
+on:
   workflow_dispatch:
+    inputs:
+      exclude_extra:
+        description: '基础包剔除额外内容数据（content/VanillaSongs 四类，另行由 extra-content.yml 打包）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -32,50 +47,66 @@ jobs:
         run: |
           commit_hash=${GITHUB_SHA::7}
           echo "Latest commit hash is $commit_hash"
-          echo "::set-output name=COMMIT_HASH::$commit_hash"
+          echo "COMMIT_HASH=$commit_hash" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.name }}
     needs: get-commit-hash
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # ================= Android =================
           - name: Android
             os: macos-latest
             buildArgs: "android -final"
+            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
+
+          # ================= iOS =================
           - name: iOS
             os: macos-latest
-            setupCommand: sh ./setup/unix.sh
             buildArgs: "ios -final -nosign"
+            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
+            setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
+
+          # ================= Windows =================
           - name: Windows
             os: windows-latest
             buildArgs: windows
             setupCommand: .\"setup/windows.bat"
             artifactName: windowsBuild-x86_64
             artifactPath: export\release\windows\bin\*
+
+          # ================= Linux x86_64 =================
           - name: Linux
             os: ubuntu-latest
             buildArgs: linux
             setupCommand: sh ./setup/unix.sh
             artifactName: linuxBuild-x86_64
             artifactPath: export/release/linux/bin/*
+
+          # ================= Linux ARM64 =================
           - name: Linux ARM64
             os: ubuntu-latest
             buildArgs: "linux -arm64 -D HXCPP_ARM64"
             setupCommand: sh ./setup/unix.sh
             artifactName: linuxBuild-arm64
             artifactPath: export/release/linux/bin/*
+
+          # ================= macOS x86_64 =================
           - name: macOS x86_64
-            os: macos-latest
+            os: macos-26
             setupCommand: sh ./setup/unix.sh
             buildArgs: "mac -64 -D HXCPP_M64"
             artifactName: macOSBuild-x86_64
             artifactPath: export/release/macos/bin/*
+
+          # ================= macOS ARM64 =================
           - name: macOS ARM64
             os: macos-latest
             setupCommand: sh ./setup/unix.sh
@@ -87,7 +118,7 @@ jobs:
         name: ${{ matrix.name }}
         os: ${{ matrix.os }}
         setupCommand: ${{ matrix.setupCommand }}
-        buildArgs: ${{ matrix.buildArgs }}
+        buildArgs: ${{ inputs.exclude_extra && matrix.noExtraArgs && format('{0} {1}', matrix.buildArgs, matrix.noExtraArgs) || matrix.buildArgs }}
         artifactName: ${{ matrix.artifactName }}
         artifactPath: ${{ matrix.artifactPath }}
 
@@ -96,6 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
+      # ---------------- Android ----------------
       - name: Download Android Build
         uses: actions/download-artifact@main
         with:
@@ -105,6 +137,7 @@ jobs:
       - name: Move Android File
         run: mv /home/runner/${{ env.PROJECT_NAME }}-release.apk /home/runner/${{ env.PROJECT_NAME }}-Android.apk
 
+      # ---------------- iOS ----------------
       - name: Download iOS Build
         uses: actions/download-artifact@main
         with:
@@ -114,51 +147,77 @@ jobs:
       - name: Move iOS File
         run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
 
+      # ---------------- Windows ----------------
       - name: Download Windows Build
         uses: actions/download-artifact@main
         with:
            name: windowsBuild-x86_64
            path: ${{ github.workspace }}/WindowsBuild
-
       - name: Pack Windows Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows.zip ${{ github.workspace }}/WindowsBuild/*  
+        run: |
+          cd "${{ github.workspace }}/WindowsBuild"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows.zip .
 
+      # ---------------- Linux x86_64 ----------------
       - name: Download Linux Build
         uses: actions/download-artifact@main
         with:
            name: linuxBuild-x86_64
            path: ${{ github.workspace }}/LinuxBuild
-
       - name: Pack Linux Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip ${{ github.workspace }}/LinuxBuild/*    
-      
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip .
+
+      # ---------------- Linux ARM64 ----------------
       - name: Download Linux ARM 64 Build
         uses: actions/download-artifact@main
         with:
            name: linuxBuild-arm64
            path: ${{ github.workspace }}/LinuxBuild-arm64
-
       - name: Pack Linux ARM64 Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux-arm64.zip ${{ github.workspace }}/LinuxBuild-arm64/*   
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild-arm64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux-arm64.zip .
 
+      # ---------------- macOS x86_64 ----------------
       - name: Download macOS x86_64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-x86_64
            path: ${{ github.workspace }}/macOSBuild-x86_64
-
       - name: Pack macOS x86_64 Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip ${{ github.workspace }}/macOSBuild-x86_64/*     
-      
+        run: |
+          cd "${{ github.workspace }}/macOSBuild-x86_64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip .
+
+      # ---------------- macOS ARM64 ----------------
       - name: Download macOS ARM64 Build
         uses: actions/download-artifact@main
         with:
            name: macOSBuild-arm64
            path: ${{ github.workspace }}/macOSBuild-arm64
-
       - name: Pack macOS ARM64 Build
-        run: zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip ${{ github.workspace }}/macOSBuild-arm64/*    
+        run: |
+          cd "${{ github.workspace }}/macOSBuild-arm64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip .
 
+      # ---------------- Publish ----------------
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
         with:
@@ -167,5 +226,14 @@ jobs:
           prerelease: true
           files: |
             /home/runner/*.apk
-            /home/runner/*.zip
             /home/runner/*.ipa
+            /home/runner/*.zip
+
+  # ---------------- Extra Content ----------------
+  extra-content:
+    needs: Releaser
+    permissions:
+      contents: write
+    uses: ./.github/workflows/extra-content.yml
+    with:
+      tag: devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}

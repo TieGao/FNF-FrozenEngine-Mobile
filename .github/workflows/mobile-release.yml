@@ -1,13 +1,22 @@
 name: Mobile + Release
+
+# 按主版 main-release.yml 的流程重做：矩阵 -> build.yml(干净复用) -> Releaser -> extra-content。
+# 与主版唯一的结构性差异是矩阵里放的是移动端两条（Android / iOS）而不是桌面端。
+#
+# exclude_extra 语义：
+#   - 桌面端（见 everything-release.yml）：打包前从产物目录 rm 掉 content/VanillaSongs 四类，
+#     与主版完全一致。
+#   - 移动端：apk / ipa 在编译阶段就已成型，无法像桌面那样"打包后再删"，
+#     因此改用编译期 -D NO_EXTRA_BASE_GAME（Project.xml 的 BASE_GAME_ERECT_CONTENT
+#     等 define 受它控制，WeekData 据此不注册额外内容包）。
+#
+# 额外内容数据另外由 extra-content.yml 以独立 zip 形式挂在同一个 release 上。
+
 on:
   workflow_dispatch:
     inputs:
-      no_erect:
-        description: '打包时剔除 Erect 变体难度（省约 255MB 音频资源，包体明显变小）'
-        type: boolean
-        default: false
-      no_extra_base_game:
-        description: '剔除全部额外变体难度（Erect / Pico / BF / Collab，不含原版 week 资源）'
+      exclude_extra:
+        description: '基础包剔除额外内容数据（content/VanillaSongs 四类，另行由 extra-content.yml 打包）'
         type: boolean
         default: false
 
@@ -24,8 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit_hash: ${{ steps.get_commit_hash.outputs.COMMIT_HASH }}
-      no_erect_flag: ${{ steps.build_flags.outputs.NO_ERECT_FLAG }}
-      no_extra_flag: ${{ steps.build_flags.outputs.NO_EXTRA_FLAG }}
     steps:
       - name: Check Repository
         run: |
@@ -43,41 +50,30 @@ jobs:
         run: |
           commit_hash=${GITHUB_SHA::7}
           echo "Latest commit hash is $commit_hash"
-          echo "::set-output name=COMMIT_HASH::$commit_hash"
-
-      # 把布尔开关翻译成 lime 的 -D 编译参数。
-      # Project.xml 里 BASE_GAME_ERECT 定义为 unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_ERECT"，
-      # 所以 NO_EXTRA_BASE_GAME 已经隐含关掉 Erect，不需要再补 NO_BASE_GAME_ERECT。
-      - name: Resolve variant flags
-        id: build_flags
-        run: |
-          FLAGS=""
-          if [ "${{ inputs.no_erect }}" = "true" ]; then
-            FLAGS="-D NO_BASE_GAME_ERECT"
-          fi
-          if [ "${{ inputs.no_extra_base_game }}" = "true" ]; then
-            FLAGS="$FLAGS -D NO_EXTRA_BASE_GAME"
-          fi
-          echo "Compile flags:$FLAGS"
-          echo "::set-output name=NO_ERECT_FLAG::$FLAGS"
-          echo "::set-output name=NO_EXTRA_FLAG::$FLAGS"
+          echo "COMMIT_HASH=$commit_hash" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.name }}
     needs: get-commit-hash
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # ================= Android =================
           - name: Android
             os: macos-latest
             buildArgs: "android -final"
+            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
+
+          # ================= iOS =================
           - name: iOS
             os: macos-latest
-            setupCommand: sh ./setup/unix.sh
             buildArgs: "ios -final -nosign"
+            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
+            setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
     uses: ./.github/workflows/build.yml
@@ -85,7 +81,7 @@ jobs:
         name: ${{ matrix.name }}
         os: ${{ matrix.os }}
         setupCommand: ${{ matrix.setupCommand }}
-        buildArgs: ${{ needs.get-commit-hash.outputs.no_erect_flag != '' && format('{0} {1}', matrix.buildArgs, needs.get-commit-hash.outputs.no_erect_flag) || matrix.buildArgs }}
+        buildArgs: ${{ inputs.exclude_extra && format('{0} {1}', matrix.buildArgs, matrix.noExtraArgs) || matrix.buildArgs }}
         artifactName: ${{ matrix.artifactName }}
         artifactPath: ${{ matrix.artifactPath }}
 
@@ -94,6 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
+      # ---------------- Android ----------------
       - name: Download Android Build
         uses: actions/download-artifact@main
         with:
@@ -103,6 +100,7 @@ jobs:
       - name: Move Android File
         run: mv /home/runner/${{ env.PROJECT_NAME }}-release.apk /home/runner/${{ env.PROJECT_NAME }}-Android.apk
 
+      # ---------------- iOS ----------------
       - name: Download iOS Build
         uses: actions/download-artifact@main
         with:
@@ -112,6 +110,7 @@ jobs:
       - name: Move iOS File
         run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
 
+      # ---------------- Publish ----------------
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
         with:
@@ -120,5 +119,13 @@ jobs:
           prerelease: true
           files: |
             /home/runner/*.apk
-            /home/runner/*.zip
             /home/runner/*.ipa
+
+  # ---------------- Extra Content ----------------
+  extra-content:
+    needs: Releaser
+    permissions:
+      contents: write
+    uses: ./.github/workflows/extra-content.yml
+    with:
+      tag: devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}

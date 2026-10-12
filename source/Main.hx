@@ -149,6 +149,11 @@ class Main extends Sprite
 		#end
 		Mods.loadTopMod();
 
+		// 首次启动时把 content/CustomCharts 建出来，用户可直接往里放谱面。
+		#if sys
+		Paths.ensureContentDirs();
+		#end
+
 		Highscore.load();
 
 
@@ -482,4 +487,4 @@ class Main extends Sprite
 			ClientPrefs.data.sessionStartTime = 0;
 		}
 	}
-}
+}

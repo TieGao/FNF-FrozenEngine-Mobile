@@ -1,0 +1,191 @@
+name: Main + Release
+on:
+  workflow_dispatch:
+    inputs:
+      exclude_extra:
+        description: 'Base 包剔除额外内容数据（content/VanillaSongs 四类）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  discussions: write
+
+env:
+  PROJECT_NAME: FrozenEngine
+  REPO_PATH: TieGao/FNF-FrozenEngine-Mobile
+
+jobs:
+  get-commit-hash:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_hash: ${{ steps.get_commit_hash.outputs.COMMIT_HASH }}
+    steps:
+      - name: Check Repository
+        run: |
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "REPO_PATH: ${{ env.REPO_PATH }}"
+          if [[ "$GITHUB_REPOSITORY" != "${{ env.REPO_PATH }}" ]]; then
+            echo "Doesn't seem to be correct, returning SIGABRT..."
+            exit 6
+          else
+            echo "Seems to be correct..."
+          fi
+
+      - name: Get latest commit hash
+        id: get_commit_hash
+        run: |
+          commit_hash=${GITHUB_SHA::7}
+          echo "Latest commit hash is $commit_hash"
+          echo "COMMIT_HASH=$commit_hash" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: get-commit-hash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ================= Windows =================
+          - name: Windows
+            os: windows-latest
+            buildArgs: windows
+            setupCommand: .\"setup/windows.bat"
+            artifactName: windowsBuild-x86_64
+            artifactPath: export\release\windows\bin\*
+
+          # ================= Linux x86_64 =================
+          - name: Linux
+            os: ubuntu-latest
+            buildArgs: linux
+            setupCommand: sh ./setup/unix.sh
+            artifactName: linuxBuild-x86_64
+            artifactPath: export/release/linux/bin/*
+
+          # ================= Linux ARM64 =================
+          - name: Linux ARM64
+            os: ubuntu-latest
+            buildArgs: "linux -arm64 -D HXCPP_ARM64"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: linuxBuild-arm64
+            artifactPath: export/release/linux/bin/*
+
+          # ================= macOS x86_64 =================
+          - name: macOS x86_64
+            os: macos-26
+            setupCommand: sh ./setup/unix.sh
+            buildArgs: "mac -64 -D HXCPP_M64"
+            artifactName: macOSBuild-x86_64
+            artifactPath: export/release/macos/bin/*
+
+          # ================= macOS ARM64 =================
+          - name: macOS ARM64
+            os: macos-latest
+            setupCommand: sh ./setup/unix.sh
+            buildArgs: "mac -arm64 -D HXCPP_ARM64"
+            artifactName: macOSBuild-arm64
+            artifactPath: export/release/macos/bin/*
+    uses: ./.github/workflows/build.yml
+    with:
+        name: ${{ matrix.name }}
+        os: ${{ matrix.os }}
+        setupCommand: ${{ matrix.setupCommand }}
+        buildArgs: ${{ matrix.buildArgs }}
+        artifactName: ${{ matrix.artifactName }}
+        artifactPath: ${{ matrix.artifactPath }}
+
+  Releaser:
+    needs: [get-commit-hash, build]
+    runs-on: ubuntu-latest
+    permissions: write-all
+    outputs:
+      tag: devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}
+    steps:
+      # ---------------- Windows ----------------
+      - name: Download Windows Build
+        uses: actions/download-artifact@main
+        with:
+           name: windowsBuild-x86_64
+           path: ${{ github.workspace }}/WindowsBuild
+      - name: Pack Windows Build
+        run: |
+          cd "${{ github.workspace }}/WindowsBuild"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows.zip .
+
+      # ---------------- Linux x86_64 ----------------
+      - name: Download Linux Build
+        uses: actions/download-artifact@main
+        with:
+           name: linuxBuild-x86_64
+           path: ${{ github.workspace }}/LinuxBuild
+      - name: Pack Linux Build
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux.zip .
+
+      # ---------------- Linux ARM64 ----------------
+      - name: Download Linux ARM 64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: linuxBuild-arm64
+           path: ${{ github.workspace }}/LinuxBuild-arm64
+      - name: Pack Linux ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild-arm64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Linux-arm64.zip .
+
+      # ---------------- macOS x86_64 ----------------
+      - name: Download macOS x86_64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: macOSBuild-x86_64
+           path: ${{ github.workspace }}/macOSBuild-x86_64
+      - name: Pack macOS x86_64 Build
+        run: |
+          cd "${{ github.workspace }}/macOSBuild-x86_64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-x86_64.zip .
+
+      # ---------------- macOS ARM64 ----------------
+      - name: Download macOS ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: macOSBuild-arm64
+           path: ${{ github.workspace }}/macOSBuild-arm64
+      - name: Pack macOS ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/macOSBuild-arm64"
+          if [ "${{ inputs.exclude_extra }}" = "true" ]; then
+            rm -rf content/VanillaSongs/Erect content/VanillaSongs/PicoMix content/VanillaSongs/BFMix content/VanillaSongs/Collab
+          fi
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-macOS-arm64.zip .
+
+      # ---------------- Publish ----------------
+      - name: Publish The Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "DevBuild ${{ needs.get-commit-hash.outputs.commit_hash }}"
+          tag_name: "devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}"
+          prerelease: true
+          files: |
+            /home/runner/*.zip
+
+  # ---------------- Extra Content ----------------
+  extra-content:
+    needs: Releaser
+    permissions:
+      contents: write
+    uses: ./.github/workflows/extra-content.yml
+    with:
+      tag: devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}
