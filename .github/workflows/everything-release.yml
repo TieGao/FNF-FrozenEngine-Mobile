@@ -4,9 +4,12 @@ name: Everything + Release
 # 矩阵 = 移动端两条（Android / iOS）+ 桌面端五条（Windows / Linux x86_64 / Linux ARM64 /
 # macOS x86_64 / macOS ARM64），即"什么都发一遍"。
 #
-# exclude_extra 语义同主版：
-#   - 桌面端：打包（zip）前从产物目录 rm 掉 content/VanillaSongs 四类；
-#   - 移动端：apk / ipa 无法打包后修改，改用编译期 -D NO_EXTRA_BASE_GAME。
+# exclude_extra 语义：
+#   - 桌面端：打包（zip）前从产物目录 rm 掉 content/VanillaSongs 四类，与主版一致；
+#   - 移动端：apk / ipa 无法打包后修改，改用编译期开关（content/VanillaSongs 四类已由
+#     Project.xml 里的 BASE_GAME_* 宏条件打包）：
+#         -D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB
+#     剔的是数据不是代码：Erect 的 9 个 *Erect.hx 舞台类由 BASE_GAME_ERECT 把关，永远编译进包。
 # 被剔除的额外内容数据由 extra-content.yml 以独立 zip 挂在同一个 release 上。
 
 on:
@@ -60,7 +63,7 @@ jobs:
           - name: Android
             os: macos-latest
             buildArgs: "android -final"
-            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
+            noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
@@ -69,7 +72,7 @@ jobs:
           - name: iOS
             os: macos-latest
             buildArgs: "ios -final -nosign"
-            noExtraArgs: "-D NO_EXTRA_BASE_GAME"
+            noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
             setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
