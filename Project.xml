@@ -104,26 +104,6 @@
 		<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
 	</section>
 
-	<!-- erect 混音已迁到 content/VanillaSongs/Erect/（运行时内容包，见下方的 content 条件打包段）。
-	     BASE_GAME_ERECT 宏仍然保留，只用来编译 9 个 *Erect.hx 舞台类；
-	     舞台 / 角色 / 图片 / 谱面 / 音轨 / 事件等数据一律从内容包读取，不再走 assets 合流。 -->
-
-	<section if="BASE_GAME_PICO">
-		<assets path="assets/base_game_pico" rename="assets" exclude="*.ogg" if="web"/>
-		<assets path="assets/base_game_pico" rename="assets" exclude="*.mp3"  unless="web"/>
-	</section>
-
-	<section if="BASE_GAME_BF">
-		<assets path="assets/base_game_bf" rename="assets" exclude="*.ogg" if="web"/>
-		<assets path="assets/base_game_bf" rename="assets" exclude="*.mp3"  unless="web"/>
-	</section>
-
-	<!-- 联动内容（原版目前只有 LE SSERAFIM：关卡 sserafim / 曲 spaghetti / 舞台 / 角色 / 过场） -->
-	<section if="BASE_GAME_COLLAB">
-		<assets path="assets/base_game_collab" rename="assets" exclude="*.ogg" if="web"/>
-		<assets path="assets/base_game_collab" rename="assets" exclude="*.mp3"  unless="web"/>
-	</section>
-
 	<define name="CHECK_FOR_UPDATES" if="desktop"/>
 
 	<section if="MODS_ALLOWED">
@@ -140,6 +120,7 @@
 	     CustomCharts / NMVMODS 属用户内容，不随变体开关走，始终打包。 -->
 	<assets path='content/CustomCharts' rename='content/CustomCharts' embed='false' />
 	<assets path='content/NMVMODS'     rename='content/NMVMODS'     embed='false' />
+	<assets path='content/readme.txt'  rename='content/readme.txt'  embed='false' />
 	<section if="BASE_GAME_ERECT_CONTENT">
 		<assets path='content/VanillaSongs/Erect' rename='content/VanillaSongs/Erect' embed='false' />
 	</section>
