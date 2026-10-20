@@ -632,6 +632,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var noteSelectionSine:Float = 0;
 	var selectedNotes:Array<MetaNote> = [];
 	var ignoreClickForThisFrame:Bool = false;
+	/** 本帧是否已有编辑器 UI 控件响应了鼠标事件（UIEvent 里置位，update 开头清掉） */
+	var uiEventThisFrame:Bool = false;
 	var outputAlpha:Float = 0;
 	var songFinished:Bool = false;
 
@@ -650,6 +652,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			lastFocus = PsychUIInputText.focusOn;
 			return;
 		}
+
+		uiEventThisFrame = false; //UI 控件在本帧 super.update 里重新置位
 
 		for (num => key in keysArray)
 			_keysPressedBuffer[num] = FlxG.keys.checkStatus(key, JUST_PRESSED);
@@ -1204,7 +1208,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			updateSelectionBox();
 		}
 		
-		if(FlxG.mouse.justPressed && (FlxG.mouse.overlaps(mainBox.bg) || FlxG.mouse.overlaps(infoBox.bg)))
+		// 点在编辑器 UI 面板上时，本帧不要当成"点空白处"去取消选中的音符/事件。
+		// 必须显式传 camUI：不传的话 FlxPointer 用 FlxG.camera 换算鼠标世界坐标，而面板自身相机是 camUI，
+		// 而主相机 scroll.y 被 scrollY 顶着走、camUI 不动，两个坐标空间对不上 —— 谱面一滚动 overlaps 就恒为 false，
+		// 于是点任何 UI 都会清空选中（按钮是松开才触发的，选中已先被清掉，所以事件加不上、音符改不动）。
+		if(FlxG.mouse.justPressed && (isMouseOverUI(mainBox) || isMouseOverUI(infoBox) || isMouseOverUI(upperBox)))
 			ignoreClickForThisFrame = true;
 
 		var minX:Float = gridBg.x;
@@ -1527,7 +1535,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					movingNotesLastY = dummyArrow.y;
 				}
 			}
-			else if(FlxG.mouse.justPressed && !ignoreClickForThisFrame)
+			else if(FlxG.mouse.justPressed && !ignoreClickForThisFrame && !uiEventThisFrame) //UI 已经吃掉这一下就别在谱面上加音符
 			{
 				if(FlxG.keys.pressed.CONTROL && FlxG.mouse.justPressed)
 				{
@@ -1645,7 +1653,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 		else if(!ignoreClickForThisFrame)
 		{
-			if(FlxG.mouse.justPressed)
+			// 本帧有任何 UI 控件响应了点击（数值步进器、复选框、下拉项…都只在按下时触发），
+			// 说明这一下是点在 UI 上，别当成"点空白取消选中"。
+			if(FlxG.mouse.justPressed && !uiEventThisFrame)
 				resetSelectedNotes();
 
 			dummyArrow.visible = false;
@@ -1836,6 +1846,14 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			dataCopy[1] = eventGrp;
 		}
 		return dataCopy;
+	}
+
+	// 是否指在某个 UI 面板上（面板背景缩到最小化时只剩标签栏高度，所以直接用 bg 的实际矩形）
+	function isMouseOverUI(box:PsychUIBox):Bool
+	{
+		if(box == null || box.bg == null || !box.exists || !box.visible || !box.bg.exists) return false;
+
+		return FlxG.mouse.overlaps(box.bg, camUI);
 	}
 
 	function updateScrollY()
@@ -2157,6 +2175,47 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		Conductor.bpm = PlayState.SONG.bpm;
 	}
 
+	/**
+	 * 变体谱面（bopeebo-pico-normal.json 等）的内嵌 events 一律为空，事件放在外置
+	 * events-<变体>.json 里，PlayState 在 generateSong 时会按变体后缀去找。
+	 * 编辑器之前只读谱面本体，导致从暂停菜单进编辑器或直接打开变体谱面时事件栏是空的。
+	 * 这里复刻 PlayState 的查找顺序：events-<变体>.json 优先，读不到再回退 events.json。
+	 * 只在谱面内嵌事件为空时合并，避免与已嵌入的事件叠加。
+	 */
+	function mergeExternalEvents(song:SwagSong)
+	{
+		if(song == null || song.events == null || song.events.length > 0) return;
+
+		var eventsChart:SwagSong = null;
+		var eventVariant:String = Difficulty.getAudioVariant();
+		var eventSuffix:String = (eventVariant != null && eventVariant.length > 0) ? '-' + eventVariant.toLowerCase() : null;
+		if (eventSuffix != null)
+		{
+			// getChart 对缺失文件是抛异常，两段 try 分开写才能正常回退
+			try { eventsChart = Song.getChart('events' + eventSuffix, song.song); }
+			catch (e:Dynamic) {}
+		}
+		if (eventsChart == null)
+		{
+			try { eventsChart = Song.getChart('events', song.song); }
+			catch (e:Dynamic) {}
+		}
+
+		if(eventsChart != null && eventsChart.events != null && eventsChart.events.length > 0)
+		{
+			var count:Int = 0;
+			for (event in eventsChart.events)
+			{
+				if(event == null) continue;
+				song.events.push(event);
+				count++;
+			}
+			var msg:String = 'Merged $count event(s) from external events file${eventSuffix != null ? ' (variant$eventSuffix)' : ''}.';
+			if(outputTxt != null) showOutput(msg);
+			else trace(msg);
+		}
+	}
+
 	function loadMusic(?killAudio:Bool = false)
 	{
 		setSongPlaying(false);
@@ -2295,6 +2354,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	function reloadNotes()
 	{
+		mergeExternalEvents(PlayState.SONG);
 		selectedNotes = [];
 		for (note in notes) if(note != null) note.destroy();
 		for (event in events) if(event != null) event.destroy();
@@ -5502,6 +5562,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	public function UIEvent(id:String, sender:Dynamic)
 	{
 		//trace(id, sender);
+		uiEventThisFrame = true;
 		switch(id)
 		{
 			case PsychUIButton.CLICK_EVENT, PsychUIDropDownMenu.CLICK_EVENT:
@@ -5868,7 +5929,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			}
 		}
 
-		for (directory in Mods.directoriesWithFile(Paths.getSharedPath(), mainFolder))
+		for (directory in Mods.directoriesWithContentShared(mainFolder))
 		{
 			for (file in Paths.readDirectory(directory))
 			{

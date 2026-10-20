@@ -10,7 +10,7 @@ import flixel.FlxObject;
 #end
 class CoolUtil
 {
-	public static function checkForUpdates(url:String = null):String {
+	public static function checkForUpdates(url:String = null, ?onResult:String->Void):String {
 		if (url == null || url.length == 0)
 			url = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitBeta.txt";
 			else
@@ -26,6 +26,7 @@ class CoolUtil
 				if(newVersion != version) {
 					trace('versions arent matching! please update');
 					version = newVersion;
+					if (onResult != null) onResult(newVersion);
 					http.onData = null;
 					http.onError = null;
 					http = null;
@@ -61,6 +62,7 @@ class CoolUtil
 
 	inline public static function colorFromString(color:String):FlxColor
 	{
+		if(color == null) return FlxColor.WHITE; // StageData objects 缺 color 字段时为 null，release 下 EReg.split(null) 是原生段错误
 		var hideChars = ~/[\t\n\r]/;
 		var color:String = hideChars.split(color).join('').trim();
 		if(color.startsWith('0x')) color = color.substring(color.length - 6);
