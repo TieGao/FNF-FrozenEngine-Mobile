@@ -976,7 +976,7 @@ class LoadReplaySubState extends MusicBeatSubstate
             {
                 var diffLower = rep.replay.difficultyName.toLowerCase();
                 if (diffLower.indexOf('easy') >= 0) difficultyID = 0;
-                else if (diffLower.indexOf('normal') >= 0 || diffLower.indexOf('standard') >= 0) difficultyID = 1;
+                else if (diffLower.indexOf('normal') >= 0)difficultyID = 1;
                 else if (diffLower.indexOf('hard') >= 0) difficultyID = 2;
                 else difficultyID = rep.replay.songDiff;
             }
