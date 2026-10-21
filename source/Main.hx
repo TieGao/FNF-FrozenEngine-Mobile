@@ -96,6 +96,9 @@ class Main extends Sprite
 
 	private function setupGame():Void
 	{
+		// 尽早接管 trace，加载阶段的日志也能进屏幕缓冲（显示开关见 Advanced → Show Console Log）
+		debug.ScreenLog.install();
+
 		// 从 1.0.1 保留的自动缩放计算
 		var stageWidth:Int = Lib.current.stage.stageWidth;
 		var stageHeight:Int = Lib.current.stage.stageHeight;
@@ -227,6 +230,9 @@ class Main extends Sprite
 		
 		// 使用计算后的 width/height 和 zoom
 		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
+
+		// 全局屏幕日志：挂在 FlxG.game 上，切换 state 不会跟着消失
+		debug.ScreenLog.attach();
 
 		// 应用保存的渲染分辨率（如果设置）并尝试改善字体清晰度
 		#if !mobile
@@ -404,9 +410,14 @@ class Main extends Sprite
 	 * @param resizeWindow 是否调整物理窗口大小（DPI 模式下应当为 false）
 	 *
 	 * 关键修复：不再内部重复判断 useDpiSettings，完全由调用方通过 resizeWindow 决定。
+	 * mobile 编译目标下整个函数直接 return，不做任何 resize。
 	 */
 	public static function applyRenderResolution(?resIdx:Dynamic = -1, ?wideScreen:Bool = null, ?resizeWindow:Bool = true):Void
 	{
+		#if mobile
+		// 移动端编译目标：完全不执行 resize（窗口尺寸 / 逻辑尺寸 / 缩放模式 / 缓存重建）
+		return;
+		#else
 		if (ClientPrefs.data == null) return;
 
 		if (resIdx == null || (Std.isOfType(resIdx, Int) && (cast resIdx:Int) == -1))
@@ -461,6 +472,7 @@ class Main extends Sprite
 			resetSpriteCache(FlxG.game);
 		}
 		catch (e:Dynamic) {}
+		#end
 	}
 	#end
 
@@ -472,8 +484,11 @@ class Main extends Sprite
 	}
 
 	function toggleFullScreen(event:KeyboardEvent) {
+		#if !mobile
+		// 移动端始终全屏，切换全屏会触发窗口 resize，直接不编译
 		if (Controls.instance.justReleased('fullscreen'))
 			FlxG.fullscreen = !FlxG.fullscreen;
+		#end
 	}
 	
 	public static function saveSessionPlaytime():Void
@@ -487,4 +502,4 @@ class Main extends Sprite
 			ClientPrefs.data.sessionStartTime = 0;
 		}
 	}
-}
+}

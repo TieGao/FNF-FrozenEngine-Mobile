@@ -51,9 +51,11 @@ class GraphicsData
         sub.add(new Option('Low Quality', 'Reduce graphics for performance', 'lowQuality', BOOL));
         sub.add(new Option('Anti-Aliasing', 'Smoother visuals', 'antialiasing', BOOL));
 
+        #if !mobile
         var dpiOpt = new Option('DPI Scale', 'Scale the game based on your screen\'s DPI', 'useDpiSettings', BOOL);
         dpiOpt.onChange = checkAndApplyResolution;
         sub.add(dpiOpt);
+        #end
 
         sub.add(new Option('Shaders', 'Enable shader effects', 'shaders', BOOL));
 
@@ -101,8 +103,12 @@ class GraphicsData
 
     public static inline function isDpi():Bool
     {
+        #if mobile
+        return false;
+        #else
         if (ClientPrefs.data == null) return false;
         return cast Reflect.field(ClientPrefs.data, 'useDpiSettings');
+        #end
     }
 
     public static function getResolutionLabels(?wide:Bool = null):Array<String>
@@ -137,6 +143,10 @@ class GraphicsData
     // ========================================================
     static function _tryHook():Void
     {
+        #if mobile
+        // 移动端：不做任何分辨率 / DPI 应用，无需挂 preUpdate
+        return;
+        #else
         if (_hooked) return;
         try
         {
@@ -147,6 +157,7 @@ class GraphicsData
             }
         }
         catch (e:Dynamic) {}
+        #end
     }
 
     /**
@@ -181,6 +192,10 @@ class GraphicsData
      */
     static function _applyIfChanged(force:Bool = false):Void
     {
+        #if mobile
+        // 移动端编译目标：更改分辨率不执行任何 resize
+        return;
+        #else
         #if (cpp || hl)
         if (ClientPrefs.data == null) return;
 
@@ -219,6 +234,7 @@ class GraphicsData
             _lastWide  = wide;
             _lastDpi   = dpi;
         }
+        #end
         #end
     }
 

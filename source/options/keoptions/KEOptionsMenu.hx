@@ -174,11 +174,14 @@ class KEOptionsMenu extends MusicBeatState
 
 	function applyRenderResolution(index:Int):Void
 	{
+		#if mobile
+		// 移动端编译目标：不做任何 resize（分辨率设置不生效）
+		return;
+		#else
 		var resolutions = getCurrentResolutions();
 		if (index < 0 || index >= resolutions.length) return;
 		if (index == _lastResolution) return;
 		if (ClientPrefs.data.useDpiSettings) return;
-		#if mobile return; #end
 		var res = resolutions[index];
 		var w = res[0];
 		var h = res[1];
@@ -195,6 +198,7 @@ class KEOptionsMenu extends MusicBeatState
 		flixel.FlxG.resizeGame(w, h);
 		flixel.FlxG.scaleMode = new flixel.system.scaleModes.RatioScaleMode(false);
 		_lastResolution = index;
+		#end
 	}
 
 	public function new(pauseMenu:Bool = false)
@@ -734,11 +738,13 @@ function scrollOptions(change:Int, isLongPress:Bool = false)
     super.update(elapsed);
     
     // 检查分辨率是否需要更新 - 使用当前分辨率列表
+    #if !mobile
     var curRes = ClientPrefs.data.renderResolution;
     var resolutions = getCurrentResolutions();
     if (curRes >= 0 && curRes < resolutions.length && curRes != _lastResolution && !FlxG.save.data.fullscreen) {
         applyRenderResolution(curRes);
     }
+    #end
     
     if (optionClickCooldown > 0) {
         optionClickCooldown -= elapsed;
@@ -1157,7 +1163,9 @@ function onScrollChange()
 			KEOption.create("Anti-Aliasing", "Smoother visuals", "antialiasing", "bool"),
 			// 修改 Resolution 选项 - 动态获取最大索引
 			KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "int", 0, 0, maxResIdx, 1),
+			#if !mobile
 			KEOption.create("DPI Scale", "Scale the game based on your screen's DPI", "useDpiSettings", "bool"),
+			#end
 			KEOption.create("Shaders", "Enable shader effects", "shaders", "bool"),
 			KEOption.create("Wide Screen", "Enable 21:9 widescreen mode", "wideScreen", "bool"),
 			KEOption.create("GPU Caching", "Use GPU for texture caching", "cacheOnGPU", "bool"),
@@ -1435,6 +1443,7 @@ function onScrollChange()
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
 			KEOption.create('Lua Text Antialiasing', "Enable antialiasing on lua texts", "luatextantialiasing", "bool"),
 			KEOption.create("Enable LUA Debug Printer", "Uncheck it if u dont want to see them ", "luadebugPrint", "bool"),
+			KEOption.create("Console Log On Screen", "Show trace (console) output on screen, applies to every screen", "screenLog", "bool"),
 			KEOption.create("Discord RPC", "Enable Discord Rich Presence", "discordRPC", "bool"),
 			KEOption.create("Replay", "[Score Menu and Replay Required]", "saveReplays", "bool"),
 			KEOption.create("High Quality Replays", "Enable high-quality replays", "replayQuality", "bool"),

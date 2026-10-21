@@ -80,11 +80,14 @@ class TitleState extends MusicBeatState
 
 		if(!initialized)
 		{
+			#if !mobile
+			// 移动端不支持切换全屏（会触发 resize），该设置在 mobile 目标下不编译
 			if(FlxG.save.data != null && FlxG.save.data.fullscreen)
 			{
 				FlxG.fullscreen = FlxG.save.data.fullscreen;
 				//trace('LOADED FULLSCREEN SETTING!!');
 			}
+			#end
 			persistentUpdate = true;
 			persistentDraw = true;
 			MobileData.init();

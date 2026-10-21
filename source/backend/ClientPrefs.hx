@@ -224,6 +224,8 @@ import states.TitleState;
 	public var saveReplays:Bool = true;
 	public var replayQuality:Bool = true;
 	public var luadebugPrint:Bool = true;
+	// 把 trace（命令行）输出同步画到屏幕上，默认关闭
+	public var screenLog:Bool = false;
 	// lua 静态解析模式：native（不解析）/ check（只校验语法）/ preload（抽资源预载）
 	public var luaScriptParser:String = 'native';
 
@@ -277,8 +279,11 @@ import states.TitleState;
 	public var transitionType:String = "fade";
 	
 	public var renderResolution:Dynamic = "1280x720";
+	#if !mobile
+	// DPI Scale 只属于桌面端；mobile 编译目标下整个字段不参与编译
 	public var useDpiSettings:Bool = true;
 	public var dpiSettingsAsked:Bool = false;
+	#end
 	public var showStage:Bool = true;
 
 	public var showOS:Bool = false; // show os in fps counter
@@ -925,7 +930,9 @@ class ClientPrefs {
 		#end
 
 		// 分辨率设置：统一交给 Main.applyRenderResolution
-		#if (cpp || hl)
+		#if mobile
+		// 移动端：不执行任何 resize，分辨率 / DPI 设置不参与
+		#elseif (cpp || hl)
 		if (ClientPrefs.data != null)
 		{
 			var wide:Bool = Reflect.hasField(data, 'wideScreen') && cast Reflect.field(data, 'wideScreen');
