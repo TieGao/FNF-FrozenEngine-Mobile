@@ -70,6 +70,15 @@ jobs:
         run: |
           brew install ldid
           cd export/release/ios/build/Release-iphoneos/${{ env.PROJECT_NAME }}.app
+          
+          # ===== 添加文件共享相关字段 =====
+          # 启用 iTunes 文件共享（连接电脑时能看到应用文件夹）
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Info.plist
+          
+          # 允许在 Files 应用中直接打开和修改文档
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Info.plist
+          # ===== 添加结束 =====
+          
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
           cd ..
           mkdir Payload
