@@ -23,6 +23,14 @@ import lime.graphics.Image;
 #if COPYSTATE_ALLOWED
 import states.CopyState;
 #end
+
+#if desktop
+import backend.ALSoftConfig;
+#end
+
+#if CRASH_HANDLER
+import backend.BlueScreenCrashHandler;
+#end
 import backend.Highscore;
 
 // NATIVE API STUFF, YOU CAN IGNORE THIS AND SCROLL //
@@ -67,7 +75,9 @@ class Main extends Sprite
 		#end
 		Sys.setCwd(StorageUtil.getStorageDirectory());
 		#end
-		backend.CrashHandler.init();
+		// 只留原生（hxcpp）critical error 处理；Haxe 层未捕获异常统一交给
+		// backend.BlueScreenCrashHandler（在 setupGame 里 install，与主版一致）
+		backend.CrashHandler.initNative();
 
 		#if (cpp && windows)
 		backend.Native.fixScaling();
@@ -233,6 +243,10 @@ class Main extends Sprite
 
 		// 全局屏幕日志：挂在 FlxG.game 上，切换 state 不会跟着消失
 		debug.ScreenLog.attach();
+		#if CRASH_HANDLER
+		// 崩溃蓝屏：同样挂在 FlxG.game 上，崩坏的 state 每帧抛异常也画得出来
+		BlueScreenCrashHandler.attach();
+		#end
 
 		// 应用保存的渲染分辨率（如果设置）并尝试改善字体清晰度
 		#if !mobile
@@ -267,6 +281,10 @@ class Main extends Sprite
 		FlxG.keys.preventDefaultKeys.push(TAB);
 		#else
 		FlxG.keys.preventDefaultKeys = [TAB];
+		#end
+
+		#if CRASH_HANDLER
+		BlueScreenCrashHandler.install();
 		#end
 
 		#if DISCORD_ALLOWED

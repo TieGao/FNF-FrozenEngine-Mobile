@@ -2007,7 +2007,7 @@ public function reloadCounterColors()
 		@:privateAccess
 		FlxG.sound.playMusic(inst._sound, 1, false);
 		#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
-		if (finishSong != null) FlxG.sound.music.onComplete = finishSong.bind();
+		if (finishSong != null) FlxG.sound.music.onComplete = () -> finishSong();
 		vocals.play();
 		opponentVocals.play();
 
@@ -5927,13 +5927,13 @@ public function reloadCounterColors()
             dad.healthColorArray[1],
             dad.healthColorArray[2]
         );
-        trace('Using dad color: R=${dad.healthColorArray[0]}, G=${dad.healthColorArray[1]}, B=${dad.healthColorArray[2]}');
+        //trace('Using dad color: R=${dad.healthColorArray[0]}, G=${dad.healthColorArray[1]}, B=${dad.healthColorArray[2]}');
     }
     else
     {
         // 默认颜色
         opponentColor = FlxColor.fromString('#7E1C4A');
-        trace('Using default color for info box');
+        //trace('Using default color for info box');
     }
     
     // 创建 ModInfoBox
@@ -5944,12 +5944,12 @@ public function reloadCounterColors()
     {
         modInfoBox.cameras = [camOther];
         add(modInfoBox);
-        trace('ModInfoBox created for song: ${SONG.song}');
+        //trace('ModInfoBox created for song: ${SONG.song}');
     }
     else
     {
         modInfoBox = null; // 如果不显示，设为 null
-        trace('No ModInfoBox for song: ${SONG.song}');
+        //trace('No ModInfoBox for song: ${SONG.song}');
     }
 }
 

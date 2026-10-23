@@ -315,6 +315,9 @@ class KEOption
 					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new mobile.substates.MobileExtraControl());
 					return false;
+				case "Crash Test":
+					backend.BlueScreenCrashHandler.simulateNullCrash();
+					return false;
 			}
 			return true;
 		}

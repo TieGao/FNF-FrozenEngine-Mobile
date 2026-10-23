@@ -210,6 +210,8 @@
 	<haxedef name="NAPE_RELEASE_BUILD" unless="debug" />
 	
 	<!--Used for crash handler-->
+	<!--崩溃处理（蓝屏界面）。主版只在 desktop release 打开，移动版全程打开-->
+	<haxedef name="CRASH_HANDLER" />
 	<section if="cpp">
 		<haxedef name="HXCPP_CHECK_POINTER" />
 		<haxedef name="HXCPP_STACK_LINE" />

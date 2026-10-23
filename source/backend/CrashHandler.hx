@@ -20,6 +20,18 @@ class CrashHandler
 	public static function init():Void
 	{
 		openfl.Lib.current.loaderInfo.uncaughtErrorEvents.addEventListener(UncaughtErrorEvent.UNCAUGHT_ERROR, onUncaughtError);
+		initNative();
+	}
+
+	/**
+	 * 只注册原生层的 critical error 处理，不接管 Haxe 层的未捕获异常。
+	 *
+	 * 移动版的 Haxe 层异常统一交给 `backend.BlueScreenCrashHandler`（与主版一致），
+	 * 这里保留 hxcpp 的 critical error handler：段错误 / 栈溢出这类原生崩溃不走
+	 * UncaughtErrorEvent，只能靠它落日志。
+	 */
+	public static function initNative():Void
+	{
 		#if cpp
 		untyped __global__.__hxcpp_set_critical_error_handler(onError);
 		#elseif hl
