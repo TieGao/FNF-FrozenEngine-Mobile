@@ -13,7 +13,7 @@
 var MUZZLE_OFFSETS = [[333, -365], [395, -439], [-835, -408], [-906, -472]];
 var ENABLE_MUZZLE = true;
 // ABot 音箱位置（官方 otis-speaker.hxc: gf + (170, 455)；nene 的标定值是 (10, 340)）
-var ABOT_OFFSET = [-370, -50];
+var ABOT_OFFSET = [170, 455];
 var ENABLE_ABOT = true;
 // 开枪后禁舞时长（ms）：shoot 动画 12 帧 @24fps ≈ 500ms
 var SHOOT_HOLD = 520;
