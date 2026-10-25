@@ -1170,6 +1170,13 @@ chart_minimap_tier5: "Extrema+ (nps)"
 chart_minimap_tier5_desc: "Notas por segundo em que o laranja-avermelhado vira vermelho"
 chart_minimap_reset: "Restaurar padrões"
 chart_minimap_reset_desc: "Restaura todas as opções e volta a barra para a borda da tela"
+chart_source_title: "Selecionar origem do chart"
+chart_source_search: "Pesquisar"
+chart_source_cancel: "Cancelar"
+chart_source_root_content: "Conteúdo"
+chart_source_empty_dir: "Nenhum arquivo de chart nesta pasta."
+chart_source_no_match: "Nenhum resultado para \"{1}\"."
+chart_source_truncated: "Mostrando 500 de {1} itens..."
 
 // ---- Editor de chart: exibicao do minimapa (zoom) ----
 charm_minimap_view: "Exibição"
