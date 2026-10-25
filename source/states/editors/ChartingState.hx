@@ -22,6 +22,8 @@ import states.editors.content.MetaNote;
 import states.editors.content.VSlice;
 import states.editors.content.Prompt;
 import states.editors.content.*;
+import states.editors.content.ChartMinimap.ChartMinimapPanel;
+import states.editors.content.ChartMinimap.ChartMinimapSection;
 
 import substates.ChartSourceSelectSubstate;
 
@@ -138,6 +140,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var curSec:Int = 0;
 
 	var chartEditorSave:FlxSave;
+	var chartMinimap:ChartMinimap;
 	var mainBox:PsychUIBox;
 	var mainBoxPosition:FlxPoint = FlxPoint.get(920, 40);
 	var infoBox:PsychUIBox;
@@ -380,6 +383,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		addEditTab();
 		addViewTab();
 		//
+
+		// 谱面缩略图（密度条）：点击/拖拽跳转时间，齿轮开 Win8 设置面板。
+		// 设置跟着编辑器自己的 chart_editor_data 走
+		chartMinimap = new ChartMinimap(chartEditorSave);
+		chartMinimap.buildSections = buildMinimapSections;
+		chartMinimap.getPlayheadPos = function() return FlxG.sound.music != null ? FlxG.sound.music.time : 0;
+		chartMinimap.onSeek = seekToMinimapTime;
+		chartMinimap.openSettings = function() openSubState(new ChartMinimapPanel(chartMinimap, camUI));
+		chartMinimap.cameras = [camUI];
+		add(chartMinimap);
 
 		loadMusic();
 		reloadNotesDropdowns();
@@ -928,7 +941,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					else loadSection(0);
 					Conductor.songPosition = FlxG.sound.music.time = vocals.time = opponentVocals.time = timeToGoBack;
 				}
-				else if(touchPad.buttonUp.pressed || FlxG.keys.pressed.W != touchPad.buttonDown.pressed || FlxG.keys.pressed.S || FlxG.mouse.wheel != 0)
+				// 鼠标在缩略图上滚轮是缩放时间轴，别同时滚谱面
+				else if(touchPad.buttonUp.pressed || FlxG.keys.pressed.W != touchPad.buttonDown.pressed || FlxG.keys.pressed.S
+					|| (FlxG.mouse.wheel != 0 && !(chartMinimap != null && chartMinimap.barHovered)))
 				{
 					if(FlxG.sound.music.playing)
 						setSongPlaying(false);
@@ -1200,7 +1215,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			else if(FlxG.mouse.justMoved)
 				updateSelectionBox();
 		}
-		else if(FlxG.mouse.pressedRight && (FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0))
+		else if(FlxG.mouse.pressedRight && (FlxG.mouse.deltaViewX != 0 || FlxG.mouse.deltaViewY != 0)
+			&& !(chartMinimap != null && chartMinimap.mouseOver))
 		{
 			selectionBox.setPosition(FlxG.mouse.viewX, FlxG.mouse.viewY);
 			selectionStart.set(FlxG.mouse.viewX, FlxG.mouse.viewY);
@@ -1213,6 +1229,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		// 而主相机 scroll.y 被 scrollY 顶着走、camUI 不动，两个坐标空间对不上 —— 谱面一滚动 overlaps 就恒为 false，
 		// 于是点任何 UI 都会清空选中（按钮是松开才触发的，选中已先被清掉，所以事件加不上、音符改不动）。
 		if(FlxG.mouse.justPressed && (isMouseOverUI(mainBox) || isMouseOverUI(infoBox) || isMouseOverUI(upperBox)))
+			ignoreClickForThisFrame = true;
+		// 谱面缩略图上的点击不能落到网格上（放/删 note）
+		else if(FlxG.mouse.justPressed && chartMinimap != null && chartMinimap.mouseOver)
 			ignoreClickForThisFrame = true;
 
 		var minX:Float = gridBg.x;
@@ -1864,6 +1883,57 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if(secStartTime == null || secCrochet == null || secRows == null) return;
 
 		scrollY = (((Conductor.songPosition - secStartTime) / secCrochet * GRID_SIZE * 4) + (secRows * GRID_SIZE)) * curZoom - FlxG.height/2;
+	}
+
+	// ===== 谱面缩略图（ChartMinimap）=====
+
+	/** 给缩略图提供每个 section 的数据：时间用 cachedSectionTimes，note 数现场从 notes[] 统计 */
+	function buildMinimapSections():Array<ChartMinimapSection>
+	{
+		var out:Array<ChartMinimapSection> = [];
+		if(PlayState.SONG == null || PlayState.SONG.notes == null || cachedSectionTimes == null) return out;
+
+		var songLen:Float = (FlxG.sound.music != null && FlxG.sound.music.length > 0) ? FlxG.sound.music.length : 0;
+		for (i in 0...PlayState.SONG.notes.length)
+		{
+			var st:Null<Float> = cast cachedSectionTimes[i];
+			if(st == null) break;
+			var et:Float = (i + 1 < cachedSectionTimes.length) ? cachedSectionTimes[i + 1] : Math.max(songLen, st + 1);
+			var bpm:Float = (i < cachedSectionBPMs.length) ? cachedSectionBPMs[i] : PlayState.SONG.bpm;
+			out.push({time: st, endTime: et, bpm: bpm, noteCount: 0});
+		}
+		if(out.length == 0) return out;
+
+		// 现场编辑的真数据源是 notes[]（MetaNote），按时间归节计数
+		for (note in notes)
+		{
+			if(note == null || note.isEvent) continue;
+			var t:Float = note.strumTime;
+			for (j in 0...out.length)
+			{
+				if(t < out[j].endTime || j == out.length - 1) { out[j].noteCount++; break; }
+			}
+		}
+		return out;
+	}
+
+	/** 缩略图跳转：对齐 View > Go to 的做法 —— 定位 curSec + 拉音乐时间 + loadSection() */
+	function seekToMinimapTime(ms:Float):Void
+	{
+		if(FlxG.sound.music == null || PlayState.SONG == null || cachedSectionTimes == null) return;
+		ms = FlxMath.bound(ms, 0, FlxG.sound.music.length - 1);
+
+		var target:Int = 0;
+		for (i => t in cachedSectionTimes)
+		{
+			if(t <= ms) target = i;
+			else break;
+		}
+		curSec = target;
+
+		FlxG.sound.music.time = ms;
+		Conductor.songPosition = ms;
+		loadSection();
 	}
 
 	function updateSelectionBox()
