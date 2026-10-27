@@ -3940,6 +3940,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		btnY++;
 		btnY += 20;
+		#end
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Open Chart...', function()
 		{
 			if(!fileDialog.completed) return;
@@ -3981,7 +3982,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		tab_group.add(btn);
 
 		btnY += 20;
-		#end
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Charts Selecter', function()
 		{
 			upperBox.isMinimized = true;
@@ -4133,7 +4133,6 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
 
-		#if !mobile
 		if(SHOW_EVENT_COLUMN)
 		{
 			btnY += 20;
@@ -4220,11 +4219,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 						trace(e.stack);
 					}
 				});
-			}, btnWid);
+				}, btnWid);
 			btn.text.alignment = LEFT;
 			tab_group.add(btn);
 		}
-		#end
 
 		btnY++;
 		btnY += 20;
@@ -4669,6 +4667,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
 		
+		#end
 		// === 谱面导入（StepMania / osu!mania / Quaver / MIDI / Malody）===
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Import Chart...', function()
@@ -4686,6 +4685,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
 
+		#if !mobile
 		// === 谱面导出（StepMania / osu!mania / Quaver）===
 		btnY += 20;
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Export Chart...', function()
@@ -5925,73 +5925,17 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			if(action == ChartImportDialog.ACTION_SAVE)
 			{
 				// 保存转换后的 Psych JSON（可选继续载入编辑器）
+				// 桌面：用户选输出目录；移动端：没有目录选择器，直接落到 /sdcard/.FrozenEngine/
+				#if mobile
+				saveConvertedPsychJSON(loadedChart,
+					#if android StorageUtil.getExternalStorageDirectory() #else Sys.getCwd() #end,
+					filePath, extractAudio, targetKeys);
+				#else
 				fileDialog.openDirectory('Save Converted Psych JSON', function()
 				{
-					var path:String = fileDialog.path.replace('\\', '/');
-					if(!path.endsWith('/')) path += '/';
-
-					var chartName:String = Paths.formatToSongPath(loadedChart.song);
-					if(chartName == null || chartName.length == 0) chartName = 'converted';
-					var savePath:String = path + chartName + '.json';
-					var saveData:String = PsychJsonPrinter.print(loadedChart, ['sectionNotes', 'events']);
-
-					overwriteCheck(savePath, chartName + '.json', saveData, function()
-					{
-						// .osz 里的音频一起落地，省得用户再去解包（失败不影响谱面本身）
-						var audioPath:String = extractAudio ? extractOszAudio(filePath, path) : null;
-						if(audioPath != null)
-							showOutput('Audio extracted to: $audioPath');
-
-						openSubState(new BasePrompt(400, 150, 'Import Complete', function(state:BasePrompt)
-						{
-							var btnY:Float = state.bg.y + state.bg.height - 70;
-
-							var yesBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Yes, load to editor', function()
-							{
-								state.close();
-
-								var func:Void->Void = function()
-								{
-									GRID_COLUMNS_PER_PLAYER = targetKeys;
-									loadChart(loadedChart);
-									Song.chartPath = savePath;
-									reloadNotesDropdowns();
-									rebuildChartLayout();
-									prepareReload();
-									showOutput('Chart loaded from: ' + savePath);
-								};
-
-								if (!ignoreProgressCheckBox.checked)
-									openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
-								else
-									func();
-							});
-							yesBtn.normalStyle.bgColor = FlxColor.GREEN;
-							yesBtn.normalStyle.textColor = FlxColor.WHITE;
-							yesBtn.cameras = state.cameras;
-							yesBtn.screenCenter(X);
-							yesBtn.x -= 100;
-							state.add(yesBtn);
-
-							var noBtn:PsychUIButton = new PsychUIButton(0, btnY, 'No, just save', function()
-							{
-								state.close();
-								showOutput('Chart converted and saved successfully: ' + savePath);
-							});
-							noBtn.cameras = state.cameras;
-							noBtn.screenCenter(X);
-							noBtn.x += 100;
-							state.add(noBtn);
-
-							var infoTxt:FlxText = new FlxText(0, state.bg.y + 60, state.bg.width,
-								'Chart saved successfully!\nWould you like to load it into the editor?', 18);
-							infoTxt.setFormat(null, 18, FlxColor.WHITE, CENTER);
-							infoTxt.cameras = state.cameras;
-							state.add(infoTxt);
-						}
-						));
-					}, true);
+					saveConvertedPsychJSON(loadedChart, fileDialog.path, filePath, extractAudio, targetKeys);
 				});
+				#end
 			}
 			else
 			{
@@ -6018,6 +5962,78 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			showOutput('Error: ${Std.string(e)}', true);
 			trace(e);
 		}
+	}
+
+	/**
+	 * 把导入转换出的 Psych JSON 落盘并询问是否载入编辑器。
+	 * 桌面由调用方先选好输出目录；移动端直接传 StorageUtil.getExternalStorageDirectory()。
+	 */
+	function saveConvertedPsychJSON(loadedChart:SwagSong, outDir:String, sourcePath:String, extractAudio:Bool, targetKeys:Int)
+	{
+		var path:String = outDir.replace('\\', '/');
+		if(!path.endsWith('/')) path += '/';
+
+		var chartName:String = Paths.formatToSongPath(loadedChart.song);
+		if(chartName == null || chartName.length == 0) chartName = 'converted';
+		var savePath:String = path + chartName + '.json';
+		var saveData:String = PsychJsonPrinter.print(loadedChart, ['sectionNotes', 'events']);
+
+		overwriteCheck(savePath, chartName + '.json', saveData, function()
+		{
+			// .osz 里的音频一起落地，省得用户再去解包（失败不影响谱面本身）
+			var audioPath:String = extractAudio ? extractOszAudio(sourcePath, path) : null;
+			if(audioPath != null)
+				showOutput('Audio extracted to: $audioPath');
+
+			openSubState(new BasePrompt(400, 150, 'Import Complete', function(state:BasePrompt)
+			{
+				var btnY:Float = state.bg.y + state.bg.height - 70;
+
+				var yesBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Yes, load to editor', function()
+				{
+					state.close();
+
+					var func:Void->Void = function()
+					{
+						GRID_COLUMNS_PER_PLAYER = targetKeys;
+						loadChart(loadedChart);
+						Song.chartPath = savePath;
+						reloadNotesDropdowns();
+						rebuildChartLayout();
+						prepareReload();
+						showOutput('Chart loaded from: ' + savePath);
+					};
+
+					if (!ignoreProgressCheckBox.checked)
+						openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
+					else
+						func();
+				});
+				yesBtn.normalStyle.bgColor = FlxColor.GREEN;
+				yesBtn.normalStyle.textColor = FlxColor.WHITE;
+				yesBtn.cameras = state.cameras;
+				yesBtn.screenCenter(X);
+				yesBtn.x -= 100;
+				state.add(yesBtn);
+
+				var noBtn:PsychUIButton = new PsychUIButton(0, btnY, 'No, just save', function()
+				{
+					state.close();
+					showOutput('Chart converted and saved successfully: ' + savePath);
+				});
+				noBtn.cameras = state.cameras;
+				noBtn.screenCenter(X);
+				noBtn.x += 100;
+				state.add(noBtn);
+
+				var infoTxt:FlxText = new FlxText(0, state.bg.y + 60, state.bg.width,
+					'Chart saved successfully!\nWould you like to load it into the editor?', 18);
+				infoTxt.setFormat(null, 18, FlxColor.WHITE, CENTER);
+				infoTxt.cameras = state.cameras;
+				state.add(infoTxt);
+			}
+			));
+		}, true);
 	}
 	function loadFileList(mainFolder:String, ?optionalList:String = null, ?fileTypes:Array<String> = null)
 	{

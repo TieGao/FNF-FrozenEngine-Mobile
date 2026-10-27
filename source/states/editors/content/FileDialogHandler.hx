@@ -9,6 +9,11 @@ import haxe.Exception;
 import sys.io.File;
 import lime.ui.*;
 
+#if mobile
+import extension.documentpicker.DocumentPicker;
+#end
+import haxe.io.Path;
+
 import flixel.FlxBasic;
 
 //Currently only supports OPEN and SAVE, might change that in the future, who knows
@@ -130,7 +135,7 @@ class FileDialogHandler extends FlxBasic
 	{
 		removeEvents();
 		this.completed = true;
-		if(onCancel != null) onError();
+		if(onCancel != null) onCancel();
 	}
 
 	function onErrorFn(_)
@@ -239,8 +244,65 @@ class FileReferenceCustom extends FileReference
 		}
 		__inputControl.click();
 		return true;
+		#elseif mobile
+		// 系统文档选择器（extension-document-picker）：
+		// Android 走 ACTION_GET_CONTENT、iOS 走 UIDocumentPicker(Import)，选完都会把文件
+		// 拷进 App 可控目录后回调一个普通文件路径；用户取消时回调 null。
+		DocumentPicker.pick(utisFromFilter(typeFilter), function(p:String)
+		{
+			if(p == null)
+			{
+				dispatchEvent(new Event(Event.CANCEL));
+				return;
+			}
+
+			__path = p;
+			name = Path.withoutDirectory(p);
+			type = '.' + Path.extension(p);
+
+			var stat = FileSystem.stat(p);
+			size = stat.size;
+			modificationDate = stat.mtime;
+			creationDate = stat.ctime;
+
+			// 移动端注册的监听是 Event.COMPLETE（见 FileDialogHandler 里的 addEventListener）
+			dispatchEvent(new Event(Event.COMPLETE));
+		});
+		return true;
 		#end
 
 		return false;
 	}
+
+	#if mobile
+	// iOS 的 UIDocumentPicker 收 UTI 列表；Android 端 Java 侧固定 */*，忽略该参数。
+	static function utisFromFilter(typeFilter:Array<FileFilter>):Array<String>
+	{
+		var out:Array<String> = [];
+		#if ios
+		if(typeFilter != null)
+		{
+			for(filter in typeFilter)
+			{
+				if(filter == null || filter.extension == null) continue;
+				for(ext in filter.extension.replace('*.', '').split(';'))
+				{
+					ext = ext.trim().toLowerCase();
+					if(ext.length == 0) continue;
+					var uti:String = switch(ext)
+					{
+						case 'json': 'public.json';
+						case 'ogg' | 'mp3' | 'wav' | 'flac' | 'm4a' | 'aiff' | 'aif': 'public.audio';
+						case 'zip' | 'osz' | 'qp': 'com.pkware.zip-archive';
+						default: 'public.data';
+					}
+					if(out.indexOf(uti) < 0) out.push(uti);
+				}
+			}
+		}
+		if(out.length == 0) out.push('public.data');
+		#end
+		return out;
+	}
+	#end
 }

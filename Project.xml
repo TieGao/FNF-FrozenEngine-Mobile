@@ -162,6 +162,8 @@
 
 	<!--Mobile Required (Lime 8.1.2 FUCK U)-->
 	<haxelib name="extension-androidtools" if="android"/>
+	<!-- 系统文件选择器（SAF/文档选择器），供 FileDialogHandler 的移动端分支使用 -->
+	<haxelib name="extension-document-picker" if="mobile"/>
 
 	<!-- Disable Discord IO Thread -->
 	<haxedef name="DISCORD_DISABLE_IO_THREAD" if="hxdiscord_rpc" />
