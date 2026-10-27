@@ -163,3 +163,58 @@ Haxe 侧拿到的不是 content:// 或安全作用域 URL，而是直接可以 `
   androidtools/haxelib 系均无 SAF/文档选择器）。
 - 2026-10-28 纳入 E 盘 haxelib 仓库（git-pin 惯例）。未打补丁、未接 Project.xml——
   按 Step 1→3 顺序实施。
+- 2026-10-28 实施完毕（分支 `feature/mobile-file-picker`，提交 552c78e3）。
+
+## 6. 实施记录（2026-10-28）
+
+### Step 1 — 扩展补丁（fork `TieGao/extension-document-picker` 分支 `fe-patches`）
+
+- Android：**取消时回调 null**（原版 RESULT_CANCELED 完全不回调，Haxe 侧会永远挂在
+  completed=false；方案没抓到这点，实施时读源码发现）；`ACTION_GET_CONTENT` 加
+  `CATEGORY_OPENABLE`（方案 1.4 的可选项一并做了）；types 仍 `*/*` 由 FE 校验后缀。
+- iOS：`DocumentPicker.mm` 按 1.1 改 connectedScenes 取 foreground-active keyWindow
+  （`@available(iOS 13.0, *)` 运行时守卫 + 老 keyWindow 兜底）；delegate 改静态强引用
+  保活（构建是 MRC，用 `__has_feature(objc_arc)` 双路写法）；delegate 重建前释放旧
+  `AutoGCRoot`。
+- haxelib.json：url 指向 fork、版本 1.0.1。
+- E 盘 haxelib 仓库已 `haxelib git` 钉到 `fe-patches`。**坑**：对已装的 git 库直接重跑
+  `haxelib git <新url>` 会提示 "remains at" 不换源，必须先 `haxelib remove` 再装。
+
+### Step 2 — 接线
+
+- Project.xml：`<haxelib name="extension-document-picker" if="mobile"/>`。
+- setup/windows.bat、setup/unix.sh：追加 `haxelib git extension-document-picker
+  https://github.com/TieGao/extension-document-picker fe-patches --skip-dependencies`。
+  （merge 进 fork master 后可把分支名换成 master。）
+
+### Step 3 — FileDialogHandler
+
+- `browseEx()` 增加 `#elseif mobile` 分支：`DocumentPicker.pick(utis, cb)`；**派发的是
+  `Event.COMPLETE` 而非方案里写的 SELECT**——移动端注册的监听本来就是 COMPLETE
+  （`#if desktop Event.SELECT #else Event.COMPLETE #end`），方案笔误。
+- 选中路径回填 `__path/name/type/size/modificationDate`（写法与 html5 分支一致）。
+- `utisFromFilter`：仅 `#if ios` 有内容（Android 忽略），json→public.json、音频→
+  public.audio、zip 系(osz/qp)→com.pkware.zip-archive、其余 public.data。
+- **修了 `onCancelFn` 误调 `onError()` 的 bug**（`onCancel()`），桌面端同样受益。
+
+### Step 4 — ChartingState
+
+- 放开（mobile 可见）：Open Chart...、Open Events...（连同 SHOW_EVENT_COLUMN 块）、
+  Import Chart...。
+- 保持 desktop-only：New、Save as...、Save (Legacy)、Save (V-Slice)...、Psych to
+  V-Slice...、Export Chart...、Update (Legacy)...（Update 会原地写回所选文件，移动端
+  不适合）。
+- `performChartImport` 的 ACTION_SAVE 抽成 `saveConvertedPsychJSON(loadedChart, outDir,
+  sourcePath, extractAudio, targetKeys)`：桌面仍走 `openDirectory` 选目录；移动端直接落
+  `StorageUtil.getExternalStorageDirectory()`（`/sdcard/.FrozenEngine/`）。注意该函数
+  只有 `#if android` 实现，iOS 兜底 `Sys.getCwd()`（沿用 CopyState 惯例）。
+- `.osz` 音频提取跟随输出目录，无需单独处理。
+
+### Step 5 — 验证
+
+- Android：`haxelib run lime build android -release` 编译通过，APK 产物
+  `export/release/android/bin/app/build/outputs/apk/release/FrozenEngine-release.apk`，
+  交用户真机（Redmi 14C）按下方矩阵测试。
+- iOS：Haxe 侧编译逻辑与 Android 共用；ObjC 补丁（.mm）本机无法编译，等 CI 的
+  Make IPA 首次过一遍。
+
