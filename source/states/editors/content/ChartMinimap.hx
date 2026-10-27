@@ -18,8 +18,12 @@ import options.objects.win8.CharmIcons;
  * 颜色按 note 密度（NPS）分挡；点击 / 按住拖拽跳转对应时间点；
  * 悬浮显示该节的 BPM / note 数 / NPS / 时间点；条一端的齿轮打开 Win8 设置浮出层。
  *
+ * 色块在厚度方向按轨道数均分，每段单独算 NPS、单独上色：
+ * 第 0 段贴厚度轴低端，与谱面编辑器"从左到右 = player1..playerN"一致。
+ * 轨道数取 sideNotes 的最大长度，宿主给几条就切几段（和编辑器预留轨道数同理）。
+ *
  * 宿主只需提供数据与跳转的闭包：
- *   buildSections()  —— 返回每个 section 的 {time, endTime, bpm, noteCount}
+ *   buildSections()  —— 返回每个 section 的 {time, endTime, bpm, noteCount, sideNotes}
  *   getPosition()    —— 当前播放位置（毫秒）
  *   onSeek(ms)       —— 跳转到指定毫秒
  *   openSettings()   —— 齿轮被点击时调用（一般 openSubState(new ChartMinimapPanel(this))）
@@ -33,7 +37,9 @@ typedef ChartMinimapSection =
 	var time:Float;      // 节起点（毫秒）
 	var endTime:Float;   // 节终点（毫秒）
 	var bpm:Float;
-	var noteCount:Int;
+	var noteCount:Int;   // 本节总 note 数（所有轨道合并）
+	/** 每条轨道的 note 数，下标顺序 = 编辑器从左到右（0 = player1） */
+	var sideNotes:Array<Int>;
 }
 
 class ChartMinimap extends FlxSpriteGroup
@@ -76,6 +82,8 @@ class ChartMinimap extends FlxSpriteGroup
 	/** 白色拖拽手柄：贴在条朝屏幕中心一侧的边内侧，按住可整体挪位置 */
 	var handle:FlxSprite;
 	var cells:Array<FlxSprite> = [];
+	/** 色块在厚度方向切几段 = 轨道数（由 sections[].sideNotes 推导，最少 1） */
+	var sideCount:Int = 1;
 	/** section 边界的分割线池（数量 = section 数 - 1） */
 	var dividers:Array<FlxSprite> = [];
 	var playhead:FlxSprite;
@@ -288,6 +296,7 @@ class ChartMinimap extends FlxSpriteGroup
 
 	function rebuildCells():Void
 	{
+		sideCount = computeSideCount();
 		syncPools();
 
 		if (getTotalLength() <= 0)
@@ -301,10 +310,20 @@ class ChartMinimap extends FlxSpriteGroup
 		renderCells();
 	}
 
+	/** 轨道数 = 各节 sideNotes 的最大长度；宿主将来加更多 player 时这里自动跟上 */
+	function computeSideCount():Int
+	{
+		var n:Int = 1;
+		for (sec in sections)
+			if (sec.sideNotes != null && sec.sideNotes.length > n) n = sec.sideNotes.length;
+		return n;
+	}
+
 	/** 色块 / 分割线池：够用就复用，不够补，多了删 */
 	function syncPools():Void
 	{
-		while (cells.length < sections.length)
+		var want:Int = sections.length * ((sideCount > 0) ? sideCount : 1);
+		while (cells.length < want)
 		{
 			var cell:FlxSprite = new FlxSprite();
 			cell.makeGraphic(1, 1, FlxColor.WHITE);
@@ -312,7 +331,7 @@ class ChartMinimap extends FlxSpriteGroup
 			cells.push(cell);
 			trackLayer.add(cell);
 		}
-		while (cells.length > sections.length)
+		while (cells.length > want)
 		{
 			var cell:FlxSprite = cells.pop();
 			if (cell != null) { trackLayer.remove(cell); cell.destroy(); }
@@ -342,8 +361,10 @@ class ChartMinimap extends FlxSpriteGroup
 	{
 		var vertical:Bool = ChartMinimapSettings.vertical;
 		var len:Float = vertical ? barH : barW;
+		var thick:Float = vertical ? barW : barH;
+		var sides:Int = (sideCount > 0) ? sideCount : 1;
 
-		if (len <= 2 || viewSpan <= 0)
+		if (len <= 2 || thick <= 1 || viewSpan <= 0)
 		{
 			for (cell in cells) if (cell.visible) cell.visible = false;
 			for (div in dividers) if (div.visible) div.visible = false;
@@ -357,39 +378,60 @@ class ChartMinimap extends FlxSpriteGroup
 		for (i in 0...sections.length)
 		{
 			var sec = sections[i];
-			var cell = cells[i];
+			var dur:Float = sec.endTime - sec.time;
 
 			var rawStart:Float = (sec.time - viewStart) / viewSpan * len;
 			var rawEnd:Float = (sec.endTime - viewStart) / viewSpan * len;
-			if (rawEnd <= 0 || rawStart >= len)
+			var inWindow:Bool = !(rawEnd <= 0 || rawStart >= len);
+
+			var startPx:Float = 0;
+			var span:Float = 0;
+			if (inWindow)
 			{
-				if (cell.visible) cell.visible = false;
-				continue;
+				var startT = Math.floor(FlxMath.bound(rawStart, 0, len));
+				var endT = Math.ceil(FlxMath.bound(rawEnd, 0, len));
+				// 钳在条内，否则最后几节会画到条外面
+				startPx = Math.min(startT, Math.max(0, len - 2));
+				span = Math.min(Math.max(2, endT - startT), len - startPx);
 			}
 
-			var startT = Math.floor(FlxMath.bound(rawStart, 0, len));
-			var endT = Math.ceil(FlxMath.bound(rawEnd, 0, len));
-			// 钳在条内，否则最后几节会画到条外面
-			var startPx = Math.min(startT, Math.max(0, len - 2));
-			var span = Math.min(Math.max(2, endT - startT), len - startPx);
+			// 厚度方向按轨道数均分，第 0 段在厚度轴低端（竖条=左、横条=上），与编辑器左侧 player1 对齐
+			for (s in 0...sides)
+			{
+				var idx:Int = i * sides + s;
+				// 轨道数刚变、池还没重建时先跳过这一帧（0.4s 内会自己补上）
+				if (idx >= cells.length) break;
+				var cell = cells[idx];
 
-			cell.visible = true;
-			if (vertical)
-			{
-				cell.setPosition(barX, barY + startPx);
-				cell.scale.set(barW, span);
+				if (!inWindow)
+				{
+					if (cell.visible) cell.visible = false;
+					continue;
+				}
+
+				var bandStart:Float = thick * s / sides;
+				var bandEnd:Float = thick * (s + 1) / sides;
+				// 段够宽时留 1px 缝：轨道分界靠底板暗色露出来，比画线省事
+				if (bandEnd - bandStart >= 6) bandEnd -= 1;
+
+				cell.visible = true;
+				if (vertical)
+				{
+					cell.setPosition(barX + bandStart, barY + startPx);
+					cell.scale.set(bandEnd - bandStart, span);
+				}
+				else
+				{
+					cell.setPosition(barX + startPx, barY + bandStart);
+					cell.scale.set(span, bandEnd - bandStart);
+				}
+				cell.updateHitbox();
+				cell.color = sideTierColor(sec, s, dur);
 			}
-			else
-			{
-				cell.setPosition(barX + startPx, barY);
-				cell.scale.set(span, barH);
-			}
-			cell.updateHitbox();
-			cell.color = tierColor(sec.noteCount, sec.endTime - sec.time);
 
 			// 分割线压在本节起点上；节太密（不足 3px）就不画，否则整条糊成一片
-			var px:Float = (sec.endTime - sec.time) / viewSpan * len;
-			if (i > 0 && px >= DIVIDER_MIN_SECTION_PX && startPx >= 1 && startPx <= len - 1 && startPx != lastDividerPx)
+			var px:Float = dur / viewSpan * len;
+			if (i > 0 && inWindow && px >= DIVIDER_MIN_SECTION_PX && startPx >= 1 && startPx <= len - 1 && startPx != lastDividerPx)
 			{
 				var div = dividers[i - 1];
 				if (div != null)
@@ -516,6 +558,14 @@ class ChartMinimap extends FlxSpriteGroup
 		needRender = true;
 		ChartMinimapSettings.save(chartSave);
 		renderCells();
+	}
+
+	/** 某条轨道在这一节的密度色；没有分轨数据时退回本节总数（单轨 / 老宿主） */
+	function sideTierColor(sec:ChartMinimapSection, side:Int, durationMs:Float):FlxColor
+	{
+		var count:Int = sec.noteCount;
+		if (sec.sideNotes != null && side < sec.sideNotes.length) count = sec.sideNotes[side];
+		return tierColor(count, durationMs);
 	}
 
 	/** NPS → 挡位颜色（5 个阈值切 6 档） */
@@ -672,6 +722,17 @@ class ChartMinimap extends FlxSpriteGroup
 		return viewStart + FlxMath.bound(r, 0, 1) * viewSpan;
 	}
 
+	/** 一位小数并补齐 .0 —— 分轨写成 n/m 时两段宽度才不跳 */
+	static function formatNps(v:Float):String
+	{
+		var s:String = Std.string(Math.round(v * 10) / 10);
+		return (s.indexOf('.') < 0) ? s + '.0' : s;
+	}
+
+	/** n/m 数值的归属提示：P1/P2（顺序同色块，厚度轴低端在前） */
+	static function sideLabels(n:Int):String
+		return [for (i in 0...n) 'P' + (i + 1)].join('/');
+
 	function updateTooltip(mx:Float, my:Float):Void
 	{
 		var t:Float = timeAtMouse(mx, my);
@@ -687,10 +748,16 @@ class ChartMinimap extends FlxSpriteGroup
 		}
 
 		var idx:Int = sections.indexOf(sec) + 1;
-		var nps:Float = sec.noteCount / Math.max(0.001, (sec.endTime - sec.time) / 1000);
+		var secLen:Float = Math.max(0.001, (sec.endTime - sec.time) / 1000);
+		// 分轨数据按编辑器从左到右排（player1 在最前）；没有就退回本节总数
+		var counts:Array<Int> = (sec.sideNotes != null && sec.sideNotes.length > 0) ? sec.sideNotes : [sec.noteCount];
+		var noteTxt:String = [for (c in counts) Std.string(c)].join('/');
+		var npsTxt:String = [for (c in counts) formatNps(c / secLen)].join('/');
+
 		tooltip.text = 'Section $idx  |  ' + FlxStringUtil.formatTime(sec.time / 1000, false)
 			+ '\nBPM ' + Math.round(sec.bpm * 10) / 10
-			+ '  |  ' + sec.noteCount + ' notes  |  ' + Math.round(nps * 10) / 10 + ' nps';
+			+ '  |  ' + noteTxt + ' notes'
+			+ '\nNPS ' + npsTxt + (counts.length > 1 ? '  (' + sideLabels(counts.length) + ')' : '');
 		tooltip.visible = true;
 
 		// 定位三步走：先朝屏幕内侧弹出 → 钳回屏幕（4px 边距）→ 若仍压住条本体，翻到条另一侧再钳一次
@@ -912,7 +979,7 @@ class ChartMinimapPanel extends Win8CharmSettings
 			'margin', 8, 300, 2, 0, function(v) ChartMinimapSettings.margin = v));
 
 		var density:CharmOption = new CharmOption(Language.getPhrase('chart_minimap_density', 'Density colors'),
-			Language.getPhrase('chart_minimap_density_desc', 'Color each section by note density instead of a flat color'),
+			Language.getPhrase('chart_minimap_density_desc', 'Color every track inside a section by its own note density instead of a flat color'),
 			BOOL, ChartMinimapSettings.densityColors);
 		density.getter = function() return ChartMinimapSettings.densityColors;
 		density.setter = function(v) ChartMinimapSettings.densityColors = (v == true);
@@ -921,19 +988,19 @@ class ChartMinimapPanel extends Win8CharmSettings
 		out.push(density);
 
 		out.push(makeNum(Language.getPhrase('chart_minimap_tier1', 'Low / medium (nps)'),
-			Language.getPhrase('chart_minimap_tier1_desc', 'Notes per second where green turns yellow-green'),
+			Language.getPhrase('chart_minimap_tier1_desc', 'Notes per second on one track where green turns yellow-green'),
 			'tier1', 0.5, 30, 0.5, 1, function(v) ChartMinimapSettings.tier1 = v));
 		out.push(makeNum(Language.getPhrase('chart_minimap_tier2', 'Medium / high (nps)'),
-			Language.getPhrase('chart_minimap_tier2_desc', 'Notes per second where yellow-green turns yellow'),
+			Language.getPhrase('chart_minimap_tier2_desc', 'Notes per second on one track where yellow-green turns yellow'),
 			'tier2', 1, 40, 0.5, 1, function(v) ChartMinimapSettings.tier2 = v));
 		out.push(makeNum(Language.getPhrase('chart_minimap_tier3', 'High / very high (nps)'),
-			Language.getPhrase('chart_minimap_tier3_desc', 'Notes per second where yellow turns orange'),
+			Language.getPhrase('chart_minimap_tier3_desc', 'Notes per second on one track where yellow turns orange'),
 			'tier3', 2, 60, 0.5, 1, function(v) ChartMinimapSettings.tier3 = v));
 		out.push(makeNum(Language.getPhrase('chart_minimap_tier4', 'Very high / extreme (nps)'),
-			Language.getPhrase('chart_minimap_tier4_desc', 'Notes per second where orange turns orange-red'),
+			Language.getPhrase('chart_minimap_tier4_desc', 'Notes per second on one track where orange turns orange-red'),
 			'tier4', 3, 80, 0.5, 1, function(v) ChartMinimapSettings.tier4 = v));
 		out.push(makeNum(Language.getPhrase('chart_minimap_tier5', 'Extreme+ (nps)'),
-			Language.getPhrase('chart_minimap_tier5_desc', 'Notes per second where orange-red turns red'),
+			Language.getPhrase('chart_minimap_tier5_desc', 'Notes per second on one track where orange-red turns red'),
 			'tier5', 4, 100, 0.5, 1, function(v) ChartMinimapSettings.tier5 = v));
 
 		var reset:Option = new CharmActionOption(Language.getPhrase('chart_minimap_reset', 'Reset Defaults'),
