@@ -66,16 +66,19 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 
 		var addLineText:FlxText = new FlxText(10, 10, FlxG.width - 20, 'Press ${(controls.mobileC) ? 'A' : 'O'} to remove the current dialogue line, Press ${(controls.mobileC) ? 'X' : 'P'} to add another line after the current one.', 8);
 		addLineText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		addLineText.antialiasing = ClientPrefs.data.antialiasing;
 		addLineText.scrollFactor.set();
 		add(addLineText);
 
 		selectedText = new FlxText(10, 32, FlxG.width - 20, '', 8);
 		selectedText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		selectedText.antialiasing = ClientPrefs.data.antialiasing;
 		selectedText.scrollFactor.set();
 		add(selectedText);
 
 		animText = new FlxText(10, 62, FlxG.width - 20, '', 8);
 		animText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		animText.antialiasing = ClientPrefs.data.antialiasing;
 		animText.scrollFactor.set();
 		add(animText);
 		

@@ -5894,7 +5894,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		ClientPrefs.toggleVolumeKeys(false);
 		var dialog:ChartImportDialog = new ChartImportDialog(ChartImportDialog.MODE_IMPORT, info.keys, info.keys, info.diffs, info.formatLabel,
-			info.format);
+			info.format, info.title);
 		dialog.onConfirm = function(opts:ChartConvertOptions)
 		{
 			performChartImport(filePath, opts.diff, opts.convertKeys ? opts.targetKeys : info.keys, opts.action, opts.extractAudio);
