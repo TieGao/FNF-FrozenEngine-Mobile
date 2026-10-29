@@ -20,7 +20,7 @@ haxelib install tjson 1.4.0 --skip-dependencies
 haxelib install hxdiscord_rpc 1.2.4 --skip-dependencies
 haxelib git hxvlc https://github.com/IceTheAxe/hxvlc --skip-dependencies
 haxelib install extension-androidtools 2.2.2 --skip-dependencies
-haxelib install moonchart --skip-dependencies
+haxelib git moonchart https://github.com/MaybeMaru/moonchart.git --skip-dependencies
 haxelib git lime https://github.com/TieGao/lime --always
 haxelib git openfl https://github.com/TieGao/openfl --skip-dependencies --always
 haxelib install format --skip-dependencies --always
