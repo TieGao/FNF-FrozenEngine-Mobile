@@ -79,7 +79,7 @@ class ChartMinimap extends FlxSpriteGroup
 	var frontLayer:FlxSpriteGroup;
 
 	var bgSprite:FlxSprite;
-	/** 白色拖拽手柄：贴在条朝屏幕中心一侧的边内侧，按住可整体挪位置 */
+	/** 白色拖拽手柄：贴在条朝屏幕边缘那侧的外面（竖条右外 / 横条下外），按住可整体挪位置 */
 	var handle:FlxSprite;
 	var cells:Array<FlxSprite> = [];
 	/** 色块在厚度方向切几段 = 轨道数（由 sections[].sideNotes 推导，最少 1） */
@@ -123,9 +123,11 @@ class ChartMinimap extends FlxSpriteGroup
 
 	static inline var REFRESH_INTERVAL:Float = 0.4;
 	static inline var GEAR_GAP:Float = 5;
-	/** 拖拽手柄命中区：条外 / 条内各放宽多少像素（手柄本体只有几像素宽，纯靠视觉位置抓不住） */
+	/** 拖拽手柄命中区：手柄在条外，向外放宽多少像素；向条内再伸进多少像素兜住贴边抓取（手柄本体只有几像素宽） */
 	static inline var HANDLE_GRAB_OUT:Float = 10;
-	static inline var HANDLE_GRAB_IN:Float = 16;
+	static inline var HANDLE_GRAB_IN:Float = 6;
+	/** 拖动位置时朝屏幕边侧给条外手柄留出的空隙 */
+	static inline var HANDLE_SPACE:Float = 6;
 	/** 本节像素跨度不足这个值就不画分割线（节太密时画了反而糊成一片） */
 	static inline var DIVIDER_MIN_SECTION_PX:Float = 3;
 	/** 时间轴缩放：范围与每档倍率 */
@@ -230,8 +232,8 @@ class ChartMinimap extends FlxSpriteGroup
 		// 拖拽手柄记录过的位置优先（拖拽时实时写回 posX/posY）；否则按方向贴边，两端各留 margin 安全区
 		if (s.posX >= 0 && s.posY >= 0)
 		{
-			barX = FlxMath.bound(s.posX, 0, FlxG.width - barW);
-			barY = FlxMath.bound(s.posY, 0, FlxG.height - barH);
+			barX = FlxMath.bound(s.posX, 0, FlxG.width - barW - HANDLE_SPACE);
+			barY = FlxMath.bound(s.posY, 0, FlxG.height - barH - HANDLE_SPACE);
 		}
 		else if (s.vertical)
 		{
@@ -264,15 +266,16 @@ class ChartMinimap extends FlxSpriteGroup
 		bgSprite.scale.set(barW, barH);
 		bgSprite.updateHitbox();
 
-		// 白色手柄：竖条贴左缘内侧、横条贴上缘内侧，即朝屏幕中心那一边
+		// 白色手柄：竖条贴右缘外侧、横条贴下缘外侧，即朝屏幕边缘那一边 ——
+		// 条内厚度方向按轨道分段（低端=P1），放条内必压某段色块，挪出去就都不遮
 		if (s.vertical)
 		{
-			handle.setPosition(barX, barY);
+			handle.setPosition(barX + barW + 1, barY);
 			handle.scale.set(4, barH);
 		}
 		else
 		{
-			handle.setPosition(barX, barY);
+			handle.setPosition(barX, barY + barH + 1);
 			handle.scale.set(barW, 4);
 		}
 		handle.updateHitbox();
@@ -633,10 +636,12 @@ class ChartMinimap extends FlxSpriteGroup
 
 		var overGear:Bool = mx >= gearX && mx <= gearX + gearSize && my >= gearY && my <= gearY + gearSize;
 		var overBar:Bool = mx >= barX && mx <= barX + barW && my >= barY && my <= barY + barH;
-		// 手柄命中区：朝条内、朝条外都放宽，贴着屏幕边缘时从条外面也抓得住
+		// 手柄命中区：手柄在条贴边那侧的外面，向外放宽抓取区；向条内伸进一点兜住贴边抓取
+		var handleX:Float = ChartMinimapSettings.vertical ? barX + barW : barX;
+		var handleY:Float = ChartMinimapSettings.vertical ? barY : barY + barH;
 		var overHandle:Bool = ChartMinimapSettings.vertical
-			? (mx >= barX - HANDLE_GRAB_OUT && mx <= barX + HANDLE_GRAB_IN && my >= barY && my <= barY + barH)
-			: (my >= barY - HANDLE_GRAB_OUT && my <= barY + HANDLE_GRAB_IN && mx >= barX && mx <= barX + barW);
+			? (mx >= handleX - HANDLE_GRAB_IN && mx <= handleX + 4 + HANDLE_GRAB_OUT && my >= barY && my <= barY + barH)
+			: (my >= handleY - HANDLE_GRAB_IN && my <= handleY + 4 + HANDLE_GRAB_OUT && mx >= barX && mx <= barX + barW);
 		mouseOver = overGear || overBar || overHandle;
 		barHovered = overBar;
 
@@ -663,9 +668,10 @@ class ChartMinimap extends FlxSpriteGroup
 			if (FlxG.mouse.pressed)
 			{
 				// 每帧取鼠标增量位移条，才能 1:1 跟手（lastMouse 不更新的话，
-				// 条会按"按下点→当前点"的固定差值一路滑到钳制边界）
-				barX = FlxMath.bound(barX + (mx - lastMouse.x), 0, FlxG.width - barW);
-				barY = FlxMath.bound(barY + (my - lastMouse.y), 0, FlxG.height - barH);
+				// 条会按"按下点→当前点"的固定差值一路滑到钳制边界）；
+				// 贴边那侧留出 HANDLE_SPACE 给条外的手柄
+				barX = FlxMath.bound(barX + (mx - lastMouse.x), 0, FlxG.width - barW - HANDLE_SPACE);
+				barY = FlxMath.bound(barY + (my - lastMouse.y), 0, FlxG.height - barH - HANDLE_SPACE);
 				lastMouse.x = mx;
 				lastMouse.y = my;
 				ChartMinimapSettings.posX = barX;
