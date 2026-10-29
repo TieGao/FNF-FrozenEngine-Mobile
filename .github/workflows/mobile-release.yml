@@ -1,7 +1,8 @@
 name: Mobile + Release
 
 # 按主版 main-release.yml 的流程重做：矩阵 -> build.yml(干净复用) -> Releaser -> extra-content。
-# 与主版唯一的结构性差异是矩阵里放的是移动端两条（Android / iOS）而不是桌面端。
+# 与主版的结构性差异：矩阵以移动端两条（Android / iOS）为主，另加一条 Windows ARM64
+# （Win-on-ARM 平板 / 二合一用；x64 包在这些机器上要么装不上要么跑成 x86 模拟）。
 #
 # exclude_extra 语义：
 #   - 移动端：apk / ipa 在编译阶段就已成型，无法像桌面那样"打包后再删"，改用编译期开关 ——
@@ -82,6 +83,21 @@ jobs:
             setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
+
+          # ================= Windows ARM64 =================
+          # arm64 原生包，走与仓库里 windows-arm64-build.yml 同一条路：
+          # lime 用 TieGao/lime 库形态（自带 WindowsArm64 预编译 ndll 与已带 arm64
+          # 支持的工具），hxcpp 用 TieGao fork（自带 WindowsArm64 工具链），
+          # hxvlc / linc_luajit 均有 arm64 二进制。windows-latest 的 VS2022 自带
+          # MSVC ARM64 生成工具，无需额外安装。
+          # 产物目录结构与 x64 一致（export/release/windows/bin），只是 ndll 换 arm64。
+          - name: Windows ARM64
+            os: windows-latest
+            buildArgs: "windows -arm64 -D HXCPP_ARM64"
+            noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
+            setupCommand: .\"setup/windows.bat"
+            artifactName: windowsBuild-arm64
+            artifactPath: export\release\windows\bin\*
     uses: ./.github/workflows/build.yml
     with:
         name: ${{ matrix.name }}
@@ -139,6 +155,18 @@ jobs:
       - name: Move iOS File
         run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.PROJECT_NAME }}-iOS.ipa
 
+      # ---------------- Windows ARM64 ----------------
+      - name: Download Windows ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+           name: windowsBuild-arm64
+           path: ${{ github.workspace }}/WindowsBuild-arm64
+
+      - name: Pack Windows ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/WindowsBuild-arm64"
+          zip -r /home/runner/${{ env.PROJECT_NAME }}-Windows-arm64.zip .
+
       # ---------------- Publish ----------------
       - name: Publish The Release
         uses: softprops/action-gh-release@v2
@@ -149,6 +177,7 @@ jobs:
           files: |
             /home/runner/*.apk
             /home/runner/*.ipa
+            /home/runner/*.zip
 
   # ---------------- Extra Content ----------------
   extra-content:
