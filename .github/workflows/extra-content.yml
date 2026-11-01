@@ -56,9 +56,42 @@ jobs:
             zip -r "/home/runner/${{ env.PROJECT_NAME }}-${cat}-extra.zip" "content/VanillaSongs/$cat"
           done
 
+      # 移动端导入包（方案B'）：APK 只内嵌基础 assets，原版资源（base_game 摊平进 assets/）
+      # 与 CustomCharts 独立成 zip，游戏内 BootDataState"导入数据包 zip"一键导入。
+      # 媒体 STORED（免无效压缩）、文本 DEFLATED，与 tools/make_mobile_data_zip.py 同口径。
+      - name: Pack mobile import packages
+        run: |
+          cd "${{ github.workspace }}"
+          python3 - <<'EOF'
+          import os, zipfile, sys
+          STORED = {'.ogg','.mp3','.wav','.png','.jpg','.jpeg','.webm','.mp4','.ttf','.otf','.atlas','.webp','.ico','.dll','.ndll','.so'}
+          def add_tree(zf, src, arc_root):
+              n = 0
+              for dp, dn, fn in os.walk(src):
+                  for f in sorted(fn):
+                      full = os.path.join(dp, f)
+                      rel = os.path.relpath(full, src).replace(os.sep, '/')
+                      method = zipfile.ZIP_STORED if os.path.splitext(f)[1].lower() in STORED else zipfile.ZIP_DEFLATED
+                      zf.write(full, f'{arc_root}/{rel}', compress_type=method)
+                      n += 1
+              return n
+          with zipfile.ZipFile('/home/runner/FrozenEngine-mobile-base.zip', 'w', allowZip64=True) as zf:
+              n = add_tree(zf, 'assets/base_game', 'assets')
+              ok = any(name.startswith('assets/week2/') for name in zf.namelist())
+              print(f'FrozenEngine-mobile-base.zip: {n} files, marker {"OK" if ok else "MISSING"}')
+              if not ok: sys.exit(1)
+          with zipfile.ZipFile('/home/runner/FrozenEngine-mobile-customcharts.zip', 'w', allowZip64=True) as zf:
+              n = add_tree(zf, 'content/CustomCharts', 'content/CustomCharts')
+              if os.path.isfile('content/readme.txt'):
+                  zf.write('content/readme.txt', 'content/readme.txt'); n += 1
+              print(f'FrozenEngine-mobile-customcharts.zip: {n} files')
+          EOF
+
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           files: |
             /home/runner/*-extra.zip
+            /home/runner/FrozenEngine-mobile-base.zip
+            /home/runner/FrozenEngine-mobile-customcharts.zip

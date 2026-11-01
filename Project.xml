@@ -111,11 +111,6 @@
 			<assets path="assets/base_game" rename="assets" exclude="*.mp3"  unless="web"/>
 		</section>
 
-		<section if="MODS_ALLOWED">
-			<assets path='example_mods' rename='mods' embed='false' />
-			<assets path='list.txt' rename='modsList.txt' />
-		</section>
-
 		<!-- 内容包数据（运行时加载；embed='false' 只是不塞进可执行文件，仍会进安装包）。
 		     content/VanillaSongs 下四类各自跟随对应的 BASE_GAME_* 宏把关，与 assets/base_game_* 口径一致：
 		     CI 传 -D NO_BASE_GAME_XXX（只剔数据）或 -D NO_EXTRA_BASE_GAME（连舞台类一起剔）即可从包里去掉。
@@ -146,6 +141,12 @@
 	<section if="BASE_GAME_FILES">
 		<haxelib name="grig.audio" if="BASE_GAME_FILES"/>
 		<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
+	</section>
+
+	<!-- mods 模板极小（~21KB），移动端也内嵌：CopyState 首启自动拷到数据根 mods/，保证模组模板默认存在 -->
+	<section if="MODS_ALLOWED">
+		<assets path='example_mods' rename='mods' embed='false' />
+		<assets path='list.txt' rename='modsList.txt' />
 	</section>
 
 	<define name="CHECK_FOR_UPDATES" if="desktop"/>
