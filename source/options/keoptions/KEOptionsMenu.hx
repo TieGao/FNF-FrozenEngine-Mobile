@@ -1451,6 +1451,9 @@ function onScrollChange()
 			KEOption.create("Blue Screen Crash Handler", "Show a Windows-style blue screen when the game hits an uncaught error; off = native popup", "blueScreen", "bool"),
 			KEOption.create("Blue Screen Duration", "Seconds before the blue screen returns to the title screen (0 = wait for a key)", "blueScreenTime", "int", 15, 0, 60, 1),
 			KEOption.create("Crash Test", "Triggers a null object crash on purpose. Do not click it for no reason!", "", "action"),
+			#if mobile
+			KEOption.create("Import Data Pack", "Import base game data & content packs to storage", "", "action"),
+			#end
 			KEOption.create("Discord RPC", "Enable Discord Rich Presence", "discordRPC", "bool"),
 			KEOption.create("Replay", "[Score Menu and Replay Required]", "saveReplays", "bool"),
 			KEOption.create("High Quality Replays", "Enable high-quality replays", "replayQuality", "bool"),

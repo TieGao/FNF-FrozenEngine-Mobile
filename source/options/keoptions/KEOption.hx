@@ -278,6 +278,17 @@ class KEOption
 				case "Open Extra Settings":
 					openInCurrentSubState(new KEExtraSettingsSubState());
 					return false;
+				#if mobile
+				case "Import Data Pack":
+					// 方案B'：原版周数据/内容包外置数据根，从这里一键导入/迁移（完成后回本菜单）
+					KEOptionsMenu.instance.removeTouchPad();
+					states.BootDataState.onExit = function()
+					{
+						MusicBeatState.switchState(new KEOptionsMenu());
+					};
+					MusicBeatState.switchState(new states.BootDataState());
+					return false;
+				#end
 				//case "Replay Manager":
 				//	MusicBeatState.switchState(new states.LoadReplayState());
 				//	return false;  

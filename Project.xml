@@ -76,37 +76,37 @@
 
 	<!-- __________________________ Game Assets & Etc. __________________________ -->
 
-	<!-- 桌面/web 资产（方案A：移动端数据全部外置到 /sdcard/.FrozenEngine/ 数据根，由数据包 zip 提供
-	     或从旧版私有目录自动迁移；APK 只带下方启动屏最小资源，消除"APK 内嵌一份 + 文件系统一份"的双倍占用。
-	     移动端启动由 BootDataState 检测数据根并引导安装/迁移（替代旧 CopyState 全量拷贝）。 -->
-	<section unless="mobile">
-		<!-- Assets -->
-		<assets path="assets/fonts" />
-		<assets path="assets/replays" />
-		<assets path="assets/shared"        exclude="*.ogg" if="web"/>
-		<assets path="assets/shared"        exclude="*.mp3" unless="web"/>
-		<assets path="assets/embed"         exclude="*.ogg" if="web" embed="true"/>
-		<assets path="assets/embed"         exclude="*.mp3" unless="web" embed="true"/>
-		<assets path="assets/videos"        if="VIDEOS_ALLOWED"/>
-		<assets path="assets/songs"         exclude="*.ogg" if="web"/>
-		<assets path="assets/songs"         exclude="*.mp3" unless="web"/>
-		<assets path="assets/week_assets"   rename="assets" exclude="*.ogg" if="web"/>
-		<assets path="assets/week_assets"   rename="assets" exclude="*.mp3" unless="web"/>
-		<section if="TITLE_SCREEN_EASTER_EGG">
-			<assets path="assets/secrets" rename="assets/shared" exclude="*.ogg" if="web"/>
-			<assets path="assets/secrets" rename="assets/shared" exclude="*.mp3"  unless="web"/>
-		</section>
+	<!-- 基础资产（方案B'：移动端也内嵌，保证引擎裸跑——菜单/UI/字体/音效，体积仅 ~86MB；
+	     原版周数据 assets/base_game(477M) 与内容包 content(438M) 外置到 /sdcard/.FrozenEngine/ 数据根，
+	     由数据包 zip 提供（MainMenu 提示 / Advanced → Import Data Pack 一键导入，BootDataState 执行）。 -->
+	<!-- Assets -->
+	<assets path="assets/fonts" />
+	<assets path="assets/replays" />
+	<assets path="assets/shared"        exclude="*.ogg" if="web"/>
+	<assets path="assets/shared"        exclude="*.mp3" unless="web"/>
+	<assets path="assets/embed"         exclude="*.ogg" if="web" embed="true"/>
+	<assets path="assets/embed"         exclude="*.mp3" unless="web" embed="true"/>
+	<assets path="assets/videos"        if="VIDEOS_ALLOWED"/>
+	<assets path="assets/songs"         exclude="*.ogg" if="web"/>
+	<assets path="assets/songs"         exclude="*.mp3" unless="web"/>
+	<assets path="assets/week_assets"   rename="assets" exclude="*.ogg" if="web"/>
+	<assets path="assets/week_assets"   rename="assets" exclude="*.mp3" unless="web"/>
+	<section if="TITLE_SCREEN_EASTER_EGG">
+		<assets path="assets/secrets" rename="assets/shared" exclude="*.ogg" if="web"/>
+		<assets path="assets/secrets" rename="assets/shared" exclude="*.mp3"  unless="web"/>
+	</section>
 
-		<section if="TRANSLATIONS_ALLOWED">
-			<assets path="assets/translations" rename="assets" exclude="*.ogg" if="web"/>
-			<assets path="assets/translations" rename="assets" exclude="*.mp3"  unless="web"/>
-		</section>
+	<section if="TRANSLATIONS_ALLOWED">
+		<assets path="assets/translations" rename="assets" exclude="*.ogg" if="web"/>
+		<assets path="assets/translations" rename="assets" exclude="*.mp3"  unless="web"/>
+	</section>
 
+	<!-- 大块数据（原版周 base_game / 拓展 mods 模板 / 内容包 content）桌面照旧随 bin 分发，
+	     移动端外置到数据根（由数据包 zip 导入或旧版私有目录自动迁移），不进 APK。 -->
+	<section if="desktop || web">
 		<section if="BASE_GAME_FILES">
 			<assets path="assets/base_game" rename="assets" exclude="*.ogg" if="web"/>
 			<assets path="assets/base_game" rename="assets" exclude="*.mp3"  unless="web"/>
-			<haxelib name="grig.audio" if="BASE_GAME_FILES"/>
-			<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
 		</section>
 
 		<section if="MODS_ALLOWED">
@@ -121,7 +121,8 @@
 		     注意 Erect 用的是 BASE_GAME_ERECT_CONTENT（只管数据）——这样即使剔除内容包，
 		     9 个 *Erect.hx 舞台类仍由 BASE_GAME_ERECT 保持编译，Erect 相关代码不会编不进去。
 		     CustomCharts / NMVMODS 属用户内容，不随变体开关走，始终打包。
-		     （移动端：content 不进 APK，与桌面 bin 旁的 content/ 同构，落在数据根 content/ 下。） -->
+		     （移动端：content 不进 APK，与桌面 bin 旁的 content/ 同构，落在数据根 content/ 下；
+		     BASE_GAME_* / BASE_GAME_*_CONTENT 等源码级宏在移动端照常生效，只剔数据不剔代码。） -->
 		<assets path='content/CustomCharts' rename='content/CustomCharts' embed='false' />
 		<assets path='content/NMVMODS'     rename='content/NMVMODS'     embed='false' />
 		<assets path='content/readme.txt'  rename='content/readme.txt'  embed='false' />
@@ -139,10 +140,11 @@
 		</section>
 	</section>
 
-	<!-- 移动端启动屏最小资源：BootDataState（缺数据引导/迁移）需要内嵌 CJK 字体。
-	     数据未就绪时 assets/ 不存在、Paths.font 不可用，故把字体字节解到应用私有目录后以真实
-	     文件路径喂给 FlxText（与桌面同机制）。复用 assets/fonts 的源文件，不复制仓库副本。 -->
-	<assets path="assets/fonts/HarmonyOS_Sans_SC_Medium.ttf" rename="assets/boot/cjk.ttf" if="mobile" embed="true" type="binary" />
+	<!-- 代码库不随数据外置走：AudioDisplay（SpectralAnalyzer 可视化）等在移动端也要编译 -->
+	<section if="BASE_GAME_FILES">
+		<haxelib name="grig.audio" if="BASE_GAME_FILES"/>
+		<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
+	</section>
 
 	<define name="CHECK_FOR_UPDATES" if="desktop"/>
 

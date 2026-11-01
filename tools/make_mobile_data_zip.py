@@ -24,8 +24,8 @@ STORED_EXT = {
     '.ogg', '.mp3', '.wav', '.png', '.jpg', '.jpeg', '.webm', '.mp4', '.ttf', '.otf',
     '.atlas', '.webp', '.ico', '.dll', '.ndll', '.so',
 }
-# 数据就绪标记（与 BootDataState.DATA_MARKER 对应），打全量包后自检
-DATA_MARKER = 'assets/shared/images/logoBumpin.png'
+# 原版数据就绪标记（与 BootDataState.DATA_MARKER 对应），打全量包后自检
+DATA_MARKER = 'assets/week2'
 
 
 def add_file(zf: zipfile.ZipFile, full: str, arcname: str):
@@ -72,17 +72,20 @@ def main():
             print(f'[完成] {out}: {n} 个文件, {size_mb:.0f} MB')
         return
 
-    # 全量数据包
+    # 全量数据包：base_game 数据摊平进 assets/（与桌面 rename='assets' 同口径）+ content + mods 模板
     out = 'FrozenEngine-mobile-data-full.zip'
     total = 0
     with zipfile.ZipFile(out, 'w', allowZip64=True) as zf:
-        total += add_tree(zf, 'assets', 'assets')
+        total += add_tree(zf, 'assets/base_game', 'assets')
         total += add_tree(zf, 'content', 'content')
         total += add_tree(zf, 'example_mods', 'mods')
+        if os.path.isfile('list.txt'):
+            add_file(zf, 'list.txt', 'modsList.txt')  # 与桌面 bin 旁 modsList.txt 同口径（首启默认 mod 开关状态）
+            total += 1
     with zipfile.ZipFile(out) as zf:
-        ok = DATA_MARKER in zf.namelist()
+        ok = any(n.startswith(DATA_MARKER + '/') for n in zf.namelist())
     size_mb = os.path.getsize(out) / 1024 / 1024
-    print(f'[完成] {out}: {total} 个文件, {size_mb:.0f} MB, 标记文件{"OK" if ok else "缺失!"}')
+    print(f'[完成] {out}: {total} 个文件, {size_mb:.0f} MB, 原版数据标记{"OK" if ok else "缺失!"}')
     if not ok:
         sys.exit(1)
 

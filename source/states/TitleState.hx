@@ -131,9 +131,6 @@ class TitleState extends MusicBeatState
 	function startIntro()
 	{
 		persistentUpdate = true;
-		#if mobile
-		showOptionalContentNotice();
-		#end
 		if (!initialized && FlxG.sound.music == null)
 			FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
 			FlxG.sound.music.persist = true;
@@ -655,56 +652,4 @@ class TitleState extends MusicBeatState
 			}
 		}
 	}
-
-	#if mobile
-	/**
-	 * 方案A：数据包（assets）已就绪但可选的原版歌曲内容包（content/VanillaSongs）缺失时，
-	 * 右上角提示一次（存档记 flag，只弹一次）。升级包（纯 APK）覆盖安装后即命中。
-	 */
-	function showOptionalContentNotice():Void
-	{
-		if (FlxG.save.data == null || FlxG.save.data.optionalContentNoticeShown != null)
-			return;
-		if (hasVanillaSongsContent())
-			return;
-		FlxG.save.data.optionalContentNoticeShown = true;
-		FlxG.save.flush();
-
-		var noticeTxt:FlxText = new FlxText(0, 8, 660,
-			'提示：未检测到可选的原版歌曲内容包\n可从发布页下载数据包并导入（content/VanillaSongs）', 16);
-		noticeTxt.setFormat(Paths.font('vcr.ttf'), 16, FlxColor.WHITE, RIGHT, OUTLINE, FlxColor.BLACK);
-		noticeTxt.screenCenter(X);
-		noticeTxt.x = FlxG.width - noticeTxt.width - 12;
-		noticeTxt.scrollFactor.set();
-		noticeTxt.y = -noticeTxt.height - 8;
-		add(noticeTxt);
-
-		FlxTween.tween(noticeTxt, {y: 8}, 0.6, {ease: FlxEase.quartOut, startDelay: 1.2});
-		FlxTween.tween(noticeTxt, {y: -noticeTxt.height - 8}, 0.6, {
-			ease: FlxEase.quartIn,
-			startDelay: 9.2,
-			onComplete: function(_)
-			{
-				noticeTxt.destroy();
-			}
-		});
-	}
-
-	function hasVanillaSongsContent():Bool
-	{
-		#if sys
-		try
-		{
-			var dir:String = 'content/VanillaSongs';
-			if (!FileSystem.exists(dir) || !FileSystem.isDirectory(dir))
-				return false;
-			for (name in FileSystem.readDirectory(dir))
-				if (FileSystem.isDirectory(dir + '/' + name))
-					return true;
-		}
-		catch (e:Dynamic) {}
-		#end
-		return false;
-	}
-	#end
 }

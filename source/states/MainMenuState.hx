@@ -59,6 +59,10 @@ class MainMenuState extends MusicBeatState
 		#end
 		Mods.loadTopMod();
 
+		#if mobile
+		showDataNotice();
+		#end
+
 		#if DISCORD_ALLOWED
 		// Updating Discord Rich Presence
 		DiscordClient.changePresence("In the Menus", null);
@@ -477,4 +481,25 @@ class MainMenuState extends MusicBeatState
 		selectedItem.centerOffsets();
 		camFollow.y = selectedItem.getGraphicMidpoint().y;
 	}
+
+	#if BOOT_DATA_ALLOWED
+	/**
+	 * 方案B'：原版周数据（base_game）/内容包外置数据根，未导入时右缘 Metro 通知条提示，
+	 * 停留 10s 自动消失；点击通知进入 BootDataState 一键导入/迁移。
+	 * 用户在导入界面选过"忽略并不再提示"后（dataNoticeIgnored）不再弹。
+	 */
+	function showDataNotice():Void
+	{
+		if (FlxG.save.data != null && FlxG.save.data.dataNoticeIgnored != null)
+			return;
+		if (BootDataState.checkBaseGameData())
+			return;
+		MessageBox.show('原版歌曲数据未安装',
+			'点击导入数据包（原版周 + 内容包）', MessageBoxType.ACTION, function()
+			{
+				BootDataState.onExit = null; // 完成后回主菜单
+				MusicBeatState.switchState(new BootDataState());
+			}, 10.0);
+	}
+	#end
 }

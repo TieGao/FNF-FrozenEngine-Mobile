@@ -684,10 +684,11 @@ class Paths
 	{
 		var path:String = getPath(key, TEXT, !ignoreMods);
 		#if sys
-		return (FileSystem.exists(path)) ? File.getContent(path) : null;
-		#else
-		return (OpenFlAssets.exists(path, TEXT)) ? Assets.getText(path) : null;
+		// 移动端（方案B'）：数据根 FileSystem 优先，miss 后回落 APK 内嵌资产（基础 assets 仍内嵌）
+		if (FileSystem.exists(path))
+			return File.getContent(path);
 		#end
+		return (OpenFlAssets.exists(path, TEXT)) ? Assets.getText(path) : null;
 	}
 
 	/**
