@@ -1439,3 +1439,5 @@ data.boot.zip.baddescriptor: "不支持的 zip 条目（数据描述符 + 无压
 data.boot.zip.incomplete: "数据包不完整（缺少原版歌曲数据），\n请使用完整数据包重试。"
 data.boot.zip.contentok: "内容包已导入。\n原版歌曲数据（base_game）仍缺失，\n可导入完整数据包补齐。"
 data.boot.copying: "准备基础资源 {1}/{2}"
+data.boot.zip.done.title: "导入完成"
+data.boot.btn.importmore: "继续导入数据包"

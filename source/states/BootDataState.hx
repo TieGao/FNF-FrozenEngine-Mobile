@@ -15,6 +15,7 @@ import haxe.zip.Entry;
 import haxe.zip.Reader;
 import mobile.backend.StorageUtil;
 import mobile.backend.TouchUtil;
+import objects.MessageBox;
 import openfl.utils.Assets as OpenFLAssets;
 import sys.FileSystem;
 import sys.io.File;
@@ -63,6 +64,7 @@ class BootDataState extends MusicBeatState
 	var jobDone:Int = 0;
 
 	// ---- zip 导入（流式）----
+	var tmpBuf:Bytes; // 64KB 分块缓冲，全流程复用（native 内存曲线恒定，防 GC 峰值撞 MIUI 内存墙）
 	var zipInput:FileInput;
 	var zipReader:Reader;
 	var zipStream:haxe.io.Input; // @:privateAccess 取自 zipReader
@@ -320,7 +322,8 @@ class BootDataState extends MusicBeatState
 		}
 		catch (e:Dynamic)
 		{
-			CoolUtil.showPopUp(Language.getPhrase('data.boot.zip.openfail', 'Cannot read zip file:\n{1}', [e.message]), Language.getPhrase('mobile_error', "Error!"));
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				Language.getPhrase('data.boot.zip.openfail', 'Cannot read zip file:\n{1}', [e.message]), MessageBoxType.MESSAGE, null, 8.0);
 			phase = Missing;
 		}
 	}
@@ -391,51 +394,71 @@ class BootDataState extends MusicBeatState
 		return true;
 	}
 
-	/** 从 zip 流读取一个条目的数据写入目标文件（对应 std Reader.read 的单条目逻辑）。 */
+	/** 从 zip 流读取一个条目的数据写入目标文件。全程流式：单条目内存恒为 64KB 缓冲，
+	 *  DEFLATE 用 InflateImpl 边解压边写（不整条目驻留 raw+data），防 native 内存峰值崩溃。 */
 	function writeEntryData(entry:Entry, dstPath:String):Void
 	{
+		if (tmpBuf == null)
+			tmpBuf = Bytes.alloc(65536);
 		var out:FileOutput = File.write(dstPath, true);
-		var tmp:Bytes = Bytes.alloc(65536);
-		if (entry.crc32 == null)
+		try
 		{
-			// 数据描述符条目（流式写出的 zip）：长度未知，边解压边写，读完跳过描述符
-			if (!entry.compressed)
-				throw Language.getPhrase('data.boot.zip.baddescriptor', 'Unsupported zip entry (data descriptor + stored)');
-			var z = new haxe.zip.InflateImpl(zipStream, false, false);
-			while (true)
+			if (entry.crc32 == null)
 			{
-				var n = z.readBytes(tmp, 0, tmp.length);
-				out.writeBytes(tmp, 0, n);
-				if (n < tmp.length)
-					break;
-			}
-			// 描述符：crc + csize + usize（可能带 0x08074b50 标记）
-			var crc = zipStream.readInt32();
-			if (crc == 0x08074b50)
+				// 数据描述符条目（流式写出的 zip）：长度未知，边解压边写，读完跳过描述符
+				if (!entry.compressed)
+					throw Language.getPhrase('data.boot.zip.baddescriptor', 'Unsupported zip entry (data descriptor + stored)');
+				var z = new haxe.zip.InflateImpl(zipStream, false, false);
+				while (true)
+				{
+					var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+					out.writeBytes(tmpBuf, 0, n);
+					if (n < tmpBuf.length)
+						break;
+				}
+				// 描述符：crc + csize + usize（可能带 0x08074b50 标记）
+				var crc = zipStream.readInt32();
+				if (crc == 0x08074b50)
+					zipStream.readInt32();
 				zipStream.readInt32();
-			zipStream.readInt32();
-			zipStream.readInt32();
-		}
-		else if (!entry.compressed)
-		{
-			// STORED：分块直拷
-			var left:Int = entry.dataSize;
-			while (left > 0)
-			{
-				var n:Int = zipStream.readBytes(tmp, 0, left < tmp.length ? left : tmp.length);
-				out.writeBytes(tmp, 0, n);
-				left -= n;
+				zipStream.readInt32();
 			}
+			else if (!entry.compressed)
+			{
+				// STORED：分块直拷
+				var left:Int = entry.dataSize;
+				while (left > 0)
+				{
+					var n:Int = zipStream.readBytes(tmpBuf, 0, left < tmpBuf.length ? left : tmpBuf.length);
+					out.writeBytes(tmpBuf, 0, n);
+					left -= n;
+				}
+			}
+			else
+			{
+				// DEFLATE：流式解压直写，读完 deflate 流后跟 crc + csize + usize 共 12 字节
+				var z = new haxe.zip.InflateImpl(zipStream, false, false);
+				while (true)
+				{
+					var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+					out.writeBytes(tmpBuf, 0, n);
+					if (n < tmpBuf.length)
+						break;
+				}
+				zipStream.readInt32(); // crc
+				zipStream.readInt32(); // csize
+				zipStream.readInt32(); // usize
+			}
+			out.close();
 		}
-		else
+		catch (e:Dynamic)
 		{
-			// DEFLATE：读出压缩块，交 zlib 解压（cpp 原生实现，快）
-			var raw:Bytes = zipStream.read(entry.dataSize);
-			entry.data = raw;
-			var data:Bytes = Reader.unzip(entry);
-			out.writeBytes(data, 0, data.length);
+			// 异常路径也要关句柄，防 fd 泄漏放大内存问题
+			try
+				out.close()
+			catch (e2:Dynamic) {}
+			throw e;
 		}
-		out.close();
 	}
 
 	function zipDone():Void
@@ -443,21 +466,23 @@ class BootDataState extends MusicBeatState
 		closeZip();
 		if (checkBaseGameData())
 		{
-			showReadyUI();
+			showReadyUI(true);
 			return;
 		}
-		// 没有标记但导入成功：可能是可选内容分类包（只含 content/mods，无 assets）
-		CoolUtil.showPopUp(importedAssetsEntries
-			? Language.getPhrase('data.boot.zip.incomplete', 'Data pack incomplete (base game data missing).\nPlease use the full data pack.')
-			: Language.getPhrase('data.boot.zip.contentok', 'Content pack imported.\nBase game data is still missing;\nimport the full data pack to complete.'),
-			Language.getPhrase('mobile_notice', 'Notice!'));
+		// 没有标记但导入成功：可选内容分类包（只含 content/mods，无 assets）——
+		// 用引擎内 toast 提示（不弹原生对话框，Android 上有卡死前科），停留在导入界面可继续导
+		MessageBox.show(Language.getPhrase('data.boot.zip.done.title', 'Import finished'),
+			importedAssetsEntries
+				? Language.getPhrase('data.boot.zip.incomplete', 'Data pack incomplete (base game data missing).\nPlease use the full data pack.')
+				: Language.getPhrase('data.boot.zip.contentok', 'Content pack imported.\nBase game data is still missing;\nimport the full data pack to complete.'),
+			MessageBoxType.MESSAGE, null, 6.0);
 		showMissingUI();
 	}
 
 	function zipFail(msg:String):Void
 	{
 		closeZip();
-		CoolUtil.showPopUp(msg, Language.getPhrase('mobile_error', "Error!"));
+		MessageBox.show(Language.getPhrase('mobile_error', 'Error!'), msg, MessageBoxType.MESSAGE, null, 8.0);
 		showMissingUI();
 	}
 
@@ -569,8 +594,8 @@ class BootDataState extends MusicBeatState
 		statusText.visible = true;
 	}
 
-	/** 数据就绪：提示后点任意处返回（仅菜单进入）。 */
-	function showReadyUI():Void
+	/** 原版数据就绪：可继续导分类包，也可返回。 */
+	function showReadyUI(?imported:Bool = false):Void
 	{
 		phase = Ready;
 		clearAllButtons();
@@ -578,7 +603,8 @@ class BootDataState extends MusicBeatState
 		infoText.text = Language.getPhrase('data.boot.ready.body', 'Base game data and content packs are available.');
 		progressBar.visible = false;
 		statusText.visible = false;
-		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 200);
+		addBtn(Language.getPhrase('data.boot.btn.importmore', 'Import more data packs'), FlxG.height - 310);
+		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 190);
 	}
 
 	function showMissingUI():Void
@@ -608,7 +634,11 @@ class BootDataState extends MusicBeatState
 			{
 				if (phase == Ready)
 				{
-					exitBootData();
+					// 就绪页：0=继续导入（回导入界面） 1=返回
+					if (i == 0)
+						showMissingUI();
+					else
+						exitBootData();
 					return;
 				}
 				switch (i)
