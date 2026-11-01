@@ -204,15 +204,38 @@ class Paths
 		}
 
 		if (parentfolder != null)
-			return getFolderPath(file, parentfolder);
+		{
+			var folderPath = getFolderPath(file, parentfolder);
+			#if sys
+			// 移动端（方案B'）：数据根上导入的 base_game/内容包文件不在 APK 内嵌清单
+			// （manifest/default.json 只列内嵌条目），必须先查 FileSystem，否则 getPath 返回 null
+			// → 原版 icon/舞台等"数据在盘上却加载不了"。
+			if (FileSystem.exists(folderPath))
+				return folderPath;
+			#end
+			if (OpenFlAssets.exists(folderPath, type))
+				return folderPath;
+		}
 
 		if (currentLevel != null && currentLevel != 'shared')
 		{
 			var levelPath = getFolderPath(file, currentLevel);
+			#if sys
+			if (FileSystem.exists(levelPath))
+				return levelPath;
+			#end
 			if (OpenFlAssets.exists(levelPath, type))
 				return levelPath;
 		}
-		return getSharedPath(file);
+
+		var sharedPath = getSharedPath(file);
+		#if sys
+		if (FileSystem.exists(sharedPath))
+			return sharedPath;
+		#end
+		if (OpenFlAssets.exists(sharedPath, type))
+			return sharedPath;
+		return null;
 	}
 
 	inline static public function getFolderPath(file:String, folder = "shared")
