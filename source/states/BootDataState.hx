@@ -65,6 +65,7 @@ class BootDataState extends MusicBeatState
 
 	// ---- zip 导入（流式）----
 	var tmpBuf:Bytes; // 64KB 分块缓冲，全流程复用（native 内存曲线恒定，防 GC 峰值撞 MIUI 内存墙）
+	var pendingZipPath:String; // DocumentPicker 回调跑在 JNI 线程：只写这个标记，update() 在 GL 线程消费
 	var zipInput:FileInput;
 	var zipReader:Reader;
 	var zipStream:haxe.io.Input; // @:privateAccess 取自 zipReader
@@ -94,7 +95,21 @@ class BootDataState extends MusicBeatState
 			case Extracting:
 				processExtractSlice();
 
-			case PickingZip | Finish:
+			case PickingZip:
+				if (pendingZipPath != null)
+				{
+					var p = pendingZipPath;
+					pendingZipPath = null;
+					if (p.length == 0)
+					{
+						phase = Missing;
+						showMissingUI();
+					}
+					else
+						openZip(p);
+				}
+
+			case Finish:
 		}
 	}
 
@@ -297,14 +312,12 @@ class BootDataState extends MusicBeatState
 	function startZipImport():Void
 	{
 		phase = PickingZip;
+		// ⚠️ DocumentPicker 回调在 JNI 线程：直接碰显示列表会偶发 native 崩溃（SIGTRAP/SIGSEGV），
+		// 这里只落标记，update() 的 GL 线程相位里消费。
 		DocumentPicker.pick(ZIP_UTIS, function(p:String)
 		{
-			if (p == null)
-			{
-				phase = Missing;
-				return;
-			}
-			openZip(p);
+			// 取消时上层回调 null：转空串 sentinel，与"还没返回"区分
+			pendingZipPath = (p == null) ? '' : p;
 		});
 	}
 
