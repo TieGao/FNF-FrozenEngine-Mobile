@@ -47,7 +47,6 @@ class BootDataState extends MusicBeatState
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
-	/** 保留：当前所有入口都是菜单进入（带 UI）。 */
 
 	var phase:BootPhase = CheckWork;
 
@@ -444,10 +443,7 @@ class BootDataState extends MusicBeatState
 		closeZip();
 		if (checkBaseGameData())
 		{
-			if (enteredFromMenu)
-				showReadyUI();
-			else
-				finishBoot();
+			showReadyUI();
 			return;
 		}
 		// 没有标记但导入成功：可能是可选内容分类包（只含 content/mods，无 assets）
