@@ -611,7 +611,7 @@ class OptionsPageState extends MusicBeatState
         }
         else
         {
-            optionsToShow = currentSub.options;
+            optionsToShow = currentSub.visibleOptions();
         }
 
         var startX = NAV_W + NAV_PAD * 2;
@@ -1289,4 +1289,4 @@ class OptionsPageState extends MusicBeatState
 
         super.destroy();
     }
-}
+}
