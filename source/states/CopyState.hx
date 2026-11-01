@@ -40,6 +40,10 @@ class CopyState extends MusicBeatState
 {
 	private static final textFilesExtensions:Array<String> = ['ini', 'txt', 'xml', 'hxs', 'hx', 'lua', 'json', 'frag', 'vert'];
 	public static final IGNORE_FOLDER_FILE_NAME:String = "CopyState-Ignore.txt";
+	/** 数据根资产版本标记：与 APK version 不一致 → 全量重拷（升级覆盖，防新旧资产混搭炸 TouchPad/xml 成对读取） */
+	public static final VERSION_FILE:String = 'assets/.fe-version';
+	public static var forceRecopy:Bool = false;
+	public static var currentVersion:String = '';
 	private static var directoriesToIgnore:Array<String> = [];
 	public static var locatedFiles:Array<String> = [];
 	public static var maxLoopTimes:Int = 0;
@@ -143,7 +147,7 @@ class CopyState extends MusicBeatState
 
 	public function copyAsset(file:String)
 	{
-		if (!FileSystem.exists(file))
+		if (forceRecopy || !FileSystem.exists(file))
 		{
 			var directory = Path.directory(file);
 			if (!FileSystem.exists(directory))
@@ -234,11 +238,31 @@ class CopyState extends MusicBeatState
 	{
 		locatedFiles = OpenFLAssets.list();
 
+		// 方案B'：数据根记录的资产版本与 APK 不一致 → 忽略"已存在"检查全量重拷。
+		// 否则覆盖安装后旧版拷下的基础资产不会被新版覆盖，新旧混搭（PsychUI/xml 成对读取错版本）会炸。
+		forceRecopy = false;
+		try
+		{
+			currentVersion = openfl.Lib.application.meta.get('version');
+			if (currentVersion == null) currentVersion = '';
+		}
+		catch (e:Dynamic)
+			currentVersion = '';
+		if (FileSystem.exists(VERSION_FILE))
+		{
+			var storedVersion:String = File.getContent(VERSION_FILE).trim();
+			if (storedVersion != currentVersion)
+				forceRecopy = true;
+		}
+		else
+			forceRecopy = true;
+
 		// removes unwanted assets
 		var assets = locatedFiles.filter(folder -> folder.startsWith('assets/'));
 		var mods = locatedFiles.filter(folder -> folder.startsWith('mods/'));
 		locatedFiles = assets.concat(mods);
-		locatedFiles = locatedFiles.filter(file -> !FileSystem.exists(file));
+		if (!forceRecopy)
+			locatedFiles = locatedFiles.filter(file -> !FileSystem.exists(file));
 		#if android
 		for (file in locatedFiles)
 			if (file.startsWith('mods/'))
