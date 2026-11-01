@@ -449,7 +449,8 @@ class BootDataState extends MusicBeatState
 			}
 			else
 			{
-				// DEFLATE：流式解压直写，读完 deflate 流后跟 crc + csize + usize 共 12 字节
+				// DEFLATE：流式解压直写。非描述符条目的 crc/csize/usize 都在 local header 里，
+				// deflate 数据后直接是下一个条目——绝不能多读，否则 header 错位全包报废
 				var z = new haxe.zip.InflateImpl(zipStream, false, false);
 				while (true)
 				{
@@ -458,9 +459,6 @@ class BootDataState extends MusicBeatState
 					if (n < tmpBuf.length)
 						break;
 				}
-				zipStream.readInt32(); // crc
-				zipStream.readInt32(); // csize
-				zipStream.readInt32(); // usize
 			}
 			out.close();
 		}
