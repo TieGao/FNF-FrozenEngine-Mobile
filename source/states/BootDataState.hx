@@ -60,17 +60,6 @@ class BootDataState extends MusicBeatState
 	/** true = 从主菜单通知/设置菜单进入（带 UI，完成后停在提示页）；false = 首启自动进入（完成直接进游戏）。 */
 	public static var enteredFromMenu:Bool = false;
 
-	enum BootPhase
-	{
-		CheckWork;
-		Working; // 迁移 + 内嵌补拷（分帧）
-		Ready; // 全部就绪，等确认返回（仅菜单进入）
-		Missing; // 基础资产已就绪但缺原版数据 → 导入界面
-		PickingZip;
-		Extracting;
-		Finish;
-	}
-
 	var phase:BootPhase = CheckWork;
 
 	// ---- UI ----
