@@ -286,6 +286,7 @@ class KEOption
 					{
 						MusicBeatState.switchState(new KEOptionsMenu());
 					};
+					states.BootDataState.enteredFromMenu = true;
 					MusicBeatState.switchState(new states.BootDataState());
 					return false;
 				#end

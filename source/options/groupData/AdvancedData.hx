@@ -78,6 +78,7 @@ class AdvancedData
         importData.actionLabel = 'Open';
         importData.action = function() {
             states.BootDataState.onExit = null;
+            states.BootDataState.enteredFromMenu = true;
             MusicBeatState.switchState(new states.BootDataState());
         };
         sub.add(importData);

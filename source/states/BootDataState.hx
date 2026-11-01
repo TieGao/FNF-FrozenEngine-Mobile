@@ -20,22 +20,30 @@ import sys.FileSystem;
 import sys.io.File;
 
 /**
- * 移动端数据导入/迁移界面（从 MainMenu 缺失提示或 Advanced → Import Data Pack 进入，不阻塞启动）。
+ * 移动端首启数据准备 + 数据包导入界面。
  *
- * 方案B'：APK 内嵌基础 assets（引擎裸跑所需 ~86MB）；原版周数据（assets/base_game，477M）与
- * 内容包（content/，438M）外置到数据根（/sdcard/.FrozenEngine/，= CWD），由数据包 zip 提供。
+ * 方案B'：APK 内嵌基础 assets（引擎裸跑所需 ~86MB），但 TouchPad 图集、语言/周文本等
+ * 大量读取走 FileSystem（CWD = 数据根 /sdcard/.FrozenEngine/）——首启数据根是空的，
+ * 所以保留 CopyState 语义：启动时把内嵌基础资产拷到数据根（旧 CopyState 全量拷贝的精简版）。
  *
- * 进入时依次：
- *  1. 原版数据已就绪（数据根存在标记目录）→ 提示后返回；
- *  2. 旧版本私有目录有 CopyState 全量拷贝 → 增量迁移到数据根：APK 内嵌已有的路径跳过
- *     （避免旧版资源覆盖新版），其余搬过去（rename 优先，失败分帧复制）；
- *     assets/replays 始终留在私有目录（回放防篡改，与 Replay.getReplayRootDir 一致）；
- *  3. 仍缺 → 导入界面：选数据包 zip（流式解压）/ 忽略并不再提示 / 返回。
+ * 两条进入路径：
+ *  - 自动（Main 启动分流）：基础资产未就绪 → 拷贝/迁移完成后直接进 TitleState；
+ *  - 手动（MainMenu 缺数据通知 / Advanced → Import Data Pack）：带界面，
+ *    可选导数据包 zip / 忽略并不再提示 / 返回。
+ *
+ * 处理顺序（runCheck）：
+ *  1. 旧版私有目录有 CopyState 全量拷贝 → 整树 rename 到数据根（同卷瞬时，含旧基础资产与 base_game 数据）；
+ *     rename 失败回退为分帧增量复制（APK 内嵌已有的路径跳过，避免旧资源覆盖新版）；
+ *  2. 内嵌基础资产逐条补拷（数据根缺什么拷什么）；
+ *  3. assets/replays 始终留在私有目录（回放防篡改，与 Replay.getReplayRootDir 一致）；
+ *  4. 原版周数据（base_game，标记 assets/week2）仍缺 → 显示导入 UI（数据包 zip）。
  *
  * 数据包 zip 约定：条目顶层只允许 assets/ content/ mods/ 前缀（与数据根同构，解压即安装）。
  */
 class BootDataState extends MusicBeatState
 {
+	/** 基础资产就绪标记（APK 内嵌必带；数据根存在 = 引擎可跑，Main 启动分流用）。 */
+	public static final BASE_ASSETS_MARKER:String = 'assets/shared/images/logoBumpin.png';
 	/** 原版数据（base_game）就绪标记：数据包必带、APK 内嵌没有的目录（week2 谱面数据）。 */
 	public static final DATA_MARKER:String = 'assets/week2';
 	/** 标记在 legacy assets 树内部的相对路径（迁移源校验用）。 */
@@ -44,13 +52,26 @@ class BootDataState extends MusicBeatState
 	public static final ALLOWED_PREFIXES:Array<String> = ['assets/', 'content/', 'mods/'];
 	/** iOS 文档选择器的 zip UTI（Android 端忽略类型参数）。 */
 	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip', 'application/x-zip-compressed'];
-	/** 每帧处理时间片（秒），迁移与解压共用。 */
+	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。 */
 	static inline final FRAME_BUDGET:Float = 0.012;
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
+	/** true = 从主菜单通知/设置菜单进入（带 UI，完成后停在提示页）；false = 首启自动进入（完成直接进游戏）。 */
+	public static var enteredFromMenu:Bool = false;
 
-	var phase:BootPhase = CheckMigrate;
+	enum BootPhase
+	{
+		CheckWork;
+		Working; // 迁移 + 内嵌补拷（分帧）
+		Ready; // 全部就绪，等确认返回（仅菜单进入）
+		Missing; // 基础资产已就绪但缺原版数据 → 导入界面
+		PickingZip;
+		Extracting;
+		Finish;
+	}
+
+	var phase:BootPhase = CheckWork;
 
 	// ---- UI ----
 	var titleText:FlxText;
@@ -60,9 +81,9 @@ class BootDataState extends MusicBeatState
 	var btnSprites:Array<FlxSprite> = [];
 	var btnTexts:Array<FlxText> = [];
 
-	// ---- 迁移（分帧复制回退）----
-	var migrateQueue:Array<String> = [];
-	var migrateDone:Int = 0;
+	// ---- 工作队列（迁移 job + 内嵌补拷 job）----
+	var jobQueue:Array<{src:String, dst:String, fromEmbedded:Bool}> = [];
+	var jobDone:Int = 0;
 
 	// ---- zip 导入（流式）----
 	var zipInput:FileInput;
@@ -85,11 +106,11 @@ class BootDataState extends MusicBeatState
 
 		switch (phase)
 		{
-			case CheckMigrate | Missing | Ready:
+			case CheckWork | Missing | Ready:
 				handleButtons();
 
-			case Migrating:
-				processMigrateSlice();
+			case Working:
+				processWorkSlice();
 
 			case Extracting:
 				processExtractSlice();
@@ -98,9 +119,15 @@ class BootDataState extends MusicBeatState
 		}
 	}
 
-	// ================= 检测 =================
+	// ================= 就绪检测 =================
 
-	/** 原版数据是否已导入数据根（MainMenu 缺失提示用）。 */
+	/** 基础资产是否已就绪（Main 启动分流用）。 */
+	public static function checkBaseAssetsReady():Bool
+	{
+		return FileSystem.exists(BASE_ASSETS_MARKER);
+	}
+
+	/** 原版数据（base_game）是否已导入数据根。 */
 	public static function checkBaseGameData():Bool
 	{
 		return FileSystem.exists(DATA_MARKER) && FileSystem.isDirectory(DATA_MARKER);
@@ -108,32 +135,44 @@ class BootDataState extends MusicBeatState
 
 	function runCheck():Void
 	{
+		// 1) 快速路径：旧版私有目录整树 rename（同卷瞬时完成，含旧基础资产与 base_game 数据）
+		tryRenameMigrate();
+
+		// 2) 内嵌基础资产补拷（数据根缺什么拷什么；rename 成功后这里通常全跳过）
+		//    + rename 失败时的旧拷贝分帧增量复制队列
+		jobQueue = collectJobs();
+		jobDone = 0;
+		if (jobQueue.length > 0)
+		{
+			showProgressUI();
+			phase = Working;
+			return;
+		}
+
+		finishWork();
+	}
+
+	function finishWork():Void
+	{
+		// 基础资产就绪 = 引擎可跑；base_game 数据另算（缺则主菜单会弹通知）
+		if (!checkBaseAssetsReady())
+		{
+			// 内嵌资产都没有（异常 APK）——照旧进游戏让崩溃处理接管，不做死循环
+			finishBoot();
+			return;
+		}
+
+		if (!enteredFromMenu && checkBaseGameData())
+		{
+			// 首启自动进入且原版数据已随迁移就位：无需停留，直接进游戏
+			finishBoot();
+			return;
+		}
+
 		if (checkBaseGameData())
-		{
 			showReadyUI();
-			return;
-		}
-
-		// 快速路径：整树 rename（同卷瞬时完成）
-		if (tryRenameMigrate())
-		{
-			showReadyUI();
-			return;
-		}
-
-		// 慢速路径：旧拷贝存在但 rename 失败 → 分帧增量复制（排除 replays 与内嵌已有文件）
-		migrateQueue = collectMigrateFiles();
-		migrateDone = 0;
-		if (migrateQueue.length > 0)
-		{
-			showProgressUI(Language.getPhrase('data.boot.preparing', 'Preparing data'));
-			phase = Migrating;
-		}
 		else
-		{
 			showMissingUI();
-			phase = Missing;
-		}
 	}
 
 	/** 旧版 CopyState 的落点（旧存储根语义）：android=私有目录，iOS/其它=旧 CWD。 */
@@ -148,24 +187,118 @@ class BootDataState extends MusicBeatState
 		#end
 	}
 
-	function tryRenameMigrate():Bool
+	function tryRenameMigrate():Void
 	{
 		var legacyAssets:String = legacyStorageRoot() + 'assets';
 		if (!FileSystem.exists(legacyAssets) || !FileSystem.exists(legacyAssets + '/' + MARKER_IN_ASSETS))
-			return false;
+			return;
 		if (FileSystem.exists('assets'))
-			return false; // 数据根已有 assets，不整树覆盖（避免盖掉已有内容）
+			return; // 数据根已有 assets，不整树覆盖
 
 		try
 		{
 			FileSystem.rename(legacyAssets, 'assets');
+			relocateReplaysFromDataRoot();
 		}
 		catch (e:Dynamic)
 		{
-			return false; // 回退到分帧复制
+			// rename 失败：留待 collectJobs 走分帧增量复制
+			trace('[BootData] rename 迁移失败，回退分帧复制: ' + e.message);
 		}
-		relocateReplaysFromDataRoot();
-		return checkBaseGameData();
+	}
+
+	/** 组装工作队列：内嵌补拷 + 旧拷贝分帧迁移（仅 rename 失败时）。 */
+	function collectJobs():Array<{src:String, dst:String, fromEmbedded:Bool}>
+	{
+		var jobs:Array<{src:String, dst:String, fromEmbedded:Bool}> = [];
+
+		// a) 内嵌基础资产补拷
+		for (asset in OpenFLAssets.list())
+		{
+			if (!StringTools.startsWith(asset, 'assets/'))
+				continue;
+			if (!FileSystem.exists(asset))
+				jobs.push({src: asset, dst: asset, fromEmbedded: true});
+		}
+
+		// b) 旧拷贝迁移（数据根还没有 base_game 标记时才有意义）
+		if (!checkBaseGameData())
+		{
+			var legacyAssets:String = legacyStorageRoot() + 'assets';
+			if (FileSystem.exists(legacyAssets) && FileSystem.exists(legacyAssets + '/' + MARKER_IN_ASSETS))
+				jobs = jobs.concat(walkLegacy(legacyAssets, ''));
+		}
+		return jobs;
+	}
+
+	function walkLegacy(absDir:String, relDir:String):Array<{src:String, dst:String, fromEmbedded:Bool}>
+	{
+		var out:Array<{src:String, dst:String, fromEmbedded:Bool}> = [];
+		var entries:Array<String>;
+		try
+		{
+			entries = FileSystem.readDirectory(absDir);
+		}
+		catch (e:Dynamic)
+			return out;
+
+		for (name in entries)
+		{
+			var rel:String = relDir.length == 0 ? name : relDir + '/' + name;
+			if (rel == 'replays' || rel.startsWith('replays/'))
+				continue; // 回放不迁移，留在私有目录
+			var abs:String = absDir + '/' + name;
+			if (FileSystem.isDirectory(abs))
+				out = out.concat(walkLegacy(abs, rel));
+			else
+			{
+				// 增量迁移：数据根已有（含刚补拷的内嵌资产）跳过，避免旧资源覆盖新版
+				if (!FileSystem.exists('assets/' + rel))
+					out.push({src: abs, dst: 'assets/' + rel, fromEmbedded: false});
+			}
+		}
+		return out;
+	}
+
+	function processWorkSlice():Void
+	{
+		var budget:Float = Sys.time() + FRAME_BUDGET;
+		while (Sys.time() < budget)
+		{
+			if (jobDone >= jobQueue.length)
+			{
+				finishJobs();
+				return;
+			}
+			var job = jobQueue[jobDone];
+			try
+			{
+				ensureParentDirs(job.dst);
+				if (job.fromEmbedded)
+					File.saveBytes(job.dst, OpenFLAssets.getBytes(job.src));
+				else
+					File.copy(job.src, job.dst);
+			}
+			catch (e:Dynamic)
+			{
+				trace('[BootData] 处理失败: ${job.dst} (${e.message})');
+			}
+			jobDone++;
+		}
+		statusText.text = Language.getPhrase('data.boot.copying', 'Preparing base assets {1}/{2}', [jobDone, jobQueue.length]);
+		progressBar.percent = (jobDone / jobQueue.length) * 100;
+	}
+
+	function finishJobs():Void
+	{
+		// rename 没走成时，旧拷贝树里可能还留着 replays 与残骸：清理（保留 replays 语义）
+		var legacyAssets:String = legacyStorageRoot() + 'assets';
+		if (FileSystem.exists(legacyAssets) && FileSystem.exists(legacyAssets + '/' + MARKER_IN_ASSETS))
+		{
+			relocateReplaysFromLegacy(legacyAssets);
+			deleteTree(legacyAssets);
+		}
+		finishWork();
 	}
 
 	/** rename 迁移成功后，把 replays 子树挪回私有目录（防篡改语义）。 */
@@ -186,87 +319,6 @@ class BootDataState extends MusicBeatState
 		catch (e:Dynamic)
 		{
 			trace('[BootData] replays 迁回私有目录失败: ' + e.message);
-		}
-	}
-
-	function collectMigrateFiles():Array<String>
-	{
-		var legacyAssets:String = legacyStorageRoot() + 'assets';
-		if (!FileSystem.exists(legacyAssets) || !FileSystem.exists(legacyAssets + '/' + MARKER_IN_ASSETS))
-			return [];
-		return walkDir(legacyAssets, ''); // 相对 legacy assets 的路径列表（排除 replays）
-	}
-
-	function walkDir(absDir:String, relDir:String):Array<String>
-	{
-		var out:Array<String> = [];
-		var entries:Array<String>;
-		try
-		{
-			entries = FileSystem.readDirectory(absDir);
-		}
-		catch (e:Dynamic)
-			return out;
-
-		for (name in entries)
-		{
-			var rel:String = relDir.length == 0 ? name : relDir + '/' + name;
-			if (rel == 'replays' || rel.startsWith('replays/'))
-				continue; // 回放不迁移，留在私有目录
-			var abs:String = absDir + '/' + name;
-			if (FileSystem.isDirectory(abs))
-				out = out.concat(walkDir(abs, rel));
-			else
-			{
-				// 增量迁移：APK 内嵌已有的路径跳过（用新版资源，不用旧拷贝覆盖）
-				if (!OpenFLAssets.exists('assets/' + rel))
-					out.push(rel);
-			}
-		}
-		return out;
-	}
-
-	function processMigrateSlice():Void
-	{
-		var legacyAssets:String = legacyStorageRoot() + 'assets';
-		var budget:Float = Sys.time() + FRAME_BUDGET;
-		while (Sys.time() < budget)
-		{
-			if (migrateDone >= migrateQueue.length)
-			{
-				finishMigrate();
-				return;
-			}
-			var rel:String = migrateQueue[migrateDone];
-			try
-			{
-				var dstRel:String = 'assets/' + rel;
-				ensureParentDirs(dstRel);
-				File.copy(legacyAssets + '/' + rel, dstRel);
-			}
-			catch (e:Dynamic)
-			{
-				trace('[BootData] 迁移失败: $rel (${e.message})');
-			}
-			migrateDone++;
-		}
-		statusText.text = Language.getPhrase('data.boot.migrating', 'Migrating old data {1}/{2}', [migrateDone, migrateQueue.length]);
-		progressBar.percent = (migrateDone / migrateQueue.length) * 100;
-	}
-
-	function finishMigrate():Void
-	{
-		// replays 留在原地（legacy 树内），先挪回私有语义位置再清理
-		var legacyAssets:String = legacyStorageRoot() + 'assets';
-		relocateReplaysFromLegacy(legacyAssets);
-		deleteTree(legacyAssets);
-
-		if (checkBaseGameData())
-			showReadyUI();
-		else
-		{
-			showMissingUI();
-			phase = Missing;
 		}
 	}
 
@@ -315,7 +367,7 @@ class BootDataState extends MusicBeatState
 			@:privateAccess zipStream = zipReader.i;
 			zipEntries = 0;
 			importedAssetsEntries = false;
-			showProgressUI(Language.getPhrase('data.boot.preparing', 'Preparing data'));
+			showProgressUI();
 			phase = Extracting;
 		}
 		catch (e:Dynamic)
@@ -443,7 +495,10 @@ class BootDataState extends MusicBeatState
 		closeZip();
 		if (checkBaseGameData())
 		{
-			showReadyUI();
+			if (enteredFromMenu)
+				showReadyUI();
+			else
+				finishBoot();
 			return;
 		}
 		// 没有标记但导入成功：可能是可选内容分类包（只含 content/mods，无 assets）
@@ -452,7 +507,6 @@ class BootDataState extends MusicBeatState
 			: Language.getPhrase('data.boot.zip.contentok', 'Content pack imported.\nBase game data is still missing;\nimport the full data pack to complete.'),
 			Language.getPhrase('mobile_notice', 'Notice!'));
 		showMissingUI();
-		phase = Missing;
 	}
 
 	function zipFail(msg:String):Void
@@ -460,7 +514,6 @@ class BootDataState extends MusicBeatState
 		closeZip();
 		CoolUtil.showPopUp(msg, Language.getPhrase('mobile_error', "Error!"));
 		showMissingUI();
-		phase = Missing;
 	}
 
 	function closeZip():Void
@@ -550,15 +603,28 @@ class BootDataState extends MusicBeatState
 		btnTexts.push(txt);
 	}
 
-	function setButtonsVisible(visible:Bool):Void
+	function clearAllButtons():Void
 	{
 		for (s in btnSprites)
-			s.visible = visible;
+			remove(s);
 		for (t in btnTexts)
-			t.visible = visible;
+			remove(t);
+		btnSprites = [];
+		btnTexts = [];
 	}
 
-	/** 数据就绪：提示后点任意处返回。 */
+	function showProgressUI():Void
+	{
+		clearAllButtons();
+		titleText.text = Language.getPhrase('data.boot.preparing', 'Preparing data');
+		infoText.text = '';
+		statusText.text = '';
+		progressBar.percent = 0;
+		progressBar.visible = true;
+		statusText.visible = true;
+	}
+
+	/** 数据就绪：提示后点任意处返回（仅菜单进入）。 */
 	function showReadyUI():Void
 	{
 		phase = Ready;
@@ -583,27 +649,6 @@ class BootDataState extends MusicBeatState
 		addBtn(Language.getPhrase('data.boot.btn.import', 'Import data pack zip'), FlxG.height - 320);
 		addBtn(Language.getPhrase('data.boot.btn.ignore', 'Ignore and don\'t ask again'), FlxG.height - 200);
 		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 90);
-	}
-
-	function clearAllButtons():Void
-	{
-		for (s in btnSprites)
-			remove(s);
-		for (t in btnTexts)
-			remove(t);
-		btnSprites = [];
-		btnTexts = [];
-	}
-
-	function showProgressUI(initial:String):Void
-	{
-		clearAllButtons();
-		titleText.text = Language.getPhrase('data.boot.preparing', 'Preparing data');
-		infoText.text = '';
-		statusText.text = initial;
-		progressBar.percent = 0;
-		progressBar.visible = true;
-		statusText.visible = true;
 	}
 
 	function handleButtons():Void
@@ -653,12 +698,19 @@ class BootDataState extends MusicBeatState
 		else
 			MusicBeatState.switchState(new MainMenuState());
 	}
+
+	function finishBoot():Void
+	{
+		phase = Finish;
+		// 数据就绪，进入游戏（后续 TitleState 自行加载资源）
+		MusicBeatState.switchState(new TitleState());
+	}
 }
 
 enum BootPhase
 {
-	CheckMigrate;
-	Migrating;
+	CheckWork;
+	Working;
 	Ready;
 	Missing;
 	PickingZip;

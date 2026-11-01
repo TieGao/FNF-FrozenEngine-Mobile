@@ -499,6 +499,7 @@ class MainMenuState extends MusicBeatState
 			MessageBoxType.ACTION, function()
 			{
 				BootDataState.onExit = null; // 完成后回主菜单
+				BootDataState.enteredFromMenu = true;
 				MusicBeatState.switchState(new BootDataState());
 			}, 10.0);
 	}
