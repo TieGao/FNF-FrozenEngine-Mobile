@@ -26,7 +26,9 @@
 	<define name="ACHIEVEMENTS_ALLOWED" />
 	<define name="DISCORD_ALLOWED" if="desktop" />
 	<define name="TRANSLATIONS_ALLOWED" />
-	<!-- 首屏数据引导（BootDataState：检测数据根 / 旧版迁移 / 缺数据 zip 导入），仅移动端 -->
+	<!-- 首启拷贝（CopyState：内嵌基础资产 → 数据根，真机验证过的老逻辑）+ 数据引导
+	     （BootDataState：旧版私有目录迁移 / 缺数据 zip 导入），均仅移动端 -->
+	<define name="COPYSTATE_ALLOWED" if="MODS_ALLOWED mobile"/>
 	<define name="BOOT_DATA_ALLOWED" if="MODS_ALLOWED mobile"/>
 	<define name="IRIS_DEBUG"/>
 	

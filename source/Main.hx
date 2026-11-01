@@ -20,8 +20,8 @@ import lime.system.System as LimeSystem;
 #if (linux || mac)
 import lime.graphics.Image;
 #end
-#if BOOT_DATA_ALLOWED
-import states.BootDataState;
+#if COPYSTATE_ALLOWED
+import states.CopyState;
 #end
 
 #if desktop
@@ -240,10 +240,10 @@ class Main extends Sprite
 		#end
 		
 		// 使用计算后的 width/height 和 zoom
-		// 移动端（方案B'）：基础 assets 内嵌，但 TouchPad/文本等大量读取走 FileSystem（CWD=数据根），
-		// 首启缺基础文件时先进 BootDataState（内嵌资产拷贝到数据根 + 旧版私有目录迁移）；
-		// 原版周数据/内容包缺失则由 MainMenu 的 MessageBox 提示、Advanced → Import Data Pack 进入
-		addChild(new FlxGame(game.width, game.height, #if BOOT_DATA_ALLOWED !BootDataState.checkBaseAssetsReady() ? BootDataState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
+		// 移动端（方案B'）：基础 assets 内嵌但 TouchPad/xml 等走 FileSystem 直读（CWD=数据根），
+		// 首启缺文件时先进 CopyState 全量拷贝（真机验证过的老逻辑）；
+		// 原版周数据/内容包缺失由 MainMenu 的 MessageBox 提示、Advanced → Import Data Pack 进 BootDataState
+		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
 
 		// 全局屏幕日志：挂在 FlxG.game 上，切换 state 不会跟着消失
 		debug.ScreenLog.attach();

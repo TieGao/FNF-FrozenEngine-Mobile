@@ -20,30 +20,20 @@ import sys.FileSystem;
 import sys.io.File;
 
 /**
- * 移动端首启数据准备 + 数据包导入界面。
+ * 移动端数据包导入/旧版迁移界面（从 MainMenu 缺数据通知或 Advanced → Import Data Pack 进入）。
  *
- * 方案B'：APK 内嵌基础 assets（引擎裸跑所需 ~86MB），但 TouchPad 图集、语言/周文本等
- * 大量读取走 FileSystem（CWD = 数据根 /sdcard/.FrozenEngine/）——首启数据根是空的，
- * 所以保留 CopyState 语义：启动时把内嵌基础资产拷到数据根（旧 CopyState 全量拷贝的精简版）。
- *
- * 两条进入路径：
- *  - 自动（Main 启动分流）：基础资产未就绪 → 拷贝/迁移完成后直接进 TitleState；
- *  - 手动（MainMenu 缺数据通知 / Advanced → Import Data Pack）：带界面，
- *    可选导数据包 zip / 忽略并不再提示 / 返回。
- *
- * 处理顺序（runCheck）：
- *  1. 旧版私有目录有 CopyState 全量拷贝 → 整树 rename 到数据根（同卷瞬时，含旧基础资产与 base_game 数据）；
- *     rename 失败回退为分帧增量复制（APK 内嵌已有的路径跳过，避免旧资源覆盖新版）；
- *  2. 内嵌基础资产逐条补拷（数据根缺什么拷什么）；
- *  3. assets/replays 始终留在私有目录（回放防篡改，与 Replay.getReplayRootDir 一致）；
- *  4. 原版周数据（base_game，标记 assets/week2）仍缺 → 显示导入 UI（数据包 zip）。
+ * 方案B'：APK 内嵌基础 assets（引擎裸跑所需 ~86MB），TouchPad 图集/xml 等走 FileSystem 直读
+ * （CWD = 数据根 /sdcard/.FrozenEngine/）——首启基础资产由 CopyState 全量拷贝到数据根
+ * （恢复的真机验证逻辑，见 Main.hx 分流）；本类只负责：
+ *  1. 旧版私有目录的 CopyState 全量拷贝 → 迁移到数据根（整树 rename 优先，失败分帧增量复制；
+ *     APK/CopyState 已就位的文件跳过，避免旧资源覆盖新版）；
+ *  2. assets/replays 始终留在私有目录（回放防篡改，与 Replay.getReplayRootDir 一致）；
+ *  3. 原版周数据（base_game，标记 assets/week2）与内容包的 zip 导入 UI（忽略可不再提示）。
  *
  * 数据包 zip 约定：条目顶层只允许 assets/ content/ mods/ 前缀（与数据根同构，解压即安装）。
  */
 class BootDataState extends MusicBeatState
 {
-	/** 基础资产就绪标记（APK 内嵌必带；数据根存在 = 引擎可跑，Main 启动分流用）。 */
-	public static final BASE_ASSETS_MARKER:String = 'assets/shared/images/logoBumpin.png';
 	/** 原版数据（base_game）就绪标记：数据包必带、APK 内嵌没有的目录（week2 谱面数据）。 */
 	public static final DATA_MARKER:String = 'assets/week2';
 	/** 标记在 legacy assets 树内部的相对路径（迁移源校验用）。 */
@@ -57,8 +47,7 @@ class BootDataState extends MusicBeatState
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
-	/** true = 从主菜单通知/设置菜单进入（带 UI，完成后停在提示页）；false = 首启自动进入（完成直接进游戏）。 */
-	public static var enteredFromMenu:Bool = false;
+	/** 保留：当前所有入口都是菜单进入（带 UI）。 */
 
 	var phase:BootPhase = CheckWork;
 
@@ -110,12 +99,6 @@ class BootDataState extends MusicBeatState
 
 	// ================= 就绪检测 =================
 
-	/** 基础资产是否已就绪（Main 启动分流用）。 */
-	public static function checkBaseAssetsReady():Bool
-	{
-		return FileSystem.exists(BASE_ASSETS_MARKER);
-	}
-
 	/** 原版数据（base_game）是否已导入数据根。 */
 	public static function checkBaseGameData():Bool
 	{
@@ -143,21 +126,7 @@ class BootDataState extends MusicBeatState
 
 	function finishWork():Void
 	{
-		// 基础资产就绪 = 引擎可跑；base_game 数据另算（缺则主菜单会弹通知）
-		if (!checkBaseAssetsReady())
-		{
-			// 内嵌资产都没有（异常 APK）——照旧进游戏让崩溃处理接管，不做死循环
-			finishBoot();
-			return;
-		}
-
-		if (!enteredFromMenu && checkBaseGameData())
-		{
-			// 首启自动进入且原版数据已随迁移就位：无需停留，直接进游戏
-			finishBoot();
-			return;
-		}
-
+		// 基础资产由 CopyState 保证（Main 分流），这里只看 base_game 数据
 		if (checkBaseGameData())
 			showReadyUI();
 		else
@@ -196,21 +165,12 @@ class BootDataState extends MusicBeatState
 		}
 	}
 
-	/** 组装工作队列：内嵌补拷 + 旧拷贝分帧迁移（仅 rename 失败时）。 */
+	/** 组装工作队列：旧拷贝分帧迁移（仅 rename 失败时；内嵌基础资产由 CopyState 负责）。 */
 	function collectJobs():Array<{src:String, dst:String, fromEmbedded:Bool}>
 	{
 		var jobs:Array<{src:String, dst:String, fromEmbedded:Bool}> = [];
 
-		// a) 内嵌基础资产补拷
-		for (asset in OpenFLAssets.list())
-		{
-			if (!StringTools.startsWith(asset, 'assets/'))
-				continue;
-			if (!FileSystem.exists(asset))
-				jobs.push({src: asset, dst: asset, fromEmbedded: true});
-		}
-
-		// b) 旧拷贝迁移（数据根还没有 base_game 标记时才有意义）
+		// 旧拷贝迁移（数据根还没有 base_game 标记时才有意义）
 		if (!checkBaseGameData())
 		{
 			var legacyAssets:String = legacyStorageRoot() + 'assets';
@@ -241,7 +201,7 @@ class BootDataState extends MusicBeatState
 				out = out.concat(walkLegacy(abs, rel));
 			else
 			{
-				// 增量迁移：数据根已有（含刚补拷的内嵌资产）跳过，避免旧资源覆盖新版
+				// 增量迁移：数据根已有（含 CopyState 先行拷好的内嵌资产）跳过，避免旧资源覆盖新版
 				if (!FileSystem.exists('assets/' + rel))
 					out.push({src: abs, dst: 'assets/' + rel, fromEmbedded: false});
 			}
