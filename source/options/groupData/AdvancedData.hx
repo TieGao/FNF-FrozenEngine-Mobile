@@ -72,6 +72,17 @@ class AdvancedData
         };
         sub.add(resetSettings);
 
+        #if mobile
+        // 方案B'：原版周数据/内容包外置数据根，从这里一键导入/迁移（完成后回主菜单）
+        var importData = new Option('Import Data Pack', 'Import base game data & content packs to storage', '', ACTION);
+        importData.actionLabel = 'Open';
+        importData.action = function() {
+            states.BootDataState.onExit = null;
+            MusicBeatState.switchState(new states.BootDataState());
+        };
+        sub.add(importData);
+        #end
+
         return cat;
     }
 }

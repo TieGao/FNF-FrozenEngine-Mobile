@@ -50,17 +50,6 @@ class BootDataState extends MusicBeatState
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
 
-	enum BootPhase
-	{
-		CheckMigrate;
-		Migrating;
-		Ready; // 数据就绪，等确认返回
-		Missing; // 导入界面（按钮）
-		PickingZip;
-		Extracting;
-		Finish;
-	}
-
 	var phase:BootPhase = CheckMigrate;
 
 	// ---- UI ----
@@ -137,7 +126,7 @@ class BootDataState extends MusicBeatState
 		migrateDone = 0;
 		if (migrateQueue.length > 0)
 		{
-			showProgressUI('迁移旧数据...');
+			showProgressUI(Language.getPhrase('data.boot.preparing', 'Preparing data'));
 			phase = Migrating;
 		}
 		else
@@ -261,7 +250,7 @@ class BootDataState extends MusicBeatState
 			}
 			migrateDone++;
 		}
-		statusText.text = '迁移旧数据 $migrateDone/${migrateQueue.length}';
+		statusText.text = Language.getPhrase('data.boot.migrating', 'Migrating old data {1}/{2}', [migrateDone, migrateQueue.length]);
 		progressBar.percent = (migrateDone / migrateQueue.length) * 100;
 	}
 
@@ -326,12 +315,12 @@ class BootDataState extends MusicBeatState
 			@:privateAccess zipStream = zipReader.i;
 			zipEntries = 0;
 			importedAssetsEntries = false;
-			showProgressUI('解压数据包...');
+			showProgressUI(Language.getPhrase('data.boot.preparing', 'Preparing data'));
 			phase = Extracting;
 		}
 		catch (e:Dynamic)
 		{
-			CoolUtil.showPopUp('无法读取 zip 文件：\n${e.message}', '错误');
+			CoolUtil.showPopUp(Language.getPhrase('data.boot.zip.openfail', 'Cannot read zip file:\n{1}', [e.message]), Language.getPhrase('mobile_error', "Error!"));
 			phase = Missing;
 		}
 	}
@@ -348,7 +337,7 @@ class BootDataState extends MusicBeatState
 			}
 			catch (e:Dynamic)
 			{
-				zipFail('解压失败：${e.message}');
+				zipFail(Language.getPhrase('data.boot.zip.fail', 'Extraction failed: {1}', [e.message]));
 				return;
 			}
 
@@ -360,12 +349,12 @@ class BootDataState extends MusicBeatState
 
 			if (!processEntry(entry))
 			{
-				zipFail('数据包内含非预期文件：\n${entry.fileName}\n请使用官方数据包。');
+				zipFail(Language.getPhrase('data.boot.zip.badentry', 'Unexpected file in data pack:\n{1}\nPlease use the official data pack.', [entry.fileName]));
 				return;
 			}
 			zipEntries++;
 		}
-		statusText.text = '已解压 $zipEntries 个文件...';
+		statusText.text = Language.getPhrase('data.boot.extracted', 'Extracted {1} files...', [zipEntries]);
 		progressBar.percent = (Sys.time() * 40) % 100; // 总量未知，脉冲式进度
 	}
 
@@ -411,7 +400,7 @@ class BootDataState extends MusicBeatState
 		{
 			// 数据描述符条目（流式写出的 zip）：长度未知，边解压边写，读完跳过描述符
 			if (!entry.compressed)
-				throw '不支持的 zip 条目（数据描述符 + 无压缩）';
+				throw Language.getPhrase('data.boot.zip.baddescriptor', 'Unsupported zip entry (data descriptor + stored)');
 			var z = new haxe.zip.InflateImpl(zipStream, false, false);
 			while (true)
 			{
@@ -459,8 +448,9 @@ class BootDataState extends MusicBeatState
 		}
 		// 没有标记但导入成功：可能是可选内容分类包（只含 content/mods，无 assets）
 		CoolUtil.showPopUp(importedAssetsEntries
-			? '数据包不完整（缺少原版歌曲数据），\n请使用完整数据包重试。'
-			: '内容包已导入。\n原版歌曲数据（base_game）仍缺失，\n可导入完整数据包补齐。', '提示');
+			? Language.getPhrase('data.boot.zip.incomplete', 'Data pack incomplete (base game data missing).\nPlease use the full data pack.')
+			: Language.getPhrase('data.boot.zip.contentok', 'Content pack imported.\nBase game data is still missing;\nimport the full data pack to complete.'),
+			Language.getPhrase('mobile_notice', 'Notice!'));
 		showMissingUI();
 		phase = Missing;
 	}
@@ -468,7 +458,7 @@ class BootDataState extends MusicBeatState
 	function zipFail(msg:String):Void
 	{
 		closeZip();
-		CoolUtil.showPopUp(msg, '错误');
+		CoolUtil.showPopUp(msg, Language.getPhrase('mobile_error', "Error!"));
 		showMissingUI();
 		phase = Missing;
 	}
@@ -573,11 +563,11 @@ class BootDataState extends MusicBeatState
 	{
 		phase = Ready;
 		clearAllButtons();
-		titleText.text = '数据已就绪';
-		infoText.text = '原版歌曲数据与内容包已可用。';
+		titleText.text = Language.getPhrase('data.boot.ready.title', 'Data is ready');
+		infoText.text = Language.getPhrase('data.boot.ready.body', 'Base game data and content packs are available.');
 		progressBar.visible = false;
 		statusText.visible = false;
-		addBtn('返回', FlxG.height - 200);
+		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 200);
 	}
 
 	function showMissingUI():Void
@@ -586,14 +576,13 @@ class BootDataState extends MusicBeatState
 		progressBar.visible = false;
 		statusText.visible = false;
 
-		titleText.text = '原版歌曲数据未安装';
-		infoText.text = '数据根目录：' + StorageUtil.getStorageDirectory()
-			+ '\n点击下方按钮导入数据包 zip，或用电脑 / 文件管理器\n将数据包解压到上述目录。';
+		titleText.text = Language.getPhrase('data.notice.title', 'Base game data not installed');
+		infoText.text = Language.getPhrase('data.boot.missing.body', 'Data root: {1}\nTap the button below to import the data pack zip, or\nextract it to the path above with a file manager.', [StorageUtil.getStorageDirectory()]);
 
 		clearAllButtons();
-		addBtn('导入数据包 zip', FlxG.height - 320);
-		addBtn('忽略并不再提示', FlxG.height - 200);
-		addBtn('返回', FlxG.height - 90);
+		addBtn(Language.getPhrase('data.boot.btn.import', 'Import data pack zip'), FlxG.height - 320);
+		addBtn(Language.getPhrase('data.boot.btn.ignore', 'Ignore and don\'t ask again'), FlxG.height - 200);
+		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 90);
 	}
 
 	function clearAllButtons():Void
@@ -609,7 +598,7 @@ class BootDataState extends MusicBeatState
 	function showProgressUI(initial:String):Void
 	{
 		clearAllButtons();
-		titleText.text = '正在准备数据';
+		titleText.text = Language.getPhrase('data.boot.preparing', 'Preparing data');
 		infoText.text = '';
 		statusText.text = initial;
 		progressBar.percent = 0;

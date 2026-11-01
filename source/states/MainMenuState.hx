@@ -494,8 +494,9 @@ class MainMenuState extends MusicBeatState
 			return;
 		if (BootDataState.checkBaseGameData())
 			return;
-		MessageBox.show('原版歌曲数据未安装',
-			'点击导入数据包（原版周 + 内容包）', MessageBoxType.ACTION, function()
+		MessageBox.show(Language.getPhrase('data.notice.title', 'Base game data not installed'),
+			Language.getPhrase('data.notice.body', 'Tap to import data pack (base game + content)'),
+			MessageBoxType.ACTION, function()
 			{
 				BootDataState.onExit = null; // 完成后回主菜单
 				MusicBeatState.switchState(new BootDataState());
