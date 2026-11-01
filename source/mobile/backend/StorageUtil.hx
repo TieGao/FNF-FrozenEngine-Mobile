@@ -29,12 +29,37 @@ package mobile.backend;
 class StorageUtil
 {
 	#if sys
+	/**
+	 * 数据根目录（= 游戏 CWD）：assets / content / mods 等资源树所在，与桌面运行目录同构。
+	 * android 为公共外部存储 /sdcard/.FrozenEngine/（用户可管理、卸载不丢）；
+	 * iOS 为 documents/FrozenEngine/；其余平台维持进程 CWD。
+	 */
 	public static function getStorageDirectory():String
-		return #if android haxe.io.Path.addTrailingSlash(extension.androidtools.content.Context.getExternalFilesDir()) #elseif ios lime.system.System.documentsDirectory #else Sys.getCwd() #end;
+		return #if android getExternalStorageDirectory() #elseif ios haxe.io.Path.addTrailingSlash(lime.system.System.documentsDirectory) + 'FrozenEngine/' #else Sys.getCwd() #end;
+
+	/**
+	 * 应用私有目录：不希望被用户改动/随包管理的数据放这里（如 Replay）。
+	 * android 为 /sdcard/Android/data/<包名>/files/；iOS 为沙盒 applicationStorageDirectory。
+	 */
+	public static function getPrivateStorageDirectory():String
+		return #if android haxe.io.Path.addTrailingSlash(extension.androidtools.content.Context.getExternalFilesDir()) #elseif ios lime.system.System.applicationStorageDirectory #else Sys.getCwd() #end;
+
+	/** 确保数据根存在（Main 在 setCwd 前调用）。 */
+	public static function ensureDataRoot():Void
+	{
+		#if ios
+		try
+		{
+			if (!FileSystem.exists(getStorageDirectory()))
+				FileSystem.createDirectory(getStorageDirectory());
+		}
+		catch (e:Dynamic) {}
+		#end
+	}
 
 	public static function saveContent(fileName:String, fileData:String, ?alert:Bool = true):Void
 	{
-		final folder:String = #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'saves/';
+		final folder:String = getStorageDirectory() + 'saves/';
 		try
 		{
 			if (!FileSystem.exists(folder))

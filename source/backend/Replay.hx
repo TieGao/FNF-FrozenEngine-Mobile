@@ -812,10 +812,15 @@ class Replay
     }
     
     // ========== 文件管理 ==========
-    
+
     public static function getReplayRootDir():String
     {
+        // 方案A：数据根（/sdcard/.FrozenEngine/）用户可见可改，回放走应用私有目录防篡改
+        #if mobile
+        return StorageUtil.getPrivateStorageDirectory() + 'assets/replays/';
+        #else
         return "assets/replays/";
+        #end
     }
 
     /**

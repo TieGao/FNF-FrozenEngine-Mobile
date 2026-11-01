@@ -20,8 +20,8 @@ import lime.system.System as LimeSystem;
 #if (linux || mac)
 import lime.graphics.Image;
 #end
-#if COPYSTATE_ALLOWED
-import states.CopyState;
+#if BOOT_DATA_ALLOWED
+import states.BootDataState;
 #end
 
 #if desktop
@@ -73,6 +73,7 @@ class Main extends Sprite
 		#if android
 		StorageUtil.requestPermissions();
 		#end
+		StorageUtil.ensureDataRoot();
 		Sys.setCwd(StorageUtil.getStorageDirectory());
 		#end
 		// 只留原生（hxcpp）critical error 处理；Haxe 层未捕获异常统一交给
@@ -239,7 +240,8 @@ class Main extends Sprite
 		#end
 		
 		// 使用计算后的 width/height 和 zoom
-		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
+		// 移动端（方案A）：数据外置到 /sdcard/.FrozenEngine/，未就绪时先进 BootDataState（旧数据迁移 / 引导安装）
+		addChild(new FlxGame(game.width, game.height, #if BOOT_DATA_ALLOWED !BootDataState.checkDataInstalled() ? BootDataState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
 
 		// 全局屏幕日志：挂在 FlxG.game 上，切换 state 不会跟着消失
 		debug.ScreenLog.attach();

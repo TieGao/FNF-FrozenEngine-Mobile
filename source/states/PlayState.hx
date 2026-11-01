@@ -3714,7 +3714,7 @@ public function reloadCounterColors()
 	{
 		try
 		{
-			var replayDir = "assets/replays/";
+			var replayDir = FrameReplay.getReplayRootDir();
 			if (FileSystem.exists(replayDir))
 			{
 				var files = FileSystem.readDirectory(replayDir);
