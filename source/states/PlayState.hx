@@ -93,7 +93,7 @@ class PlayState extends MusicBeatState
 
 	//event variables
 	private var isCameraOnForcedPos:Bool = false;
-	#if BASE_GAME_ERECT
+	#if STAGE_ERECT
 	private var erectCameraTargetTween:FlxTween;
 	private var erectCameraZoomTween:FlxTween;
 	private var erectCameraBopEnabled:Bool = false;
@@ -1433,9 +1433,8 @@ class PlayState extends MusicBeatState
 		#if LUA_ALLOWED
 		var doPush:Bool = false;
 		var luaFile:String = 'characters/$name.lua';
-		#if MODS_ALLOWED
-		var replacePath:String = Paths.modFolders(luaFile);
-		if(FileSystem.exists(replacePath))
+		var replacePath:String = Paths.getPath(luaFile, TEXT);
+		if(Paths.assetExists(replacePath))
 		{
 			luaFile = replacePath;
 			doPush = true;
@@ -1443,13 +1442,9 @@ class PlayState extends MusicBeatState
 		else
 		{
 			luaFile = Paths.getSharedPath(luaFile);
-			if(FileSystem.exists(luaFile))
+			if(Paths.assetExists(luaFile))
 				doPush = true;
 		}
-		#else
-		luaFile = Paths.getSharedPath(luaFile);
-		if(Assets.exists(luaFile)) doPush = true;
-		#end
 
 		if(doPush)
 		{
@@ -1479,7 +1474,9 @@ class PlayState extends MusicBeatState
 		else
 		#end
 		{
-			scriptFile = Paths.getSharedPath(scriptFile);
+			// 角色脚本可以放在内容包里（<包>/shared/characters/<名>.hx）：getPath 依次试
+			// 当前包 → 依赖包 → assets/shared。mods 那段在上面已经优先处理过了。
+			scriptFile = Paths.getPath(scriptFile, TEXT, null, true);
 			if(FileSystem.exists(scriptFile))
 				doPush = true;
 		}
@@ -1523,12 +1520,8 @@ class PlayState extends MusicBeatState
 		var foundFile:Bool = false;
 		var fileName:String = Paths.video(name);
 
-		#if sys
-		if (FileSystem.exists(fileName))
-		#else
-		if (OpenFlAssets.exists(fileName))
-		#end
-		foundFile = true;
+		if (Paths.assetExists(fileName, BINARY))
+			foundFile = true;
 
 		if (foundFile)
 		{
@@ -2312,7 +2305,7 @@ public function reloadCounterColors()
 	// called only once per different event (Used for precaching)
 	function eventPushed(event:EventNote) {
 		eventPushedUnique(event);
-		#if BASE_GAME_ERECT
+		#if STAGE_ERECT
 		if (event.event == 'Set Camera Zoom' || event.event == 'Set Camera Bop')
 		{
 			// 这套混音使用独立的相机节奏，避免与默认的四拍变焦叠加。
@@ -3063,7 +3056,7 @@ public function reloadCounterColors()
 					char.specialAnim = true;
 				}
 
-			#if BASE_GAME_ERECT
+			#if STAGE_ERECT
 			case 'Set Camera Target':
 				setErectCameraTarget(value1, value2);
 
@@ -3255,7 +3248,7 @@ public function reloadCounterColors()
 		callOnScripts('onEvent', [eventName, value1, value2, strumTime]);
 	}
 
-	#if BASE_GAME_ERECT
+	#if STAGE_ERECT
 	private function getErectEase(name:String):Dynamic
 	{
 		var easing:Dynamic = Reflect.field(FlxEase, name);
@@ -5266,7 +5259,7 @@ public function reloadCounterColors()
 
 		hscriptArray = null;
 		#end
-		#if BASE_GAME_ERECT
+		#if STAGE_ERECT
 		if (erectCameraTargetTween != null) erectCameraTargetTween.cancel();
 		if (erectCameraZoomTween != null) erectCameraZoomTween.cancel();
 		#end
@@ -5366,7 +5359,7 @@ public function reloadCounterColors()
 		super.beatHit();
 		lastBeatHit = curBeat;
 
-		#if BASE_GAME_ERECT
+		#if STAGE_ERECT
 		if (erectCameraBopEnabled && erectCameraBopRate > 0 && ClientPrefs.data.camZooms
 			&& curBeat % erectCameraBopRate == 0 && FlxG.camera.zoom < 1.35)
 		{
@@ -5404,7 +5397,7 @@ public function reloadCounterColors()
 			if (generatedMusic && !endingSong && !isCameraOnForcedPos)
 				moveCameraSection();
 
-			if (camZooming && #if BASE_GAME_ERECT !erectCameraBopEnabled && #end FlxG.camera.zoom < 1.35 && ClientPrefs.data.camZooms)
+			if (camZooming && #if STAGE_ERECT !erectCameraBopEnabled && #end FlxG.camera.zoom < 1.35 && ClientPrefs.data.camZooms)
 			{
 				FlxG.camera.zoom += 0.015 * camZoomingMult;
 				camHUD.zoom += 0.03 * camZoomingMult;
@@ -5430,16 +5423,11 @@ public function reloadCounterColors()
 	#if LUA_ALLOWED
 	public function startLuasNamed(luaFile:String)
 	{
-		#if MODS_ALLOWED
-		var luaToLoad:String = Paths.modFolders(luaFile);
-		if(!FileSystem.exists(luaToLoad))
+		var luaToLoad:String = Paths.getPath(luaFile, TEXT);
+		if(!Paths.assetExists(luaToLoad))
 			luaToLoad = Paths.getSharedPath(luaFile);
 
-		if(FileSystem.exists(luaToLoad))
-		#elseif sys
-		var luaToLoad:String = Paths.getSharedPath(luaFile);
-		if(OpenFlAssets.exists(luaToLoad))
-		#end
+		if(Paths.assetExists(luaToLoad))
 		{
 			for (script in luaArray)
 				if(script.scriptName == luaToLoad) return false;

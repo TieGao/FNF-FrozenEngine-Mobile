@@ -83,13 +83,9 @@ class StageData {
 		{
 			var key:String = 'stages/' + stage + '.json';
 			var path:String = Paths.getPath(key, TEXT, null, true);
-			#if MODS_ALLOWED
-			if(FileSystem.exists(path))
-				return cast tjson.TJSON.parse(File.getContent(path));
-			#end
-			// 内容包与嵌入资源不在 FileSystem 里，补一条 Assets 通道
-			if(Assets.exists(path, TEXT))
-				return cast tjson.TJSON.parse(Assets.getText(path));
+			var raw:String = Paths.assetText(path);
+			if (raw != null)
+				return cast tjson.TJSON.parse(raw);
 		}
 		return dummy();
 	}
@@ -113,7 +109,7 @@ class StageData {
 			case 'tank': new Tank();					//Week 7 - Ugh, Guns, Stress
 			case 'phillyStreets': new PhillyStreets(); 	//Weekend 1 - Darnell, Lit Up, 2Hot
 			case 'phillyBlazin': new PhillyBlazin();	//Weekend 1 - Blazin
-			#if BASE_GAME_ERECT
+			#if STAGE_ERECT
 			case 'stage-erect': new StageErect();	//Week 1 Erect
 			case 'spooky-erect': new SpookyErect();	//Week 2 Erect
 			case 'philly-erect': new PhillyErect();	//Week 3 Erect

@@ -1,7 +1,7 @@
 // ============================================================================
 //  stress-pico 演出脚本（官方 stress-pico.hxc 移植）
 //  位于 content/VanillaSongs/PicoMix/shared/data/stress/（per-song 加载）
-//  开场视频（全模式，官方语义）+ SetHealthIcon/EnableMask/保护窗 + 结尾过场 + 字幕
+//  开场视频（全模式，官方语义）+ SetHealthIcon/保护窗 + 结尾过场 + 字幕
 //  redhead 后 sing/idle 强制血皮：剥掉谱面残留的 -alt 后缀，tankman 换 -bloody（官方 isBloody 重映射）
 // ============================================================================
 
@@ -29,8 +29,6 @@ var hasPlayedEnd:Bool = false;
 var endGen = 0;
 var endTimers = [];
 var animWindows = [];
-var maskLoaded:Bool = false;
-var maskFailed:Bool = false;
 var isBloody:Bool = false;   // redhead 动画后换血皮（官方 tankman-bloody.hxc 的动画名重映射）
 
 var cutElapsed:Float = 0;
@@ -198,7 +196,10 @@ function onEvent(name, value1, value2, strumTime) {
 			} catch (e:Dynamic) {}
 
 		case 'EnableMask':
-			enableMask();
+			// 这条事件只有 Erect 版才用（血蒙版）。PicoMix 没有对应蒙版，能借的只有
+			// Erect 包那张 8192x4096 的贴图（解码 128MB，还要每像素采样一次），
+			// 手机上到这里直接卡死 → 忽略。
+			return;
 
 		case 'Play Animation':
 			var dur = animDur(value1);
@@ -210,29 +211,6 @@ function onEvent(name, value1, value2, strumTime) {
 			animWindows.push({side: side, t0: strumTime - 20, t1: strumTime + dur});
 			if (value1 == 'redheadsAnim' && side == 'dad') isBloody = true;
 	}
-}
-
-// EnableMask：官方 tankmanBattlefieldErect.hxc 的 bloody 蒙版（Erect 包 week7/images/erect/masks/）
-function enableMask() {
-	if (maskLoaded) { setMaskOn(); return; }
-	if (maskFailed) return;
-	var p = ps();
-	if (p.dad == null || p.dad.shader == null) { maskFailed = true; return; }
-	try {
-		var sh = p.dad.shader;
-		var g = Paths.image('erect/masks/tankmanCaptainBloody_mask');
-		if (g == null || g.bitmap == null) { maskFailed = true; return; }
-		sh.data.altMask.input = g.bitmap;
-		sh.data.thr2.value = [1.0];
-		maskLoaded = true;
-		setMaskOn();
-	} catch (e:Dynamic) {
-		maskFailed = true;   // 最坏情况蒙版无效，不影响通关
-	}
-}
-
-function setMaskOn() {
-	try { ps().dad.shader.data.useMask.value = [1.0]; } catch (e:Dynamic) {}
 }
 
 // 防 sing 打断（sserafim Pre 钩子先例）+ noteType 后缀改写

@@ -109,7 +109,9 @@ def main():
         total += add_tree(zf, 'assets/base_game', 'assets')
         total += add_tree(zf, 'content', 'content')
         total += add_tree(zf, 'example_mods', 'mods')
-        if os.path.isfile('list.txt'):
+        # modsList.txt 仅在非空时打：空文件无默认 mod 状态可言（Mods 会自动扫描 mods/ 补全），
+        # 且 BootDataState 白名单只认 assets/ content/ mods/ 前缀，顶层 modsList.txt 会让导入整体失败
+        if os.path.isfile('list.txt') and os.path.getsize('list.txt') > 0:
             add_file(zf, 'list.txt', 'modsList.txt')  # 与桌面 bin 旁 modsList.txt 同口径（首启默认 mod 开关状态）
             total += 1
     with zipfile.ZipFile(out) as zf:

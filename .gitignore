@@ -42,3 +42,10 @@ moonchart_libs.txt
 moonchart_matches.txt
 moonchart_versions.txt
 .haxelib/
+FrozenEngine-mobile-base.zip
+FrozenEngine-mobile-data-full.zip
+FrozenEngine-mobile-customcharts.zip
+FrozenEngine-mobile-content-PicoMix.zip
+FrozenEngine-mobile-content-Erect.zip
+FrozenEngine-mobile-content-Collab.zip
+FrozenEngine-mobile-content-BFMix.zip

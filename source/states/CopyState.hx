@@ -126,7 +126,11 @@ class CopyState extends MusicBeatState
 						FileSystem.createDirectory(folder);
 					File.saveContent(folder + Date.now().toString().replace(' ', '-').replace(':', "'") + '-CopyState' + '.txt', failedFilesStack.join('\n'));
 				}
-				
+
+				// 拷贝完成：写版本标记（防升级混搭机制的写端——此前只有读端，每次启动都会全量重拷）
+				try File.saveContent(VERSION_FILE, currentVersion != null ? currentVersion : '')
+				catch (e:Dynamic) trace('[CopyState] 写 $VERSION_FILE 失败: $e');
+
 				FlxG.sound.play(Paths.sound('confirmMenu')).onComplete = () ->
 				{
 					MusicBeatState.switchState(new TitleState());
@@ -167,6 +171,9 @@ class CopyState extends MusicBeatState
 						else
 						#end
 							path = file;
+						// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+						if (FileSystem.exists(path))
+							try FileSystem.deleteFile(path) catch (e:Dynamic) {}
 						File.saveBytes(path, getFileBytes(getFile(file)));
 					}		
 				}
@@ -199,7 +206,11 @@ class CopyState extends MusicBeatState
 				fileData = '';
 			if (!FileSystem.exists(directory))
 				FileSystem.createDirectory(directory);
-			File.saveContent(Path.join([directory, fileName]), fileData);
+			// 先删后写：同 copyAsset，保证重装后文件属主回到当前 uid
+			var target:String = Path.join([directory, fileName]);
+			if (FileSystem.exists(target))
+				try FileSystem.deleteFile(target) catch (e:Dynamic) {}
+			File.saveContent(target, fileData);
 		}
 		catch (e:haxe.Exception)
 		{
@@ -250,8 +261,17 @@ class CopyState extends MusicBeatState
 			currentVersion = '';
 		if (FileSystem.exists(VERSION_FILE))
 		{
-			var storedVersion:String = File.getContent(VERSION_FILE).trim();
-			if (storedVersion != currentVersion)
+			var storedVersion:String = '';
+			var versionReadable:Bool = true;
+			try storedVersion = File.getContent(VERSION_FILE).trim()
+			catch (e:Dynamic)
+			{
+				// stat 命中但读不出：重装换 uid / 坏拷贝 —— 视为版本失配强制重拷（新 uid 重写）
+				versionReadable = false;
+				forceRecopy = true;
+				trace('[CopyState] $VERSION_FILE 不可读（$e），数据根资产对当前安装已失效 → 强制重拷');
+			}
+			if (versionReadable && storedVersion != currentVersion)
 				forceRecopy = true;
 		}
 		else

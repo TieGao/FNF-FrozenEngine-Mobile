@@ -34,12 +34,16 @@
 	
 	<define name="MULTITHREADED_LOADING" if="cpp || desktop" /> <!-- UNCOMMENTING THIS LINE WILL ENABLE MULTITHREADED LOADING, WHICH IMPROVES LOADING TIMES, BUT WITH A LOW CHANCE FOR THE GAME FREEZE ON SONG LOAD -->
 	<define name="SHOW_LOADING_SCREEN" />
-	<define name="BASE_GAME_FILES" />
+	<define name="BASE_GAME_FILES" unless="NO_BASE_GAME_FILES" />
 	<define name="VIDEOS_ALLOWED" if="desktop || mobile" unless="32bits"/> <!-- IF YOU WANT TO USE VIDEOS ON YOUR SOURCE MOD, GET THIS LINE OUTSIDE OF THE SECTION -->
+
+	<!-- 变体舞台的**源码**开关，与资源打包解耦：舞台类只是代码，图/谱面/数据都在 content/ 里，
+	     所以不跟 BASE_GAME_FILES 走 —— 薄包（-D NO_BASE_GAME_FILES）照样编译。
+	     要连代码一起剔：-D NO_STAGE_ERECT（单个变体）或 -D NO_EXTRA_STAGE（全部变体）。 -->
+	<define name="STAGE_ERECT" unless="NO_EXTRA_STAGE || NO_STAGE_ERECT || NO_EXTRA_BASE_GAME || NO_BASE_GAME_ERECT" />
 
 	<!-- 变体难度内容开关（Erect / Pico / BF / Collab）——PlayState 等处的 #if 依赖这些 define -->
 	<section if="BASE_GAME_FILES">
-		<define name="BASE_GAME_ERECT"  unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_ERECT" />
 		<define name="BASE_GAME_ERECT_CONTENT" unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_ERECT || NO_BASE_GAME_ERECT_CONTENT" />
 		<define name="BASE_GAME_PICO"   unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_PICO" />
 		<define name="BASE_GAME_BF"     unless="NO_EXTRA_BASE_GAME || NO_BASE_GAME_BF" />
@@ -115,8 +119,8 @@
 		     content/VanillaSongs 下四类各自跟随对应的 BASE_GAME_* 宏把关，与 assets/base_game_* 口径一致：
 		     CI 传 -D NO_BASE_GAME_XXX（只剔数据）或 -D NO_EXTRA_BASE_GAME（连舞台类一起剔）即可从包里去掉。
 		     apk / ipa 是成品包，没法像桌面那样'打包后再删'，所以只能在这里做条件打包。
-		     注意 Erect 用的是 BASE_GAME_ERECT_CONTENT（只管数据）——这样即使剔除内容包，
-		     9 个 *Erect.hx 舞台类仍由 BASE_GAME_ERECT 保持编译，Erect 相关代码不会编不进去。
+		     Erect 的数据用 BASE_GAME_ERECT_CONTENT（只管打包），舞台源码归 STAGE_ERECT（见文件开头），
+		     两者互不影响：剔数据不会让舞台类消失，剔舞台类也不会少打数据。
 		     CustomCharts / NMVMODS 属用户内容，不随变体开关走，始终打包。
 		     （移动端：content 不进 APK，与桌面 bin 旁的 content/ 同构，落在数据根 content/ 下；
 		     BASE_GAME_* / BASE_GAME_*_CONTENT 等源码级宏在移动端照常生效，只剔数据不剔代码。） -->
@@ -137,11 +141,11 @@
 		</section>
 	</section>
 
-	<!-- 代码库不随数据外置走：AudioDisplay（SpectralAnalyzer 可视化）等在移动端也要编译 -->
-	<section if="BASE_GAME_FILES">
-		<haxelib name="grig.audio" if="BASE_GAME_FILES"/>
-		<haxelib name="funkin.vis" if="BASE_GAME_FILES"/>
-	</section>
+	<!-- 代码库不随数据外置走：AudioDisplay（SpectralAnalyzer 可视化）在移动端无条件编译
+	     （它的 funkin.vis import 没包 #if），所以这两个库不能跟着 BASE_GAME_FILES 走 ——
+	     否则 -D NO_BASE_GAME_FILES 会把库一起剔掉，AudioDisplay 直接编不过。 -->
+	<haxelib name="grig.audio" />
+	<haxelib name="funkin.vis" />
 
 	<!-- mods 模板极小（~21KB），移动端也内嵌：CopyState 首启自动拷到数据根 mods/，保证模组模板默认存在 -->
 	<section if="MODS_ALLOWED">

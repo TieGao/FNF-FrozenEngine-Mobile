@@ -321,14 +321,16 @@ class PixelDialogueBox extends FlxSpriteGroup
 			if (char.animation.curAnim != null && char.animation.finished) char.playAnim(char.animation.curAnim.name, true);
 		}
 
-		if (Controls.instance.BACK)
+		// 与 DialogueBoxPsych 同口径：触屏点击 = 确认（PC 键盘 ACCEPT），系统返回 = 跳过整段
+		var back:Bool = #if android FlxG.android.justReleased.BACK || #end Controls.instance.BACK;
+		if (back)
 		{
 			if (skipDialogueThing != null) skipDialogueThing();
 			endDialogue();
 			return;
 		}
 
-		if (Controls.instance.ACCEPT)
+		if (Controls.instance.ACCEPT || TouchUtil.justPressed)
 		{
 			if (!textFinished)
 			{

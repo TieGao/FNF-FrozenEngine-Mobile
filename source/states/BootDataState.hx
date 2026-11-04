@@ -239,6 +239,9 @@ class BootDataState extends MusicBeatState
 			try
 			{
 				ensureParentDirs(job.dst);
+				// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+				if (FileSystem.exists(job.dst))
+					try FileSystem.deleteFile(job.dst) catch (e:Dynamic) {}
 				if (job.fromEmbedded)
 					File.saveBytes(job.dst, OpenFLAssets.getBytes(job.src));
 				else
@@ -413,6 +416,9 @@ class BootDataState extends MusicBeatState
 	{
 		if (tmpBuf == null)
 			tmpBuf = Bytes.alloc(65536);
+		// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+		if (FileSystem.exists(dstPath))
+			try FileSystem.deleteFile(dstPath) catch (e:Dynamic) {}
 		var out:FileOutput = File.write(dstPath, true);
 		try
 		{
