@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ''
+  # push 到 main 就编一遍（对齐 CNE windows.yml 的 push + workflow_dispatch）：
+  # 编译问题当场暴露，不等 schedule；缓存跟着主干保持新鲜。
+  push:
+    branches:
+      - main
 
 jobs:
   build:

@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ''
+  # push 到 main 就编一遍（对齐 CNE windows.yml 的 push + workflow_dispatch）：
+  # 编译问题当场暴露，不等 schedule；缓存跟着主干保持新鲜。
+  push:
+    branches:
+      - main
   # 每天 06:00 UTC 在默认分支跑一次：既当真·日常构建（只出 Android / iOS），也把缓存
   # 写进默认分支作用域，好让 PR 构建能通过 restore-keys 读到这里预热好的缓存（PR 自身
   # 的缓存存在 refs/pull/N/merge，只有该 PR 的 re-run 能读）。
@@ -30,13 +35,16 @@ jobs:
         include:
           - name: Android
             os: macos-latest
-            buildArgs: "android -ONLY_ARMV7"
+            # 对齐 mobile-release.yml 的出包参数。-ONLY_ARMV7 是旧参数，Project.xml
+            # 现在写死 <architecture name="arm64" exclude="armv7" if="android" />，
+            # 两者互相矛盾，别再用它。
+            buildArgs: "android -final"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
           - name: iOS
             os: macos-latest
-            buildArgs: "ios -nosign"
+            buildArgs: "ios -final -nosign"
             setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
