@@ -298,6 +298,10 @@
 </config:android>
 
 	<architecture name="arm64" exclude="armv7" if="android" />
+	<!-- iOS 只出 arm64：不声明的话 lime 的 ndll 拷贝循环会先撞上 armv6/armv7 的
+	     .iphoneos.a 缺失直接 throw（.iphoneos-64.a 根本轮不到检查）。
+	     2026-11-05 CI：extension-document-picker 的 ndll 命中 arm64 候选后仍炸这里。 -->
+	<architecture name="arm64" if="ios" />
 
 <config>
 	<android minimum-sdk-version="24" />
