@@ -26,6 +26,10 @@ on:
         description: '基础包剔除额外内容数据（content/VanillaSongs 四类，另行由 extra-content.yml 打包）'
         type: boolean
         default: false
+      exclude_base:
+        description: '不要 base game（剔 assets/base_game 原版数据：桌面/ARM64 编译传 -D NO_BASE_GAME_FILES，extra-content 不再打包上传 mobile-base.zip）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -71,6 +75,7 @@ jobs:
             os: macos-latest
             buildArgs: "android -final"
             noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
+            noBaseArgs: "-D NO_BASE_GAME_FILES"
             setupCommand: sh ./setup/unix.sh
             artifactName: androidBuild
             artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
@@ -80,6 +85,7 @@ jobs:
             os: macos-latest
             buildArgs: "ios -final -nosign"
             noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
+            noBaseArgs: "-D NO_BASE_GAME_FILES"
             setupCommand: sh ./setup/unix.sh
             artifactName: iOSBuild
             artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
@@ -95,6 +101,7 @@ jobs:
             os: windows-latest
             buildArgs: "windows -arm64 -D HXCPP_ARM64"
             noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
+            noBaseArgs: "-D NO_BASE_GAME_FILES"
             setupCommand: .\"setup/windows.bat"
             artifactName: windowsBuild-arm64
             artifactPath: export\release\windows\bin\*
@@ -103,7 +110,9 @@ jobs:
         name: ${{ matrix.name }}
         os: ${{ matrix.os }}
         setupCommand: ${{ matrix.setupCommand }}
-        buildArgs: ${{ inputs.exclude_extra && format('{0} {1}', matrix.buildArgs, matrix.noExtraArgs) || matrix.buildArgs }}
+        # exclude_extra 剔 content 四类数据；exclude_base 剔 base_game 原版数据
+        # （desktop||web 段才打包 base_game，移动端本就不带，传了也无副作用）。
+        buildArgs: ${{ (inputs.exclude_extra && inputs.exclude_base && format('{0} {1} {2}', matrix.buildArgs, matrix.noExtraArgs, matrix.noBaseArgs)) || (inputs.exclude_extra && format('{0} {1}', matrix.buildArgs, matrix.noExtraArgs)) || (inputs.exclude_base && format('{0} {1}', matrix.buildArgs, matrix.noBaseArgs)) || matrix.buildArgs }}
         artifactName: ${{ matrix.artifactName }}
         artifactPath: ${{ matrix.artifactPath }}
 
@@ -187,3 +196,4 @@ jobs:
     uses: ./.github/workflows/extra-content.yml
     with:
       tag: ${{ needs.Releaser.outputs.tag }}
+      exclude_base: ${{ inputs.exclude_base }}
