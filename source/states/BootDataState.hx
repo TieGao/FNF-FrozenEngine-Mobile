@@ -72,6 +72,17 @@ class BootDataState extends MusicBeatState
 	var zipEntries:Int = 0;
 	var importedAssetsEntries:Bool = false;
 
+	// ---- zip 导入计时取证（慢导入排查：时间在解压 CPU / 写盘 I/O / 头解析，汇总落盘 logs/）----
+	var tHeader:Float = 0;
+	var tInflate:Float = 0;
+	var tCopy:Float = 0;
+	var tWrite:Float = 0;
+	var tPrep:Float = 0; // exists/delete/open/ensureDirs
+	var bytesOut:Int = 0;
+	var zipTotalBytes:Float = 0;
+	var zipStartedAt:Float = 0;
+	var zipPathUsed:String = '';
+
 	override function create()
 	{
 		FlxG.camera.bgColor = FlxColor.BLACK;
@@ -333,6 +344,14 @@ class BootDataState extends MusicBeatState
 			@:privateAccess zipStream = zipReader.i;
 			zipEntries = 0;
 			importedAssetsEntries = false;
+			// 计时取证初始化
+			tHeader = tInflate = tCopy = tWrite = tPrep = 0;
+			bytesOut = 0;
+			zipStartedAt = Sys.time();
+			zipPathUsed = zipPath;
+			try zipTotalBytes = FileSystem.stat(zipPath).size
+			catch (e:Dynamic)
+				zipTotalBytes = 0;
 			showProgressUI();
 			phase = Extracting;
 		}
@@ -350,6 +369,7 @@ class BootDataState extends MusicBeatState
 		while (Sys.time() < budget)
 		{
 			var entry:Entry = null;
+			var t0:Float = Sys.time();
 			try
 			{
 				entry = zipReader.readEntryHeader();
@@ -359,6 +379,7 @@ class BootDataState extends MusicBeatState
 				zipFail(Language.getPhrase('data.boot.zip.fail', 'Extraction failed: {1}', [e.message]));
 				return;
 			}
+			tHeader += Sys.time() - t0;
 
 			if (entry == null)
 			{
@@ -374,7 +395,11 @@ class BootDataState extends MusicBeatState
 			zipEntries++;
 		}
 		statusText.text = Language.getPhrase('data.boot.extracted', 'Extracted {1} files...', [zipEntries]);
-		progressBar.percent = (Sys.time() * 40) % 100; // 总量未知，脉冲式进度
+		// 真进度：以 zip 流已消费字节为准（tell 精确，含当前条目内部进度）
+		if (zipTotalBytes > 0)
+			progressBar.percent = Math.min(zipInput.tell() / zipTotalBytes * 100, 100);
+		else
+			progressBar.percent = (Sys.time() * 40) % 100; // 拿不到大小时退回脉冲
 	}
 
 	/** 校验并落盘一个条目（直接流式写盘，不整块驻留内存）。 */
@@ -398,15 +423,21 @@ class BootDataState extends MusicBeatState
 		if (StringTools.startsWith(name, 'assets/'))
 			importedAssetsEntries = true;
 
+		var te:Float = Sys.time();
 		try
 		{
+			var t0:Float = Sys.time();
 			ensureParentDirs(name);
+			tPrep += Sys.time() - t0;
 			writeEntryData(entry, name);
 		}
 		catch (e:Dynamic)
 		{
 			trace('[BootData] 解压写入失败: $name (${e.message})');
 		}
+		var dt:Float = Sys.time() - te;
+		if (dt > 0.3)
+			trace('[BootData] slow entry: $name size=${entry.dataSize} comp=${entry.compressed} ${Math.round(dt * 1000)}ms');
 		return true;
 	}
 
@@ -417,9 +448,11 @@ class BootDataState extends MusicBeatState
 		if (tmpBuf == null)
 			tmpBuf = Bytes.alloc(65536);
 		// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+		var t0:Float = Sys.time();
 		if (FileSystem.exists(dstPath))
 			try FileSystem.deleteFile(dstPath) catch (e:Dynamic) {}
 		var out:FileOutput = File.write(dstPath, true);
+		tPrep += Sys.time() - t0;
 		try
 		{
 			if (entry.crc32 == null)
@@ -430,8 +463,13 @@ class BootDataState extends MusicBeatState
 				var z = new haxe.zip.InflateImpl(zipStream, false, false);
 				while (true)
 				{
+					t0 = Sys.time();
 					var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+					tInflate += Sys.time() - t0;
+					t0 = Sys.time();
 					out.writeBytes(tmpBuf, 0, n);
+					tWrite += Sys.time() - t0;
+					bytesOut += n;
 					if (n < tmpBuf.length)
 						break;
 				}
@@ -448,8 +486,13 @@ class BootDataState extends MusicBeatState
 				var left:Int = entry.dataSize;
 				while (left > 0)
 				{
+					t0 = Sys.time();
 					var n:Int = zipStream.readBytes(tmpBuf, 0, left < tmpBuf.length ? left : tmpBuf.length);
+					tCopy += Sys.time() - t0;
+					t0 = Sys.time();
 					out.writeBytes(tmpBuf, 0, n);
+					tWrite += Sys.time() - t0;
+					bytesOut += n;
 					left -= n;
 				}
 			}
@@ -460,13 +503,20 @@ class BootDataState extends MusicBeatState
 				var z = new haxe.zip.InflateImpl(zipStream, false, false);
 				while (true)
 				{
+					t0 = Sys.time();
 					var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+					tInflate += Sys.time() - t0;
+					t0 = Sys.time();
 					out.writeBytes(tmpBuf, 0, n);
+					tWrite += Sys.time() - t0;
+					bytesOut += n;
 					if (n < tmpBuf.length)
 						break;
 				}
 			}
+			t0 = Sys.time();
 			out.close();
+			tWrite += Sys.time() - t0;
 		}
 		catch (e:Dynamic)
 		{
@@ -481,6 +531,7 @@ class BootDataState extends MusicBeatState
 	function zipDone():Void
 	{
 		closeZip();
+		dumpZipTiming('done');
 		if (checkBaseGameData())
 		{
 			showReadyUI(true);
@@ -499,8 +550,31 @@ class BootDataState extends MusicBeatState
 	function zipFail(msg:String):Void
 	{
 		closeZip();
+		dumpZipTiming('fail');
 		MessageBox.show(Language.getPhrase('mobile_error', 'Error!'), msg, MessageBoxType.MESSAGE, null, 8.0);
 		showMissingUI();
+	}
+
+	/** 导入计时汇总：落 logs/ + trace。慢导入取证用——时间在解压 CPU 还是写盘 I/O 一眼可辨。 */
+	function dumpZipTiming(how:String):Void
+	{
+		var total:Float = Sys.time() - zipStartedAt;
+		var msg:String = '[$how] path=$zipPathUsed\n'
+			+ 'entries=$zipEntries bytesOut=$bytesOut zipTotal=${Math.round(zipTotalBytes)}\n'
+			+ 'wall=' + Math.round(total * 1000) + 'ms'
+			+ ' header=' + Math.round(tHeader * 1000)
+			+ ' inflate=' + Math.round(tInflate * 1000)
+			+ ' copy=' + Math.round(tCopy * 1000)
+			+ ' write=' + Math.round(tWrite * 1000)
+			+ ' prep=' + Math.round(tPrep * 1000) + '\n';
+		trace('[BootData] ' + StringTools.replace(msg, '\n', ' | '));
+		try
+		{
+			if (!FileSystem.exists('logs'))
+				FileSystem.createDirectory('logs');
+			File.saveContent('logs/' + Date.now().toString().replace(' ', '-').replace(':', "'") + '-BootDataImport.txt', msg);
+		}
+		catch (e:Dynamic) {}
 	}
 
 	function closeZip():Void

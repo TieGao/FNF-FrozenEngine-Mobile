@@ -229,7 +229,24 @@ class CopyState extends MusicBeatState
 		switch (Path.extension(file).toLowerCase())
 		{
 			case 'otf' | 'ttf':
-				return ByteArray.fromFile(file);
+				// 字体没有字节内嵌（生成代码里项目字体是 __fontPath 路径引用，@:font 内嵌只有 haxelib 库字体有），
+				// 包里是散文件：android/desktop 走 lime C++ 文件层 fromFile 能读到；
+				// iOS 上相对路径解析不到 bundle → fromFile 返回 null → saveBytes(null) 抛异常
+				// → 7 个字体每次必进失败清单。失败时用 bundle 绝对路径直读兜底。
+				var bytes:ByteArray = ByteArray.fromFile(file);
+				if (bytes == null || bytes.length <= 0)
+				{
+					try
+					{
+						var dir:String = lime.system.System.applicationDirectory;
+						if (dir != null && dir.length > 0 && !StringTools.endsWith(dir, '/'))
+							dir += '/';
+						bytes = ByteArray.fromBytes(File.getBytes(dir + file));
+					}
+					catch (e:Dynamic)
+						bytes = null;
+				}
+				return bytes;
 			default:
 				return OpenFLAssets.getBytes(file);
 		}
