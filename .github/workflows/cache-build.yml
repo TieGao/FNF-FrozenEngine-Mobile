@@ -381,6 +381,17 @@ jobs:
         run: |
           brew install ldid
           cd export/release/ios/build/Release-iphoneos/${{ env.PROJECT_NAME }}.app
+          # iOS 文件共享：仓里的 fileSharing-Info.plist（8-30 "ios folder fix" 加的）
+          # 一直没接线，lime 也不支持 infosection，打包前用 PlistBuddy 把两个 key
+          # 注进 Info.plist —— 否则 IPA 装上后在 文件/Finder 里看不到沙盒目录。
+          # key 已存在时 Add 会非零退出，用 Set 兜底；最后 Print 出来进日志留证。
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Info.plist
+          echo "--- Info.plist 文件共享 key ---"
+          /usr/libexec/PlistBuddy -c "Print :UIFileSharingEnabled" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :LSSupportsOpeningDocumentsInPlace" Info.plist
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
           cd ..
           mkdir Payload
