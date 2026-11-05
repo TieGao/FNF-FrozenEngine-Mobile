@@ -31,6 +31,7 @@ import haxe.io.Path;
 import flixel.ui.FlxBar;
 import flixel.ui.FlxBar.FlxBarFillDirection;
 import lime.system.ThreadPool;
+import objects.MessageBox;
 
 /**
  * ...
@@ -120,11 +121,15 @@ class CopyState extends MusicBeatState
 			{
 				if (failedFiles.length > 0)
 				{
-					CoolUtil.showPopUp(failedFiles.join('\n'), 'Failed To Copy ${failedFiles.length} File.');
+					// 不走原生弹窗（iOS 部分 system version 上 window.alert 的 OK 点不动会永久卡死），
+					// 改非阻塞 toast；完整失败清单仍落盘 logs/
 					final folder:String = #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'logs/';
 					if (!FileSystem.exists(folder))
 						FileSystem.createDirectory(folder);
-					File.saveContent(folder + Date.now().toString().replace(' ', '-').replace(':', "'") + '-CopyState' + '.txt', failedFilesStack.join('\n'));
+					final logFile:String = folder + Date.now().toString().replace(' ', '-').replace(':', "'") + '-CopyState' + '.txt';
+					File.saveContent(logFile, failedFilesStack.join('\n'));
+					MessageBox.show('Failed To Copy ${failedFiles.length} File.',
+						'See ${Path.withoutDirectory(logFile)} in the logs folder.', MessageBoxType.MESSAGE, null, 8.0);
 				}
 
 				// 拷贝完成：写版本标记（防升级混搭机制的写端——此前只有读端，每次启动都会全量重拷）
