@@ -33,6 +33,13 @@ jobs:
       - name: Install extension-document-picker
         run: haxelib git extension-document-picker https://github.com/TieGao/extension-document-picker fe-patches --skip-dependencies
 
+      # hxcpp 必须显式装：--skip-dependencies 不会带它，haxelib run hxcpp 直接
+      # "Library hxcpp is not installed"。用与每日构建相同的 fork，保证编译参数一致。
+      - name: Install hxcpp
+        run: |
+          haxelib git hxcpp https://github.com/TieGao/hxcpp.git
+          haxelib set hxcpp git
+
       - name: Build iOS ndll from source
         shell: bash
         run: |
