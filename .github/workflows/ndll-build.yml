@@ -1,0 +1,55 @@
+name: iOS NDLL Build
+
+# 一次性工具：把 extension-document-picker 的 iOS ndll 从源码现编出来并上传
+# artifact，拿去提交进 fork（TieGao/extension-document-picker fe-patches 分支）。
+# fork 自带 ndll 之后，haxelib git 安装就有产物，cache-build.yml 里的补编步骤
+# 只是兜底，这个 workflow 一般不用再跑。
+#
+# 为什么在 CI 编：iOS .a 只能用 macOS 的 Xcode 工具链编，本机（Windows）编不了。
+
+on:
+  workflow_dispatch:
+
+env:
+  HAXE_VERSION: 4.3.7
+  HAXELIB_REPO: ${{ github.workspace }}/.haxelib
+
+jobs:
+  build:
+    name: Build document-picker iOS ndll
+    runs-on: macos-latest
+    steps:
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@master
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Configure project-local haxelib repo
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.haxelib"
+          haxelib setup "$GITHUB_WORKSPACE/.haxelib"
+
+      - name: Install extension-document-picker
+        run: haxelib git extension-document-picker https://github.com/TieGao/extension-document-picker fe-patches --skip-dependencies
+
+      - name: Build iOS ndll from source
+        shell: bash
+        run: |
+          # haxelib path 会随机混版本横幅，取「像路径的行」
+          root=$(haxelib path extension-document-picker 2>&1 | grep -m1 -E '^([A-Za-z]:[/\\]|/)' | tr -d '\r' || true)
+          echo "root=$root"
+          # Build.xml 里 common/、ios/、../ndll/ 都是相对路径，cwd 必须是 project/
+          cd "$root/project"
+          haxelib run hxcpp Build.xml -Diphoneos -Dios -DHXCPP_ARM64 -DOBJC_ARC -Dverbose
+          # lime 的 ndll 拷贝循环按架构后缀找文件，两个名字都备一份（同一份 arm64 产物）
+          cp "$root/ndll/iPhone/libextension_document_picker.iphoneos-64.a" \
+             "$root/ndll/iPhone/libextension_document_picker.iphoneos.a"
+          ls -la "$root/ndll/iPhone/"
+
+      - name: Upload ndll artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: document-picker-ios-ndll
+          path: .haxelib/extension-document-picker/git/ndll/iPhone/*.a
+          if-no-files-found: error
