@@ -276,6 +276,16 @@ jobs:
           if ls "$root"/ndll/iPhone/libextension_document_picker.iphoneos*.a >/dev/null 2>&1; then
             echo "ndll 已存在（缓存带来），跳过源码编译："
             ls "$root"/ndll/iPhone/libextension_document_picker.iphoneos*.a
+            # 老版 lime 的候选列表没有 .iphoneos-64.a、fallback 只认 .iphoneos.a；
+            # fork 现在自带两个名字，但老缓存里的 checkout 可能只有 -64 —— 缺就补个
+            # 别名（同一份 arm64 产物），哪条查找路径都命中。
+            if [ ! -f "$root/ndll/iPhone/libextension_document_picker.iphoneos.a" ]; then
+              cp "$root/ndll/iPhone/libextension_document_picker.iphoneos-64.a" \
+                 "$root/ndll/iPhone/libextension_document_picker.iphoneos.a"
+              echo "已补 .iphoneos.a 别名"
+            fi
+            # 临时诊断：打印运行中 lime 的 iOS ndll 候选列表（根因排查用，关掉后删）
+            grep -n "iphoneos" .haxelib/lime/git/tools/platforms/IOSPlatform.hx | head -8 || true
             exit 0
           fi
           # -Dios 不能省：BuildTool 只把 iphoneos 落成 iphone/iphoneos/apple 这组
@@ -288,6 +298,12 @@ jobs:
           # 的 build.sh 也是这么干的（cd 到 project 再调）。
           cd "$root/project"
           haxelib run hxcpp Build.xml -Diphoneos -Dios -DHXCPP_ARM64 -DOBJC_ARC
+          # 现编出来的是 .iphoneos-64.a，同样补上 .iphoneos.a 别名
+          if [ -f "$root/ndll/iPhone/libextension_document_picker.iphoneos-64.a" ] && \
+             [ ! -f "$root/ndll/iPhone/libextension_document_picker.iphoneos.a" ]; then
+            cp "$root/ndll/iPhone/libextension_document_picker.iphoneos-64.a" \
+               "$root/ndll/iPhone/libextension_document_picker.iphoneos.a"
+          fi
           ls -la "$root"/ndll/iPhone/
 
       - name: Configure Android
