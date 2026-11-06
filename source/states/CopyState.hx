@@ -28,6 +28,7 @@ import lime.utils.Assets as LimeAssets;
 import openfl.utils.Assets as OpenFLAssets;
 import openfl.utils.ByteArray;
 import haxe.io.Path;
+import haxe.io.Bytes;
 import flixel.ui.FlxBar;
 import flixel.ui.FlxBar.FlxBarFillDirection;
 import lime.system.ThreadPool;
@@ -59,6 +60,8 @@ class CopyState extends MusicBeatState
 	var shouldCopy:Bool = false;
 	var canUpdate:Bool = true;
 	var loopTimes:Int = 0;
+	/** 流式拷贝分块缓冲（全程复用，64KB 常量内存） */
+	var copyBuf:Bytes;
 
 	override function create()
 	{
@@ -179,8 +182,16 @@ class CopyState extends MusicBeatState
 						// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
 						if (FileSystem.exists(path))
 							try FileSystem.deleteFile(path) catch (e:Dynamic) {}
+						#if ios
+						// iOS：包内资产在 bundle 是散文件，走 64KB 分块流式拷贝（内存恒定）。
+						// 旧的整块路径（getBytes/fromFile→saveBytes）逐文件分配整块内存（14MB 字体、
+						// 数 MB 视频逐个瞬态分配/释放），内存曲线剧烈锯齿。
+						if (!copyAssetStreaming(getFile(file), path))
+							File.saveBytes(path, getFileBytes(getFile(file)));
+						#else
 						File.saveBytes(path, getFileBytes(getFile(file)));
-					}		
+						#end
+					}
 				}
 				else
 				{
@@ -195,6 +206,56 @@ class CopyState extends MusicBeatState
 			}
 		}
 	}
+
+	#if ios
+	/** iOS：bundle 内资产是散文件，64KB 分块流式拷贝——全程常量内存。
+	 *  替代逐文件整块分配（旧路径大字体/视频逐个瞬态分配整块再释放，内存剧烈锯齿）。
+	 *  bundle 布局兼容两种：rootPath 约定的 assets/ 前缀与裸路径；都打不开返回 false，由调用方走旧整块路径兜底。 */
+	function copyAssetStreaming(assetId:String, dstPath:String):Bool
+	{
+		if (copyBuf == null)
+			copyBuf = Bytes.alloc(65536);
+		var appDir:String = lime.system.System.applicationDirectory;
+		var input:FileInput = null;
+		for (candidate in [appDir + 'assets/' + assetId, appDir + assetId])
+		{
+			try
+			{
+				input = File.read(candidate, true);
+				break;
+			}
+			catch (e:Dynamic)
+				input = null;
+		}
+		if (input == null)
+			return false;
+		var out:FileOutput = File.write(dstPath, true);
+		try
+		{
+			while (true)
+			{
+				var n:Int = input.readBytes(copyBuf, 0, copyBuf.length);
+				if (n <= 0)
+					break;
+				out.writeBytes(copyBuf, 0, n);
+			}
+		}
+		catch (e:haxe.io.Eof)
+		{
+			// 读到头：正常结束
+		}
+		catch (e:Dynamic)
+		{
+			// 异常路径也要关句柄
+			try out.close() catch (e2:Dynamic) {}
+			try input.close() catch (e2:Dynamic) {}
+			throw e;
+		}
+		out.close();
+		input.close();
+		return true;
+	}
+	#end
 
 	public function createContentFromInternal(file:String)
 	{

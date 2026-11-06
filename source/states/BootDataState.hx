@@ -45,6 +45,8 @@ class BootDataState extends MusicBeatState
 	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip', 'application/x-zip-compressed'];
 	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。 */
 	static inline final FRAME_BUDGET:Float = 0.012;
+	/** DEFLATE 条目整条读入走原生 inflate 的 compressed 尺寸上限。超限/描述符条目（dataSize 未知）退回流式 InflateImpl。 */
+	static inline final NATIVE_INFLATE_MAX:Int = 33554432; // 32MB
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
@@ -498,20 +500,43 @@ class BootDataState extends MusicBeatState
 			}
 			else
 			{
-				// DEFLATE：流式解压直写。非描述符条目的 crc/csize/usize 都在 local header 里，
-				// deflate 数据后直接是下一个条目——绝不能多读，否则 header 错位全包报废
-				var z = new haxe.zip.InflateImpl(zipStream, false, false);
-				while (true)
+				// DEFLATE。非描述符条目的 crc/csize/usize 都在 local header 里，deflate 数据后
+				// 直接是下一个条目——绝不能多读，否则 header 错位全包报废。
+				// 纯 Haxe InflateImpl 实测 ~2.6MB/s（iOS 导入日志：468MB 用 179s，97.7% 时间在解压）——
+				// 中小条目整条读入走 lime 原生 raw inflate（CFFI zlib，快 1-2 个数量级）；
+				// 超限条目退回流式 InflateImpl（内存恒定，防单条目内存峰值）。
+				if (entry.dataSize > 0 && entry.dataSize <= NATIVE_INFLATE_MAX)
 				{
 					t0 = Sys.time();
-					var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
-					tInflate += Sys.time() - t0;
+					var raw:Bytes = zipStream.read(entry.dataSize);
+					tCopy += Sys.time() - t0;
 					t0 = Sys.time();
-					out.writeBytes(tmpBuf, 0, n);
+					var data:Bytes = lime._internal.format.Deflate.decompress(raw);
+					tInflate += Sys.time() - t0;
+					if (data == null)
+						throw 'native inflate returned null';
+					if (entry.fileSize > 0 && data.length != entry.fileSize)
+						trace('[BootData] 解压长度异常: $dstPath 期待 ${entry.fileSize} 实得 ${data.length}');
+					t0 = Sys.time();
+					out.writeBytes(data, 0, data.length);
 					tWrite += Sys.time() - t0;
-					bytesOut += n;
-					if (n < tmpBuf.length)
-						break;
+					bytesOut += data.length;
+				}
+				else
+				{
+					var z = new haxe.zip.InflateImpl(zipStream, false, false);
+					while (true)
+					{
+						t0 = Sys.time();
+						var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+						tInflate += Sys.time() - t0;
+						t0 = Sys.time();
+						out.writeBytes(tmpBuf, 0, n);
+						tWrite += Sys.time() - t0;
+						bytesOut += n;
+						if (n < tmpBuf.length)
+							break;
+					}
 				}
 			}
 			t0 = Sys.time();
