@@ -19,7 +19,7 @@ haxelib install hxdiscord_rpc 1.2.4 --skip-dependencies || exit /b 1
 haxelib git hxvlc https://github.com/IceTheAxe/hxvlc --skip-dependencies --always || exit /b 1
 haxelib install extension-androidtools 2.2.2 --skip-dependencies || exit /b 1
 haxelib git extension-document-picker https://github.com/TieGao/extension-document-picker fe-patches --skip-dependencies || exit /b 1
-haxelib git lime https://github.com/TieGao/lime --always || exit /b 1
+haxelib git lime https://github.com/IceTheAxe/lime haxelib --always || exit /b 1
 haxelib git openfl https://github.com/TieGao/openfl --skip-dependencies --always || exit /b 1
 haxelib git moonchart https://github.com/MaybeMaru/moonchart.git --skip-dependencies || exit /b 1
 haxelib install format --skip-dependencies || exit /b 1
