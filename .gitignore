@@ -49,3 +49,6 @@ FrozenEngine-mobile-content-PicoMix.zip
 FrozenEngine-mobile-content-Erect.zip
 FrozenEngine-mobile-content-Collab.zip
 FrozenEngine-mobile-content-BFMix.zip
+
+# 本地类型检查用（NMV 移植工作区同款约定）
+_nmvcheck*.hxml

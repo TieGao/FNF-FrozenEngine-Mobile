@@ -1,15 +1,19 @@
-Psych's content/ folder.
+NMV content packs go here, one folder per mod:
 
-Custom charts go here, one folder per category:
+	content/NMVMODS/<mod>/meta.json          { "name": "...", "description": "..." }
+	content/NMVMODS/<mod>/data/weeks/*.json  week definitions (NMV schema)
+	content/NMVMODS/<mod>/songs/<song>/      Inst.ogg / Voices.ogg / data/normal.json / <song>.hx
+	content/NMVMODS/<mod>/scripts/           global scripts (loaded with PlayState)
+	content/NMVMODS/<mod>/stages/            stage json / hx
+	content/NMVMODS/<mod>/images|music|sounds|shaders|fonts|data/
 
-	content/charts/<category>/<song>/<song>.json
-	content/charts/<category>/<song>/Inst.ogg(also can be audio.ogg (osu default))
-	content/charts/<category>/<song>/Voices.ogg(or vocals/vocal.ogg(camellia2.7.5default))
+A pack shows up as a tab on the main menu (switch with TAB or click). While that tab
+is active, Freeplay lists only that pack's songs and the engine loads the pack's
+scripts through Paths.currentContentRoot.
 
-The Freeplay "CONTENT" menu lists every category found under content/charts/.
+Week JSON is converted on load: NMV song tuples are
+[title, icon, color, portrait, composer, ...] and FE only reads
+[title, character, color, musician, charters], so portrait is dropped and
+composer moves to the musician slot.
 
-Note: this is NOT the same as mods/. Charts placed here show up in the CONTENT
-browser; mods/ is for overriding engine assets.
-
-maybe u can put sth more interesting here :D
-也许未来还有更多更好玩的东西呢:D
+Packs are unlocked as a whole (NMV's Cosmicube / bean unlock system is not ported).

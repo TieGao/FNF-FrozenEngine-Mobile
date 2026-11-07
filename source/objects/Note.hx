@@ -95,6 +95,46 @@ class Note extends FlxSprite
 	public var lateHitMult:Float = 1;
 	public var lowPriority:Bool = false;
 
+	// NMV 兼容面：
+	/** NMV 兼容面：演唱归属角色（opponentNoteHitPre 里脚本设 owner=red 路由演唱）；
+	 *  opponentNoteHit 的默认演唱动画读它，null 走常规 dad/gf。 */
+	public var owner:Dynamic = null;
+	/** NMV Note.player：note 属于哪条车道（0..3，0 = 玩家侧）。FE 的 noteData 在生成时被
+	 *  折到 `noteData % 每侧列数`（对手轨 0..3），原始车道会丢——2v2 的 lane2/3 演唱与
+	 *  per-lane modchart 全靠这里保留的绝对车道。生成时由 PlayState 写入。 */
+	public var player:Int = 0;
+
+	/** 绝对车道（0..3）：生成时从谱面原始 noteData 折算，-1 = 未设置（非谱面生成的 note）。
+	 *  `player` 是 NMV 脚本面，这里是引擎内部判据（谱面对象池复用，必须显式重置）。 */
+	public var nmvLane:Int = -1;
+
+	/** 每车道只打一次的 note 归属诊断（见 followStrumNote）。 */
+	public static final laneDiagDone:Map<Int, Bool> = [];
+
+	/**
+	 * NMV per-lane 透明度管线的基准值（copyAlpha 同步时记一次）。
+	 *
+	 * 管线的结果是 `alpha = 基准 * 乘数`，**不能写成 `alpha *= 乘数`**：FE 在倒计时里会关掉
+	 * copyAlpha（不再每帧重置 alpha），连乘的话每帧再乘一次，note 会指数衰减到 0。
+	 */
+	public var nmvAlphaBase:Float = 1;
+
+	/** NMV 兼容（NoteSkin 面板）：note.skin.singAnimations / note.skin.data.singAnimations
+	 *  取 PlayState 的演唱动画名数组（每列一名）；语料只用到这两处（doubletrouble:539、
+	 *  sussy 相关脚本）。PlayState.singAnimations 是私有字段，走 Reflect。 */
+	public var skin(get, never):Dynamic;
+
+	function get_skin():Dynamic
+	{
+		var anims:Array<String> = ['singLEFT', 'singDOWN', 'singUP', 'singRIGHT'];
+		if (PlayState.instance != null)
+		{
+			final fromGame:Dynamic = Reflect.getProperty(PlayState.instance, 'singAnimations');
+			if (fromGame != null) anims = fromGame;
+		}
+		return {singAnimations: anims, data: {singAnimations: anims}};
+	}
+
 	public static var SUSTAIN_SIZE:Int = 44;
 	public static var swagWidth:Float = 160 * 0.7;
 	public static var colArray:Array<String> = ['purple', 'blue', 'green', 'red'];
@@ -233,6 +273,13 @@ class Note extends FlxSprite
 					// trace('[Note] keycount field: $value');
 					if(Std.isOfType(value, Int))
 						columns = Std.int(value);
+					else
+					{
+						// NMV 格式用 keys 表示每侧列数；与 Song.getKeyCount 的读取优先级保持一致
+						value = Reflect.field(targetSong, 'keys');
+						if(Std.isOfType(value, Int))
+							columns = Std.int(value);
+					}
 				}
 			}
 		}
@@ -423,6 +470,12 @@ class Note extends FlxSprite
 		// reuse() → resetForReuse() 复位 clipRect 时会经 set_clipRect 读 frames.frames[...] 抛空引用。
 		// set_frames(null) 连 graphic / frame 一起交出去，reloadNote() 会重新赋一套。
 		frames = null;
+
+		// owner 是脚本写的演唱归属角色（NMV opponentNoteHitPre，如 doubletrouble 的 red）。
+		// 池是 static 的、按歌复用，留着这条指针会让上一局的 Character 活到下一局；
+		// 而它在 PlayState 销毁时已被 destroy（atlas / animation 置 null），下一局若脚本
+		// 没重设 owner（Both Opponents Sing / greenSing 分支不设），演唱就会拿它播动画 → 空引用崩溃。
+		owner = null;
 	}
 
 	private function resetForReuse():Void
@@ -499,11 +552,13 @@ class Note extends FlxSprite
 		// 以下字段会被 initializeNote / followStrumNote / 倒计时等改脏，复用前必须复位，
 		// 否则残留状态会串到下一次使用（例如 sustain 的 correctionOffset 被带到头音符）。
 		animSuffix = '';
+		owner = null;
 		copyX = true;
 		copyY = true;
 		copyAngle = true;
 		copyAlpha = true;
 		correctionOffset = 0;
+		nmvAlphaBase = 1;
 		_lastNoteOffX = 0;
 		offset.set(0, 0);
 		origin.set(0, 0);
@@ -540,6 +595,7 @@ class Note extends FlxSprite
 		if(!inEditor) this.strumTime += ClientPrefs.data.noteOffset;
 
 		this.noteData = noteData;
+		this.nmvLane = -1;
 
 		if(noteData > -1)
 		{
@@ -843,10 +899,79 @@ class Note extends FlxSprite
 			angle = strumDirection - 90 + strumAngle + offsetAngle;
 
 		if(copyAlpha)
+		{
 			alpha = strumAlpha * multAlpha;
+			nmvAlphaBase = alpha;
+		}
+
+		// 合轨模式（设置 legacyCompactLanes）：外侧轨的 note 画在可见轨道上，呈**半透明白**。
+		// 只借视觉位置，不参与判定、也不改变演唱归属（仍归 note 自己那条轨的 owner）。
+		// 这里不跑下面那条 per-lane 透明/白闪管线 —— 脚本给外侧轨设的 noteAlpha=1 会把它藏掉。
+		final compactLane:Bool = (nmvLane >= 2 && PlayState.instance != null && PlayState.instance.useCompactLanes());
+
+		// NMV AlphaModifier（'stealth'）的 note 侧管线：per-lane 的 alpha / noteAlpha / stealth。
+		//
+		// **不能挂在 copyAlpha 上**：FE 在倒计时里对存活 note 关掉 copyAlpha
+		// （PlayState 的 countdownTick：`note.copyAlpha = false`），那是 Psych 的
+		// "别每帧同步 strum 透明度"开关，和 NMV 这条独立 alpha 管线无关。挂上去的后果是
+		// 倒计时期间已生成的 note 永远拿不到 noteAlpha —— 外侧轨（noteAlpha=1）本该全透明，
+		// 结果一直挂在屏幕上。
+		//
+		// 三个乘数同 NMV `AlphaModifier.updateNote`：
+		//   (1-alpha) * (1-noteAlpha) * getAlpha(visible)，glow 只在 visible<1 时出白闪。
+		if (backend.NMVContentData.currentMod != null && !compactLane)
+		{
+			final mm = nmv.scripts.preset.PresetFnf.getModManager();
+			final keysPerLane:Int = getColumnsPerPlayer();
+			if (mm != null && keysPerLane > 0 && PlayState.SONG != null)
+			{
+				final lane:Int = (nmvLane >= 0) ? nmvLane : Std.int(noteData / keysPerLane);
+
+				final glow:Float = mm.laneStealthGlow(lane);
+				if (glow > 0 && rgbShader != null && rgbShader.enabled)
+				{
+					// 通道重映射数学同 Psych RGB shader：r+g+b 全 1 → newColor 吹到白，mult=glow 控制 mix 强度
+					rgbShader.r = 0xFFFFFFFF;
+					rgbShader.g = 0xFFFFFFFF;
+					rgbShader.b = 0xFFFFFFFF;
+					rgbShader.mult = glow;
+				}
+
+				final op:Float = mm.laneNoteAlphaMult(lane) * mm.laneStealthAlpha(lane);
+				alpha = nmvAlphaBase * (op < 1 ? op : 1);
+			}
+		}
+		else if (compactLane)
+		{
+			// 白色 + 半透明：白闪强度取满（mult=1 全白），透明度取脚本给的 `alpha` 子模
+			// （attack/voting 是 0.7 → note 0.3）；没设过就用 0.35 兜底，别做成不透明。
+			if (rgbShader != null && rgbShader.enabled)
+			{
+				rgbShader.r = 0xFFFFFFFF;
+				rgbShader.g = 0xFFFFFFFF;
+				rgbShader.b = 0xFFFFFFFF;
+				rgbShader.mult = 1;
+			}
+			final mm2 = nmv.scripts.preset.PresetFnf.getModManager();
+			var vis:Float = 0.35;
+			if (mm2 != null)
+			{
+				var a:Float = mm2.getLaneValue('alpha', nmvLane);
+				if (!Math.isNaN(a) && a > 0) vis = Math.max(1 - a, 0.1);
+			}
+			alpha = nmvAlphaBase * vis;
+		}
+
+		// 多人唱：lane>=2 的 note 用**车道公式**定位（参考引擎里 note 与 receptor 同源算坐标，
+		// 不依赖对方的 sprite）。这样即使那条车道的 strum 组缺失/回退，note 也不会长到
+		// dad/bf 的轨上。合轨模式不走这条 —— note 已经折到可见轨道，跟 strum 走即可。
+		var laneIdx:Int = -1;
+		if (!compactLane && nmvLane >= 2 && PlayState.instance != null && PlayState.instance.isMultiLaneSong())
+			laneIdx = nmvLane;
 
 		if(copyX)
-			x = strumX + offsetX + Math.cos(angleDir) * distance;
+			x = ((laneIdx >= 0) ? PlayState.instance.getLaneNoteBaseX(noteData, laneIdx) : strumX)
+				+ offsetX + Math.cos(angleDir) * distance;
 
 		if(copyY)
 		{
@@ -858,6 +983,27 @@ class Note extends FlxSprite
 					y -= PlayState.daPixelZoom * 9.5;
 				}
 				y -= (frameHeight * scale.y) - (Note.swagWidth / 2);
+			}
+		}
+
+		// 一次性诊断（每 lane 第一条 note）：确认 note 跟的是哪条 strum、被算成哪条车道、
+		// 最终落在哪个 x。多人唱"note 落在错误的轨上/颜色不对"只能靠这行定位。
+		if (backend.NMVContentData.currentMod != null && PlayState.SONG != null)
+		{
+			final mm = nmv.scripts.preset.PresetFnf.getModManager();
+			final keysPerLane:Int = getColumnsPerPlayer();
+			if (mm != null && keysPerLane > 0)
+			{
+				final lane:Int = (nmvLane >= 0) ? nmvLane : Std.int(noteData / keysPerLane);
+				if (!laneDiagDone.exists(lane))
+				{
+					laneDiagDone.set(lane, true);
+					backend.Bread.crumb('nmv note lane=' + lane + ' nmvLane=' + nmvLane + ' col=' + noteData
+						+ ' strumX=' + Std.int(strumX) + ' -> noteX=' + Std.int(x)
+						+ ' alpha=' + alpha + ' glow=' + mm.laneStealthGlow(lane)
+						+ ' laneAlpha=' + mm.laneNoteAlphaMult(lane)
+						+ ' extra=' + (PlayState.instance == null ? -1 : PlayState.instance.extraStrums.length));
+				}
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package states;
 
 import backend.DiffRating;
 import backend.WeekData;
+import backend.NMVContentData;
 import backend.Highscore;
 import backend.Song;
 import backend.SongArtConfig;
@@ -267,6 +268,9 @@ class FreeplayState extends MusicBeatState
 
     public var inModFolderSelector:Bool = false; // 当前是否在模组文件夹选择器中
 
+    // NMV 脚本 API 容器（内容包模式下挂 scripts/states/FreeplayState.hx）
+    #if HSCRIPT_ALLOWED public var nmvScripts:nmv.scripts.NMVSciptHolder = null; #end
+
     /**
      * 来源 / 文件夹切换后需要整体重建一次卡片。
      * onModFolderChanged 是在选择器还开着的时候调的，那时 inModFolderSelector 还是 true，
@@ -305,6 +309,7 @@ class FreeplayState extends MusicBeatState
         if (target == null || target.length == 0) target = 'custom';
 
         Paths.setChartContext(target, null);
+        NMVContentData.currentMod = null;
         Mods.currentModDirectory = ClientPrefs.data.customChartModFolder;
         onModFolderChanged();
     }
@@ -316,22 +321,38 @@ class FreeplayState extends MusicBeatState
     public function exitContentMode(?folder:String):Void
     {
         Paths.setChartContext(null, null);
+        NMVContentData.currentMod = null;
         Mods.currentModDirectory = (folder == null || folder.length == 0) ? null : folder;
         onModFolderChanged();
     }
 
     /**
      * 按来源筛选歌曲 —— ModFolder 一级 / 二级菜单的落点。
-     * filter：'all'（原版 + 模组）/ 'vanilla'（仅原版，含 assets 基础周与 content/VanillaSongs 内容包）/ 'mods'（仅模组）。
-     * sub：vanilla 传内容包资源根（SOURCE_VANILLA_BASE = 仅基础周）、mods 传模组目录名，null = 该来源全部。
+     * filter：'all'（原版 + 模组）/ 'vanilla'（仅原版，含 assets 基础周与 content/VanillaSongs 内容包）
+     *        / 'mods'（仅模组）/ 'nmv'（content/NMVMODS 下的 NMV 内容包）。
+     * sub：vanilla 传内容包资源根（SOURCE_VANILLA_BASE = 仅基础周）、mods 传模组目录名、nmv 传包目录名，null = 该来源全部。
      * CustomCharts 不走这里，仍由 enterContentMode 处理。
      */
     public function applySourceFilter(filter:String, sub:String = null):Void
     {
         sourceFilter = (filter == null || filter.length == 0) ? 'all' : filter;
         sourceSubFilter = (sub != null && sub.length > 0) ? sub : null;
+
+        // 只有 nmv 来源保持 NMV 模式：其余来源必须清掉，否则下次进 Freeplay 又会扫出 NMV 的周
+        var newMod:String = (sourceFilter == 'nmv') ? sourceSubFilter : null;
+        var nmvChanged:Bool = (newMod != NMVContentData.currentMod);
+        NMVContentData.currentMod = newMod;
+
         Paths.setChartContext(null, null);
         Mods.currentModDirectory = null;
+
+        // NMV 的周只在 currentMod 非空时注册：切进 / 切出都要重扫一遍周定义并重建歌曲列表
+        if (nmvChanged)
+        {
+            WeekData.reloadWeekFiles(false);
+            rebuildSongLists();
+        }
+
         onModFolderChanged();
     }
 
@@ -343,6 +364,8 @@ class FreeplayState extends MusicBeatState
         if (sourceFilter == 'vanilla')
         {
             if (song.folder != null && song.folder.length > 0) return false;
+            // NMV 内容包的歌 contentRoot 指向 content/NMVMODS/，不属于原版
+            if (song.contentRoot != null && song.contentRoot.indexOf(NMVContentData.ROOT + '/') == 0) return false;
             if (sourceSubFilter == null) return true;
             if (sourceSubFilter == SOURCE_VANILLA_BASE) return song.contentRoot == null;
             return song.contentRoot == sourceSubFilter;
@@ -352,6 +375,12 @@ class FreeplayState extends MusicBeatState
             if (song.folder == null || song.folder.length == 0) return false;
             if (sourceSubFilter == null) return true;
             return song.folder == sourceSubFilter;
+        }
+        if (sourceFilter == 'nmv')
+        {
+            if (song.contentRoot == null || song.contentRoot.indexOf(NMVContentData.ROOT + '/') != 0) return false;
+            if (sourceSubFilter == null) return true;
+            return song.contentRoot == '${NMVContentData.ROOT}/$sourceSubFilter';
         }
         return true;
     }
@@ -405,6 +434,10 @@ class FreeplayState extends MusicBeatState
         startRankAnimIfPending();
 
         super.create();
+
+        #if HSCRIPT_ALLOWED
+        reloadNmvScripts();
+        #end
     }
 
     /**
@@ -423,33 +456,8 @@ class FreeplayState extends MusicBeatState
             return false;
         }
 
-        for (i in 0...WeekData.weeksList.length)
-        {
-            if (weekIsLocked(WeekData.weeksList[i])) continue;
-
-            var leWeek:WeekData = WeekData.weeksLoaded.get(WeekData.weeksList[i]);
-
-            WeekData.setDirectoryFromWeek(leWeek);
-            for (song in leWeek.songs)
-            {
-                var colors:Array<Int> = song[2];
-                if (colors == null || colors.length < 3)
-                    colors = [146, 113, 253];
-                addSong(song[0], i, song[1], FlxColor.fromRGB(colors[0], colors[1], colors[2]));
-            }
-        }
-
-        allSongs = songs.copy();
-        if (ClientPrefs.data.freeplayModFolder)
-        {
-            for (song in allSongs)
-            {
-                var folder = (song.folder == null || song.folder.length == 0) ? "base" : song.folder;
-                if (!songsByFolder.exists(folder))
-                    songsByFolder.set(folder, []);
-                songsByFolder.get(folder).push(song);
-            }
-        }
+        // 加载歌曲
+        rebuildSongLists();
 
         if (isContentMode())
         {
@@ -852,29 +860,17 @@ class FreeplayState extends MusicBeatState
     public function addSong(songName:String, weekNum:Int, songCharacter:String, color:Int)
     {
         var song = new NewSongMetaData(songName, weekNum, songCharacter, color);
-        
+
         var weekData = WeekData.weeksLoaded.get(WeekData.weeksList[weekNum]);
         var difficulties:Array<String> = [];
-        
+
         if (weekData != null)
         {
             WeekData.setDirectoryFromWeek(weekData);
             Difficulty.loadFromWeek(weekData);
-            
-            if (weekData.difficulties != null && weekData.difficulties.length > 0)
-            {
-                var diffStr:String = weekData.difficulties;
-                difficulties = diffStr.split(',');
-                for (i in 0...difficulties.length)
-                {
-                    difficulties[i] = difficulties[i].trim();
-                }
-                Difficulty.copyFrom(difficulties);
-            }
-            else
-            {
-                difficulties = Difficulty.defaultList.copy();
-            }
+
+            difficulties = resolveWeekDifficulties(weekData);
+            Difficulty.copyFrom(difficulties);
 
             // 从 week.json 的 songs 元组里取音乐人 / 谱师（旧版 3 元组会返回 null）
             var songEntry:Array<Dynamic> = WeekData.findSongEntry(weekData, songName);
@@ -997,7 +993,58 @@ class FreeplayState extends MusicBeatState
         return pending;
     }
 
+    /** 周定义的难度表（`week.json` 的 difficulties 串）；为空时用默认三档。 */
+    private function resolveWeekDifficulties(weekData:WeekData):Array<String>
+    {
+        if (weekData != null && weekData.difficulties != null && weekData.difficulties.length > 0)
+        {
+            var diffs:Array<String> = weekData.difficulties.split(',');
+            for (i in 0...diffs.length)
+                diffs[i] = diffs[i].trim();
+            if (diffs.length > 0) return diffs;
+        }
+        return Difficulty.defaultList.copy();
+    }
+
     #if sys
+    /**
+     * 从 WeekData 重建 allSongs / songsByFolder。
+     * 来源切换后必须重跑：NMV 模式的周定义只在 currentMod 非空时注册，
+     * 切进 / 切出 NMV 都要重新 reload 才拿得到（或去掉）那些周。
+     */
+    private function rebuildSongLists():Void
+    {
+        songs = [];
+        songsByFolder = new Map<String, Array<NewSongMetaData>>();
+
+        for (i in 0...WeekData.weeksList.length)
+        {
+            if (weekIsLocked(WeekData.weeksList[i])) continue;
+
+            var leWeek:WeekData = WeekData.weeksLoaded.get(WeekData.weeksList[i]);
+            WeekData.setDirectoryFromWeek(leWeek);
+            for (song in leWeek.songs)
+            {
+                var colors:Array<Int> = song[2];
+                if (colors == null || colors.length < 3)
+                    colors = [146, 113, 253];
+                addSong(song[0], i, song[1], FlxColor.fromRGB(colors[0], colors[1], colors[2]));
+            }
+        }
+
+        allSongs = songs.copy();
+        if (ClientPrefs.data.freeplayModFolder)
+        {
+            for (song in allSongs)
+            {
+                var folder:String = (song.folder == null || song.folder.length == 0) ? 'base' : song.folder;
+                if (!songsByFolder.exists(folder))
+                    songsByFolder.set(folder, []);
+                songsByFolder.get(folder).push(song);
+            }
+        }
+    }
+
     private function loadCustomChartSongs():Void
     {
         var category:String = Paths.currentChartCategory;
@@ -1487,12 +1534,18 @@ class FreeplayState extends MusicBeatState
 
         var oldModDir:String = Mods.currentModDirectory;
         Mods.currentModDirectory = songs[index].folder;
+        // 内容包歌的小图标等资源只在包里 —— 建卡期间把资源根临时指过去，
+        // 否则 HealthIcon 命中不了 content/<包>/images/icons/（Freeplay 平时没有包根上下文）
+        var oldContentRoot:String = Paths.currentContentRoot;
+        var packRoot:String = songs[index].contentRoot;
+        if (packRoot != null && packRoot.length > 0) Paths.currentContentRoot = packRoot;
         card = new FreeplayCard(0, 0, songs[index].songName, songs[index].songCharacter, songs[index].color,
             songs[index].displayName, getSongVariant(songs[index]), getSongDifficultyNames(songs[index]));
         card.targetY = index;
         cards[index] = card;
         // 建完立刻补内容（BPM / 时长 / 键数 / 徽章），别让它停在占位状态
         applyCardSongInfo(index, card);
+        Paths.currentContentRoot = oldContentRoot;
         Mods.currentModDirectory = oldModDir;
         // 懒加载会让卡片在后续帧才创建：FlxGroup.draw 按 members 顺序绘制，
         // 直接 add 会排在背景/分数栏之后。这里显式插到背景组之前，保证卡片仍在底层。
@@ -2062,17 +2115,12 @@ class FreeplayState extends MusicBeatState
             destroyFreeplayVocals();
 
             #if sys
-            // 试听前先确认谱面文件存在，否则 Song.loadFromJson 抛出的 assets 错误很难定位
-            if (songs[curSelected].customChart == null || !songs[curSelected].customChart.isValid())
-            {
-                var chartPath:String = Paths.modsJson(songLowercase + '/' + poop);
-                if (!sys.FileSystem.exists(chartPath))
-                {
-                    chartPath = Paths.json(songLowercase + '/' + poop);
-                    if (!sys.FileSystem.exists(chartPath))
-                        throw new haxe.Exception('Chart file not found: $poop');
-                }
-            }
+            // 试听前先确认谱面文件存在，否则 Song.loadFromJson 抛出的 assets 错误很难定位。
+            // 路径解析统一走 Song.findChartPath（mods / 内容包 / NMV 包三种布局），
+            // 这里再自己拼一次的话 NMV 包的歌会全部误报 Chart file not found。
+            if ((songs[curSelected].customChart == null || !songs[curSelected].customChart.isValid())
+                && Song.findChartPath(songLowercase, poop) == null)
+                throw new haxe.Exception('Chart file not found: $poop');
             #end
 
             loadCurrentChartIntoPlayState();
@@ -2237,6 +2285,13 @@ class FreeplayState extends MusicBeatState
         if (musicPlayer == null)
             return;
 
+        #if HSCRIPT_ALLOWED
+        if (nmvScripts != null)
+        {
+            nmvScripts.call('onUpdate', [elapsed]);
+            nmvScripts.call('onUpdatePost', [elapsed]);
+        }
+        #end
         updateBackgroundScroll();
 
         if (rankAnimActive)
@@ -3715,12 +3770,39 @@ class FreeplayState extends MusicBeatState
         return 0;
     }
 
+    /**
+     * 重建 NMV 脚本容器：只有 NMV 包来源（sourceFilter == 'nmv'，移动版入口）或
+     * Content 模式（NMV 版语义，包歌单走 content）才挂 scripts/states/FreeplayState.hx。
+     * 模式切换都会调到 onModFolderChanged，在那里触发重建。
+     */
+    #if HSCRIPT_ALLOWED
+    public function reloadNmvScripts():Void
+    {
+        if (nmvScripts != null)
+        {
+            nmvScripts.group.call('onDestroy');
+            nmvScripts.destroy();
+            nmvScripts = null;
+        }
+
+        if (sourceFilter != 'nmv' && !isContentMode()) return;
+
+        nmvScripts = new nmv.scripts.NMVSciptHolder(this);
+        if (nmvScripts.loadStateScript('FreeplayState', NMVContentData.currentMod))
+            nmvScripts.call('onCreate');
+    }
+    #end
+
     public function onModFolderChanged()
     {
         // 队列项持有旧歌曲元数据；筛选变化后必须丢弃，不能让旧任务继续占内存。
         clearPreloadQueue();
         // 换分类后进度条的前提（总数）也作废，连同提示一起清掉
         resetConvertProgress();
+
+        #if HSCRIPT_ALLOWED
+        reloadNmvScripts();
+        #end
         if (isContentMode())
         {
             songs = [];
@@ -3886,6 +3968,15 @@ class FreeplayState extends MusicBeatState
     {
         if (freeplayCacheDirty)
             saveFreeplaySongCache();
+
+        #if HSCRIPT_ALLOWED
+        if (nmvScripts != null)
+        {
+            nmvScripts.group.call('onDestroy');
+            nmvScripts.destroy();
+            nmvScripts = null;
+        }
+        #end
 
         releasePreviewAudio();
         clearPreloadQueue();

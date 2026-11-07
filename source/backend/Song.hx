@@ -35,6 +35,14 @@ typedef SwagSong =
 	@:optional var mania:Int;        // 键数-1 (3 = 4K, 15 = 16K)
     @:optional var keyCount:Int;     // 实际键数 (4-16)
     @:optional var keycount:Int;     // 兼容旧版
+
+    // NMV 原生字段（funkin/data/Song.hx:25-26 + Chart.correctFormat:103-104）：
+    //   keys  = **每条 playfield** 的列数（4K 多人唱仍是 4）
+    //   lanes = playfield 条数，`??= 2`（单侧一角色的普通歌也是 2）
+    // sectionNotes 的 noteData 是**绝对车道** 0 .. lanes*keys-1。
+    // FE 原来的两轨模型正好等于 lanes=2，所以只有 lanes>2 才走多轨分支。
+    @:optional var lanes:Int;
+    @:optional var keys:Int;
     // 以"值域"而非"玩家/对手侧"编码轨道、且自行处理 noteData 的谱面（如自制多轨谱），
     // 置 true 让 convert 原样保留 noteData。convert 的归一化公式本质假设
     // noteData 用 mustHitSection 的 XOR 编码两侧；这类谱没有这层编码，硬套会毁数据。
@@ -101,6 +109,13 @@ class Song
 				value = Reflect.field(songJson, 'keycount');
 				if(Std.isOfType(value, Int))
 					columns = Std.int(value);
+				else
+				{
+					// NMV 格式用 keys 表示每侧列数（NMV Chart.correctFormat: keys ??= 4）
+					value = Reflect.field(songJson, 'keys');
+					if(Std.isOfType(value, Int))
+						columns = Std.int(value);
+				}
 			}
 		}
 		return Std.int(Math.max(4, columns));
@@ -129,7 +144,7 @@ class Song
 		return rawLane >= boundary;
 	}
 
-	public static function convert(songJson:Dynamic) // Convert old charts to psych_v1 format
+	public static function convert(songJson:Dynamic, ?sourceFormat:String) // Convert old charts to psych_v1 format
 	{
 		if(songJson.gfVersion == null)
 		{
@@ -171,9 +186,28 @@ class Song
 
 		// 归一化要按"每侧列数"来算，而不是写死 4。原实现 %4 / +4 只对 4K 成立，
 		// 任何多 k 谱（8K 等）都会被压扁、丢掉轨道身份。
-		// 读取优先级刻意与 Note.getColumnsPerPlayer 一致（mania -> keyCount -> keycount），
+		// 读取优先级刻意与 Note.getColumnsPerPlayer 一致（mania -> keyCount -> keycount -> keys），
 		// 保证对真实多 k 谱两者结果相同。
 		var columns:Int = getKeyCount(songJson);
+
+		// nmv2（NMV 引擎原生格式）的车道本来就是绝对值：0..keys-1 = 玩家侧，
+		// keys..2keys-1 = 对手侧，与 FE psych_v1 运行时同构；时间/延音同为毫秒。
+		// 硬套旧格式的 mustHitSection XOR 翻转会把对手 note 全翻到玩家侧
+		// （2026-10-28 实测：整首谱 note 全归 player）。只跳过车道翻转，
+		// 保留 sectionBeats 修正与事件提取。
+		final skipLaneFlip:Bool = (sourceFormat == 'nmv2');
+
+		// NMV 的 arrowSkin/splashSkin 是它自家 JSON noteskin 系统（data/noteskins/<id>.json
+		// 映射出 noteTexture）的皮肤 ID（'default'/'top'/'pixel'），不是 FE 图集名；
+		// 原样透传会让 Paths.getSparrowAtlas('default') 落空 → Note frames=null →
+		// findByPrefix 崩（2026-10-31 实测：double-trouble 是唯一 arrowSkin='default' 的
+		// nmv2 图，note 生成即崩）。NMV noteskin 未移植，一律剥掉回退 FE 默认
+		// （NOTE_assets / ClientPrefs 的 noteSplashes）。
+		if (skipLaneFlip)
+		{
+			Reflect.deleteField(songJson, 'arrowSkin');
+			Reflect.deleteField(songJson, 'splashSkin');
+		}
 
 		for (section in sectionsData)
 		{
@@ -183,6 +217,8 @@ class Song
 				section.sectionBeats = 4;
 				if(Reflect.hasField(section, 'lengthInSteps')) Reflect.deleteField(section, 'lengthInSteps');
 			}
+
+			if (skipLaneFlip) continue;
 
 			for (note in section.sectionNotes)
 			{
@@ -249,10 +285,118 @@ class Song
 		var formattedSong:String = Paths.formatToSongPath(jsonInput);
 		_lastPath = Paths.json('$formattedFolder/$formattedSong');
 
+		#if sys
+		// NMV 内容包的谱面是 songs/<歌>/data/<难度>.json，与 FE 的 data/<歌>/<歌>-<难度>.json 不同。
+		// 必须在 Assets.getText 之前判存在：那条路找不到会抛异常，回退就再也走不到了。
+		if (!FileSystem.exists(_lastPath))
+		{
+			var nmvPath:String = findNmvChart(formattedFolder, formattedSong);
+			if (nmvPath != null)
+			{
+				_lastPath = nmvPath;
+				return parseJSON(File.getContent(nmvPath), jsonInput);
+			}
+		}
+		#end
+
 		rawData = Paths.assetText(_lastPath);
 
 		return rawData != null ? parseJSON(rawData, jsonInput) : null;
 	}
+
+	#if sys
+	/** NMV 内容包谱面回退：songs/<歌>/data/<难度>.json；难度文件缺失时回退 normal。 */
+	public static function findNmvChart(folder:String, song:String):Null<String>
+	{
+		// 资源根优先取当前内容包（Freeplay 试听 / SongInfoParser 都只设这个，不设 currentMod），
+		// 没有再退回 NMV 模式的启用包。两处都是结构性判据，不看包名。
+		var root:String = Paths.isNmvContentRoot(Paths.currentContentRoot) ? Paths.currentContentRoot : null;
+		if (root == null)
+		{
+			var mod:String = NMVContentData.currentMod;
+			if (mod == null || mod.length == 0) return null;
+			root = '${NMVContentData.ROOT}/$mod';
+		}
+
+		var difficulty:String = 'normal';
+		var dash:Int = song.lastIndexOf('-');
+		if (dash >= 0 && dash < song.length - 1) difficulty = song.substr(dash + 1);
+
+		// 事件图表特判：NMV 的事件在 songs/<歌>/data/events.json（vanilla 旧事件格式）。
+		// 不特判的话 'events' 会被当难度名、difficulty 落回 'normal'，
+		// 第一候选直接命中 normal.json —— 事件图表加载成 note 谱，全部事件丢失
+		// （2026-10-30 实测：日志 "converting chart events with format nmv2" 即此假命中）。
+		// 变体（events-erect 等）优先探变体文件，探不到再落基础 events.json。
+		var candidates:Array<String>;
+		if (song == 'events' || StringTools.startsWith(song, 'events-'))
+		{
+			candidates = [];
+			if (difficulty != 'normal' && dash >= 0 && song.substr(0, dash) == 'events')
+				candidates.push('$root/songs/$folder/data/events-$difficulty.json');
+			candidates.push('$root/songs/$folder/data/events.json');
+			candidates.push('$root/songs/$folder/events.json');
+		}
+		else
+		{
+			candidates = [
+				'$root/songs/$folder/data/$difficulty.json',
+				'$root/songs/$folder/$difficulty.json',
+				'$root/songs/$folder/data/normal.json',
+				'$root/songs/$folder/song.json'
+			];
+		}
+
+		for (candidate in candidates)
+		{
+			if (FileSystem.exists(candidate)) return candidate;
+		}
+
+		// 兜底：歌名带单引号（`d'low`）但目录被导出成去引号版本（`dlow/`）的旧布局。
+		// 2026-11-01 之前 `Paths.formatToSongPath` 会把 `'` 抹掉，那批内容包可能就是
+		// 按 `dlow/` 建的目录；现在 formatToSongPath 保留单引号，这里补一次去引号探测防回归。
+		if (folder != null && folder.indexOf("'") >= 0)
+		{
+			final stripped:String = folder.split("'").join('');
+			for (candidate in candidates)
+			{
+				final alt:String = candidate.split('/$folder/').join('/$stripped/');
+				if (alt != candidate && FileSystem.exists(alt)) return alt;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * 定位一首歌某难度的谱面文件（存在才返回，否则 null）。
+	 *
+	 * 候选顺序与 `getChart` 一致：mods / 内容包（`Paths.json` 内部已按 mods → content →
+	 * assets 的顺序探）→ NMV 包布局（`songs/<歌>/data/<难度>.json`）→ assets 两个旧位置。
+	 *
+	 * Freeplay 试听的前置检查与 `SongInfoParser` 的解析入口都走这里 —— 之前它们各自拼
+	 * 路径，NMV 包的布局（包根相对，没有 `data/` 前缀）不在候选里，于是 Freeplay 里
+	 * NMV 的歌全都报 `Chart file not found` / 拿不到 bpm 与评级。
+	 */
+	public static function findChartPath(folder:String, song:String):Null<String>
+	{
+		final formattedFolder:String = Paths.formatToSongPath(folder);
+		final formattedSong:String = Paths.formatToSongPath(song);
+
+		var path:String = Paths.json('$formattedFolder/$formattedSong');
+		if (FileSystem.exists(path)) return path;
+
+		path = findNmvChart(formattedFolder, formattedSong);
+		if (path != null) return path;
+
+		path = 'assets/data/$formattedFolder/$formattedSong.json';
+		if (FileSystem.exists(path)) return path;
+
+		path = 'assets/shared/data/$formattedFolder/$formattedSong.json';
+		if (FileSystem.exists(path)) return path;
+
+		return null;
+	}
+	#end
 
 	/**
 	 * @param silent Freeplay 的信息预载会把上千份谱面各解析一次，这里每份都 trace 的话
@@ -269,6 +413,15 @@ class Song
 				songJson = subSong;
 		}
 
+		// NMV 车道元数据缺省值（NMV `Chart.correctFormat`）：
+		//   keys  ??= 4   —— 每条 playfield 的列数
+		//   lanes ??= 2   —— playfield 条数（普通两轨歌也是 2）
+		// 放在 parseJSON 末尾而不是 convert() 里：convert 只对非 psych_v1 格式执行，
+		// 而 NMV 包里也有已标成 psych_v1 的谱面，那些同样需要这两个字段。
+		// lanes<=2 的谱面在 PlayState 里走原两轨分支 → 老歌零变化。
+		if (songJson.lanes == null) songJson.lanes = 2;
+		if (songJson.keys == null) songJson.keys = getKeyCount(songJson);
+
 		if(convertTo != null && convertTo.length > 0)
 		{
 			var fmt:String = songJson.format;
@@ -281,7 +434,7 @@ class Song
 					{
 						if(!silent) trace('converting chart $nameForError with format $fmt to psych_v1 format...');
 						songJson.format = 'psych_v1_convert';
-						convert(songJson);
+						convert(songJson, fmt);
 					}
 			}
 		}

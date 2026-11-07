@@ -235,7 +235,24 @@ class CoolUtil
 	inline public static function getSavePath():String {
 		final company:String = FlxG.stage.application.meta.get('company');
 		// #if (flixel < "5.0.0") return company; #else
+		// NMV 移植工作区专用存档目录（-NMVPort 后缀）：本工作区构建只用于 NMV 移植
+		// 验证，Project.xml 的 company/file 与主版 J:\FNF-FrozenEngine 完全相同，不隔离
+		// 会直接覆盖用户主存档（2026-10-28 已发生一次，当时 funkin.sol 无备份可还原）。
+		// 后缀挂在编译期 flag（Project.xml 的 NMV_PORT_SAVE）上：源码同步到主版时
+		// 不会把主版存档也改道到 -NMVPort 目录 —— 那样主版看自己的旧档就像"被清空"。
+		#if NMV_PORT_SAVE
+		// 批量 harness（-D NMV_BATCH 构建 + -nmvbatch 参数）再改道一层：烟测跑在
+		// TitleState.loadPrefs 之前，ClientPrefs 还是默认值；虽然当前 harness 本身
+		// 不写档，但只要任何脚本/未来代码在批跑中调了 saveSettings，默认值就会
+		// 覆盖 NMVPort 实测档。一次性烟测目录让批跑永远碰不到真档。
+		#if NMV_BATCH
+		if (Sys.args().indexOf('-nmvbatch') != -1)
+			return '${company}/${flixel.util.FlxSave.validate(FlxG.stage.application.meta.get('file'))}-NMVPort-smoke';
+		#end
+		return '${company}/${flixel.util.FlxSave.validate(FlxG.stage.application.meta.get('file'))}-NMVPort';
+		#else
 		return '${company}/${flixel.util.FlxSave.validate(FlxG.stage.application.meta.get('file'))}';
+		#end
 		// #end
 	}
 
@@ -275,6 +292,14 @@ class CoolUtil
 	}
 	public static function boundTo(value:Float, min:Float, max:Float):Float {
     return Math.max(min, Math.min(max, value));
+	}
+
+	/** NMV 兼容别名（CoolUtil.getEaseFromString，camTweenEvent.hx 等）：与
+	 *  getTweenEaseByString 同义。null 回落 linear（NMV 同款）。 */
+	public static function getEaseFromString(?ease:String = null)
+	{
+		if (ease == null) return FlxEase.linear;
+		return getTweenEaseByString(ease);
 	}
 
 	public static function getTweenEaseByString(?ease:String = '')

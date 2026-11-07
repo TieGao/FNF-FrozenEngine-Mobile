@@ -32,6 +32,7 @@ import backend.ALSoftConfig;
 import backend.BlueScreenCrashHandler;
 #end
 import backend.Highscore;
+import backend.HsLog;
 
 // NATIVE API STUFF, YOU CAN IGNORE THIS AND SCROLL //
 #if (linux && !debug)
@@ -188,6 +189,7 @@ class Main extends Sprite
 				msgInfo += '${newPos.lineNumber}:';
 			}
 			msgInfo += ' $x';
+			HsLog.record('WARN', msgInfo);
 			if (PlayState.instance != null)
 				PlayState.instance.addTextToDebug('WARNING: $msgInfo', FlxColor.YELLOW);
 		}
@@ -206,6 +208,7 @@ class Main extends Sprite
 				msgInfo += '${newPos.lineNumber}:';
 			}
 			msgInfo += ' $x';
+			HsLog.record('ERROR', msgInfo);
 			if (PlayState.instance != null)
 				PlayState.instance.addTextToDebug('ERROR: $msgInfo', FlxColor.RED);
 		}
@@ -224,6 +227,7 @@ class Main extends Sprite
 				msgInfo += '${newPos.lineNumber}:';
 			}
 			msgInfo += ' $x';
+			HsLog.record('FATAL', msgInfo);
 			if (PlayState.instance != null)
 				PlayState.instance.addTextToDebug('FATAL: $msgInfo', 0xFFBB0000);
 		}
@@ -244,7 +248,13 @@ class Main extends Sprite
 		// 移动端（方案B'）：基础 assets 内嵌但 TouchPad/xml 等走 FileSystem 直读（CWD=数据根），
 		// 首启缺文件时先进 CopyState 全量拷贝（真机验证过的老逻辑）；
 		// 原版周数据/内容包缺失由 MainMenu 的 MessageBox 提示、Advanced → Import Data Pack 进 BootDataState
-		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end game.initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
+		// NMV 批量回归 harness（-D NMV_BATCH 构建 + -nmvbatch 参数触发，正常构建零残留）
+		#if NMV_BATCH
+		final initialState:Class<flixel.FlxState> = Sys.args().indexOf('-nmvbatch') != -1 ? nmv.test.NmvBatchState : game.initialState;
+		#else
+		final initialState:Class<flixel.FlxState> = game.initialState;
+		#end
+		addChild(new FlxGame(game.width, game.height, #if COPYSTATE_ALLOWED !CopyState.checkExistingFiles() ? CopyState : #end initialState, #if (flixel < "5.0.0") game.zoom, #end game.framerate, game.framerate, game.skipSplash, game.startFullscreen));
 
 		// 全局屏幕日志：挂在 FlxG.game 上，切换 state 不会跟着消失
 		debug.ScreenLog.attach();

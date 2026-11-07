@@ -204,6 +204,20 @@ class Paths
 					contentCandidates.push('$dependencyRoot/shared/$file');
 				}
 			}
+			// NMV 包（content/NMVMODS/<mod>）是包根相对布局（images/ data/ stages/...），
+			// 没有 shared/ 前缀层 —— 追加 NMV 候选；FE 布局候选在前、保持优先。
+			// NMV 的 LOOSE 资源语义是"全部启用包"并集（securitydlc 的歌用 legacy 的
+			// lights.frag），当前包 miss 后继续探其余包，当前包仍最优先。
+			if (isNmvContentRoot(currentContentRoot))
+			{
+				contentCandidates.push('$currentContentRoot/data/$file');
+				contentCandidates.push('$currentContentRoot/$file');
+				for (siblingRoot in nmvSiblingRoots())
+				{
+					contentCandidates.push('$siblingRoot/data/$file');
+					contentCandidates.push('$siblingRoot/$file');
+				}
+			}
 			for (candidate in contentCandidates)
 			{
 				#if sys
@@ -338,6 +352,12 @@ class Paths
 		}
 		#end
 		return 'assets/videos/$key.$VIDEO_EXT';
+	}
+
+	/** NMV Paths.sanitize 原样移植：非保留字符剔除、空格转 `-`、小写（脚本侧视频/歌名规整用）。 */
+	public static inline function sanitize(path:String):String
+	{
+		return ~/[^- a-zA-Z0-9..\/]+\//g.replace(path, '').replace(' ', '-').trim().toLowerCase();
 	}
 
 	inline static public function sound(key:String, ?modsAllowed:Bool = true):Sound
@@ -866,7 +886,6 @@ class Paths
 
 	inline static public function getSparrowAtlas(key:String, ?parentFolder:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
-		if(key.contains('psychic')) trace(key, parentFolder, allowGPU);
 		var imageLoaded:FlxGraphic = image(key, parentFolder, allowGPU);
 		var xmlText:String = assetText(getPath(Language.getFileTranslation('images/$key') + '.xml', TEXT, parentFolder));
 		if (xmlText == null)
@@ -903,7 +922,12 @@ class Paths
 
 	inline static public function formatToSongPath(path:String) {
 		final invalidChars = ~/[~&;:<>#\s]/g;
-		final hideChars = ~/[.,'"%?!]/g;
+		// **单引号不能删**：NMV 内容包的歌曲目录是裸目录名（`songs/d'low/`、
+		// `songs/d'low/d'low.hx`），把 `'` 抹掉会拼成 `songs/dlow/...` 永远找不到
+		// （日志实测：`There is no TEXT asset with an ID of "assets/shared/data/dlow/dlow-hard.json"`，
+		// freeplay 点进去就弹回）。`'` 在 NTSF/EXT4 上都是合法文件名字符，
+		// 标准 FE 谱面/资源目录名从不含它，保留不影响既有加载。
+		final hideChars = ~/[.,"%?!]/g;
 
 		return hideChars.replace(invalidChars.replace(path, '-'), '').trim().toLowerCase();
 	}
@@ -925,6 +949,34 @@ class Paths
 	 * 找不到再落回 assets/ —— 加性回退、不排他，所以舞台类里混用的 base 资源仍能命中。
 	 */
 	public static var currentContentRoot:String = null;
+	/**
+	 * NMV 包（content/NMVMODS/<mod>）的布局是包根相对的（images/ data/ stages/ songs/...），
+	 * 与 FE 内容包的 <root>/shared/ 同构布局不同 —— getPath 需要额外的 NMV 候选。
+	 * 按根路径判定，保证 ensureCard 等直接写 currentContentRoot 的调用方也判得准。
+	 */
+	public static function isNmvContentRoot(?root:String):Bool
+	{
+		return root != null && root.indexOf('/NMVMODS/') != -1;
+	}
+
+	static var nmvSiblingCache:String = null;
+	static var nmvSiblingList:Array<String> = [];
+
+	/** 其余 NMVMODS 包根（跨包 LOOSE 探测用）；按当前包根缓存，避免热路径反复扫目录。 */
+	public static function nmvSiblingRoots():Array<String>
+	{
+		if (nmvSiblingCache != currentContentRoot)
+		{
+			nmvSiblingCache = currentContentRoot;
+			nmvSiblingList = [];
+			for (mod in NMVContentData.listMods())
+			{
+				final root = 'content/NMVMODS/$mod';
+				if (root != currentContentRoot) nmvSiblingList.push(root);
+			}
+		}
+		return nmvSiblingList;
+	}
 	/**
 	 * 当前内容包的变体标识（Pico / Erect…）；无变体为 null。
 	 * 变体包（如 PicoMix）的难度表是标准档位 Easy/Normal/Hard，变体只在这里表达：
@@ -1266,7 +1318,7 @@ class Paths
 			{
 				//trace('found Animation Json');
 				changedAnimJson = true;
-				animationJson = getTextFromFile('images/$originalPath/Animation.json');
+				animationJson = patchBtaVersion(getTextFromFile('images/$originalPath/Animation.json'));
 			}
 		}
 
@@ -1274,6 +1326,45 @@ class Paths
 		//trace(spriteJson);
 		//trace(animationJson);
 		spr.loadAtlasEx(folderOrImg, spriteJson, animationJson);
+	}
+
+	/**
+	 * 新版 BTA 矩阵格式（元素带 MX）但 MD.V 缺失的 Animate 导出（legacy 1.1.2 的 yellow）：
+	 * 旧库按 `MD.V != null` 判定走 fromJSONEx/fromJSON —— fromJSON 只认 M3D、完全忽略 MX，
+	 * 所有部件矩阵变单位阵，内容整团堆在原点（表现为角色播"一堆碎零件"）。
+	 * 检测到 MX 就补上 V 标记，让 PsychFlxAnimate.loadAtlasEx 走 fromJSONEx（MX/M3D 都认）。
+	 * 返回解析后的对象（loadAtlasEx 的 myJson 参数直接收 Dynamic）。
+	 */
+	public static function patchBtaVersion(animText:String):Dynamic
+	{
+		if (animText == null) return null;
+		if (animText.charCodeAt(0) == 0xFEFF) animText = animText.substr(1);
+		var data:Dynamic = haxe.Json.parse(animText);
+		var md:Dynamic = Reflect.field(data, 'MD');
+		if (md == null || Reflect.field(md, 'V') != null) return data;
+		if (jsonTreeHasMx(Reflect.field(data, 'AN')) || jsonTreeHasMx(Reflect.field(data, 'SD')))
+			Reflect.setField(md, 'V', 'BTA 1.2.0');
+		return data;
+	}
+
+	/** 递归找任一元素的 MX 字段（M3D 老格式没有它，BTA 新格式必有）。 */
+	static function jsonTreeHasMx(node:Dynamic):Bool
+	{
+		if (node == null) return false;
+		if (Std.isOfType(node, Array))
+		{
+			for (item in cast(node, Array<Dynamic>))
+				if (jsonTreeHasMx(item)) return true;
+			return false;
+		}
+		if (!Reflect.isObject(node)) return false;
+		if (Reflect.field(node, 'MX') != null) return true;
+		for (field in Reflect.fields(node))
+		{
+			if (field == 'M3D' || field == 'MX') continue;
+			if (jsonTreeHasMx(Reflect.field(node, field))) return true;
+		}
+		return false;
 	}
 	#end
 

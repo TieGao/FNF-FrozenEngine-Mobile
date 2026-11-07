@@ -298,6 +298,15 @@ import states.TitleState;
 	public var showEngineVer:Bool = true;
 	public var showDifficulty:Bool = true;
 
+	/**
+	 * NMV / Impostor Legacy 多人唱"合轨"（SONG.lanes > 2 时才生效）。
+	 *
+	 * true  = 外侧轨（lane >= 2）的 note 画到可见轨道上（白色、自动演唱、玩家不用打），
+	 *         多余轨道不生成；
+	 * false = 参考引擎原样：外侧轨推到场外（transformX ±865）、note 全透明。
+	 */
+	public var legacyCompactLanes:Bool = true;
+
 	public var relaxAudioNumber:Int = 16;
 	public var relaxAudioDisplayQuality:Int = 4;
 	public var audioDisplayUpdate:Float = 33.0;
@@ -331,6 +340,80 @@ import states.TitleState;
 class ClientPrefs {
 	public static var data:SaveVariables = {};
 	public static var defaultData:SaveVariables = {};
+
+	// NMV 脚本用 ClientPrefs.globalAntialiasing（hscript 静态面），等价 data.antialiasing 的别名
+	public static var globalAntialiasing(get, never):Bool;
+	static function get_globalAntialiasing():Bool
+	{
+		return data.antialiasing;
+	}
+
+	// NMV 脚本面同理（语料 34 处，CameraUtil 也读）：等价 data.shaders 的别名
+	public static var shaders(get, never):Bool;
+	static function get_shaders():Bool
+	{
+		return data.shaders;
+	}
+
+	// NMV 脚本面平铺静态（legacy 的 utils.hx 直接 ClientPrefs.downScroll/middleScroll/
+	// lowQuality 读，缺了在 hxcpp 上静默读成 null→false，downscroll 玩家的 combo 定位
+	// 等整段失效）。photosensitive 对应 NMV 的"减少闪光"开关 = !flashing——
+	// utils.hx 的 Reactor Beep 红闪/flash 事件按它走 camHUD 低强度分支。
+	public static var downScroll(get, never):Bool;
+	static function get_downScroll():Bool return data.downScroll;
+
+	public static var middleScroll(get, never):Bool;
+	static function get_middleScroll():Bool return data.middleScroll;
+
+	public static var lowQuality(get, never):Bool;
+	static function get_lowQuality():Bool return data.lowQuality;
+
+	public static var photosensitive(get, never):Bool;
+	static function get_photosensitive():Bool return !data.flashing;
+
+	// NMV 脚本面平铺静态补齐（终审 75 号 §2.1：语料读 flashing×45 / camZooms×5 /
+	// hideHud×4 / opponentStrums×2 / language×1；缺了在 hxcpp 上静默读 null →
+	// 门控恒假，闪光相关的演出分支全部静默走错边）。flashing 与 data.flashing
+	// 同向（true=允许闪光，photosensitive 即其反），直接同名字段别名。
+	public static var flashing(get, set):Bool;
+	static function get_flashing():Bool return data.flashing;
+	static function set_flashing(v:Bool):Bool { data.flashing = v; return v; }
+
+	public static var camZooms(get, never):Bool;
+	static function get_camZooms():Bool return data.camZooms;
+
+	public static var hideHud(get, never):Bool;
+	static function get_hideHud():Bool return data.hideHud;
+
+	public static var opponentStrums(get, never):Bool;
+	static function get_opponentStrums():Bool return data.opponentStrums;
+
+	public static var language(get, never):String;
+	static function get_language():String return data.language;
+
+	// NMV/fork 的开发者模式开关（语料 22 处读，cheatMenu 等 gate 用）：FE 无对应设置
+	// 项，给会话静态默认 false——gate 关闭语义与此前 null 读一致，但现在是明确定义
+	public static var inDevMode:Bool = false;
+
+	// NMV ClientPrefs.camFollowsCharacters（默认 true）：legacy utils.hx 的 onMoveCamera
+	// 按 true/false 决定是否把镜头摇向击打方向；FE 无对应设置项，给会话静态默认 true
+	//（此前缺失 → hxcpp 静默读 null → false，camSpecialThing 运镜整段失效）
+	public static var camFollowsCharacters:Bool = true;
+
+	// NMV cosmetics（外观装备）兼容面：FE 无此系统，这里给 NMV 同构的会话内存版。
+	// legacy 包 utils.hx 的 onLoad 读 bfSkin/gfSkin/pet/colorText，缺了整个加载链就断。
+	public static var equipment:Map<String, Null<String>> = ['playerSkin' => null, 'speakerSkin' => null, 'pet' => null];
+	public static var bfSkin(get, set):String;
+	public static var gfSkin(get, set):String;
+	public static var pet(get, set):String;
+	public static var colorText:String = 'Enabled';
+
+	static function get_bfSkin():String return equipment.get('playerSkin') ?? 'default';
+	static function get_gfSkin():String return equipment.get('speakerSkin') ?? 'default';
+	static function get_pet():String return equipment.get('pet') ?? '';
+	static function set_bfSkin(v:String):String { equipment.set('playerSkin', v == 'default' ? null : v); return v; }
+	static function set_gfSkin(v:String):String { equipment.set('speakerSkin', v == 'default' ? null : v); return v; }
+	static function set_pet(v:String):String { equipment.set('pet', v == '' ? null : v); return v; }
 
 	//Every key has two binds, add your key bind down here and then add your control on options/ControlsSubState.hx and Controls.hx
 		public static var keyBinds:Map<String, Array<FlxKey>> = [
@@ -916,6 +999,13 @@ class ClientPrefs {
 		save.data.mobile = mobileBinds;
 		save.flush();
 		FlxG.log.add("Settings saved!");
+	}
+
+	/** NMV 兼容别名（ClientPrefs.flush，completion.hx 等歌终脚本在写档后调用）：
+	 *  NMV 的 flush = flushSave + flushControls，FE 的 saveSettings 两样都做。 */
+	public static function flush():Void
+	{
+		saveSettings();
 	}
 
 	public static function loadPrefs() {
