@@ -273,6 +273,11 @@ import states.TitleState;
 	public var kbOffsetY:Float = 0.0;
 	public var keyboardAlpha:Float = 1.0;
 	public var keyboardBGColor:FlxColor = FlxColor.BLACK;
+	// 键位描边色。旧版描边是画白色再乘主体色，等价于"边缘永远等于主体色"，
+	// 拆出来之后默认给白色，键盘默认带一圈白边。
+	public var keyboardEdgeColor:FlxColor = FlxColor.WHITE;
+	// 键雨（TimeDis）颜色。旧版直接复用主体色，默认黑保持原样。
+	public var keyboardRainColor:FlxColor = FlxColor.BLACK;
 	public var keyboardTextColor:FlxColor = FlxColor.WHITE;
 	public var keyboardTimeDisplay:Bool = true;
 	public var keyboardTime:Float = 500.0;
