@@ -1467,3 +1467,11 @@ data.boot.zip.contentok: "内容包已导入。\n原版歌曲数据（base_game�
 data.boot.copying: "准备基础资源 {1}/{2}"
 data.boot.zip.done.title: "导入完成"
 data.boot.btn.importmore: "继续导入数据包"
+
+// ---- Freeplay 右侧展示开关（OuterUIData / KE / Psych 三套菜单共用）----
+setting_difficulty_stars: "难度星星"
+description_difficulty_stars: "在专辑封面上方显示官方星级"
+setting_album_cover: "专辑封面"
+description_album_cover: "在自由游玩右侧显示专辑封面"
+setting_difficulty_blocks: "难度方块"
+description_difficulty_blocks: "在自由游玩右下角显示可点击的难度方块"
