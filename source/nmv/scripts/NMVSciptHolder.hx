@@ -158,7 +158,11 @@ class NMVSciptHolder implements IFlxDestroyable
 		for (file in FileSystem.readDirectory(dir))
 		{
 			if (!FunkinScript.isHxFile(file)) continue;
-			load('$dir/$file', null, modFolder);
+			// name = 完整路径（76 号 P2-①，NMV initFunkinScript 的 name ?? filePath 语义，NMV PlayState:977）：跨包同名脚本
+			// （legacy/securitydlc 都有 scripts/rgbPetColors.hx）
+			// 共存而非 basename 去重只活一个；sharePublicVars 后写覆盖前写=加载序，与 NMV 一致。
+			// 语料无按 basename 查找本层脚本的用法（getScript/initFunkinScript 均未出现），改名单安全。
+			load('$dir/$file', '$dir/$file', modFolder);
 		}
 	}
 

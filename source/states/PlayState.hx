@@ -1160,9 +1160,12 @@ class PlayState extends MusicBeatState
 		{
 			final nmvMods = backend.NMVContentData.listMods();
 			nmvMods.remove(backend.NMVContentData.currentMod);
+			final before:Int = nmvScripts.group.members.length;
 			for (mod in [backend.NMVContentData.currentMod].concat(nmvMods))
 				nmvScripts.loadDir('content/NMVMODS/$mod/scripts', mod);
-			Bread.crumb('PS nmv global scripts done');
+			// 计数=全局层新增脚本数（76 号 P2-① 验收：legacy 7 + securitydlc 1 应=8；
+			// basename 去重旧态为 7）。舞台/角色脚本不在此区间，不受影响。
+			Bread.crumb('PS nmv global scripts done +' + (nmvScripts.group.members.length - before));
 		}
 		#end
 
@@ -1810,6 +1813,12 @@ class PlayState extends MusicBeatState
 					startCharacterPos(newBoyfriend);
 					newBoyfriend.alpha = 0.00001;
 					startCharacterScripts(newBoyfriend.curCharacter);
+					// NMV 角色脚本（76 号 P2-②，挂点=NMV addCharacterToList 同位，NMV PlayState:936）：
+					// 换角色事件的 push/触发两路都经此处，新角色实例入组即补挂其 data/characters/<名>.hx。
+					// loadCharacterScript 按完整路径幂等，开局角色重入组不会双 onLoad。
+					#if HSCRIPT_ALLOWED
+					if (nmvScripts != null) nmvScripts.loadCharacterScript(newBoyfriend.curCharacter, newBoyfriend, Mods.currentModDirectory);
+					#end
 				}
 
 			case 1:
@@ -1820,6 +1829,12 @@ class PlayState extends MusicBeatState
 					startCharacterPos(newDad, true);
 					newDad.alpha = 0.00001;
 					startCharacterScripts(newDad.curCharacter);
+					// NMV 角色脚本（76 号 P2-②，挂点=NMV addCharacterToList 同位，NMV PlayState:936）：
+					// 换角色事件的 push/触发两路都经此处，新角色实例入组即补挂其 data/characters/<名>.hx。
+					// loadCharacterScript 按完整路径幂等，开局角色重入组不会双 onLoad。
+					#if HSCRIPT_ALLOWED
+					if (nmvScripts != null) nmvScripts.loadCharacterScript(newDad.curCharacter, newDad, Mods.currentModDirectory);
+					#end
 				}
 
 			case 2:
@@ -1831,6 +1846,12 @@ class PlayState extends MusicBeatState
 					startCharacterPos(newGf);
 					newGf.alpha = 0.00001;
 					startCharacterScripts(newGf.curCharacter);
+					// NMV 角色脚本（76 号 P2-②，挂点=NMV addCharacterToList 同位，NMV PlayState:936）：
+					// 换角色事件的 push/触发两路都经此处，新角色实例入组即补挂其 data/characters/<名>.hx。
+					// loadCharacterScript 按完整路径幂等，开局角色重入组不会双 onLoad。
+					#if HSCRIPT_ALLOWED
+					if (nmvScripts != null) nmvScripts.loadCharacterScript(newGf.curCharacter, newGf, Mods.currentModDirectory);
+					#end
 				}
 		}
 	}
