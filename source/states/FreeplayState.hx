@@ -3611,8 +3611,6 @@ class FreeplayState extends MusicBeatState
         // 定稿之后 —— 上面那句 changeDiff() 就是定稿点。
         rebuildDifficultyCarousel();
 
-        missingText.visible = false;
-        missingTextBG.visible = false;
         
         if (songs[curSelected].customChart != null && songs[curSelected].customChart.isValid())
             modFolderText.text = "Chart Folder:" + (songs[curSelected].customChart.sourceFolder != null
