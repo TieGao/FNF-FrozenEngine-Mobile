@@ -98,7 +98,7 @@ jobs:
           # MSVC ARM64 生成工具，无需额外安装。
           # 产物目录结构与 x64 一致（export/release/windows/bin），只是 ndll 换 arm64。
           - name: Windows ARM64
-            os: windows-latest
+            os: windows-2022
             buildArgs: "windows -arm64 -D HXCPP_ARM64"
             noExtraArgs: "-D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB"
             noBaseArgs: "-D NO_BASE_GAME_FILES"
