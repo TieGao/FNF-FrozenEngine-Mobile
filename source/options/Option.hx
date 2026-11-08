@@ -71,6 +71,15 @@ class Option
 	public var actionLabel:String = '';
 	public var ownerCategory:OptionCategory = null;
 
+	/**
+	 * 本页总开关（只有 BOOL 能用）。
+	 *
+	 * 置 true 的选项放在该页第一项；它为关时，同页其余选项整体隐藏，
+	 * 关 / 开即时生效。判定与列表重建见 `OptionCategory.visibleOptions()` 与
+	 * `OptionsPageState.buildRows()`。
+	 */
+	public var pageGate:Bool = false;
+
 	// =========================================================
 	// 调色板（COLOR 类型）
 	// =========================================================
@@ -245,18 +254,10 @@ class Option
 	{
 		switch(variable)
 		{
-			case 'framerate':
-				if (ClientPrefs.data.framerate > FlxG.drawFramerate)
-				{
-					FlxG.updateFramerate = ClientPrefs.data.framerate;
-					FlxG.drawFramerate = ClientPrefs.data.framerate;
-				}
-				else
-				{
-					FlxG.drawFramerate = ClientPrefs.data.framerate;
-					FlxG.updateFramerate = ClientPrefs.data.framerate;
-				}
-			case 'showFPS':
+		case 'framerate', 'updaterate', 'unlimitedFPS', 'fpsRework', 'devideDrawAndUpdate':
+			// 所有帧率相关开关统一走 lime 帧调度入口（unlimitedFPS = FrameProfile.UNCAPPED）
+			ClientPrefs.applyFrameTiming();
+		case 'showFPS':
 				if (Main.fpsVar != null)
 					Main.fpsVar.visible = ClientPrefs.data.showFPS;
 			case 'autoPause':
@@ -270,23 +271,10 @@ class Option
 				// 控件风格（Win10 / Win8 按钮）切换：同样刷新一次，
 				// 界面发现 UITheme.version 变了就会按新风格重建控件
 				backend.UITheme.refresh();
-			case 'keyboardBGColor', 'keyboardTextColor':
-				try
-				{
-					var col = Reflect.getProperty(ClientPrefs.data, variable);
-					if (objects.KeyboardViewer.instance != null)
-					{
-						var kv = objects.KeyboardViewer.instance;
-						for (m in kv.members)
-						{
-							try Reflect.setProperty(m, 'color', col) catch(_) {}
-						}
-						for (t in kv.keyTexts) t.color = ClientPrefs.data.keyboardTextColor;
-						if (kv.kpsText != null) kv.kpsText.color = ClientPrefs.data.keyboardTextColor;
-						if (kv.totalText != null) kv.totalText.color = ClientPrefs.data.keyboardTextColor;
-					}
-				}
-				catch(e:Dynamic) {}
+			case 'keyboardBGColor', 'keyboardEdgeColor', 'keyboardRainColor', 'keyboardTextColor':
+				// 颜色语义已经按目标拆开（主体 / 边缘 / 键雨 / 文字），不能再对 members 无脑
+				// `color = col` —— 那会把 KeyButtonAlpha（按压高亮）和按键文字一起染掉。
+				objects.KeyboardViewer.refreshAll();
 		}
 	}
 

@@ -693,15 +693,10 @@ class KEOption
 	private function applyImmediateChanges()
 	{
 		switch(variable) {
-			case "framerate":
-				if(ClientPrefs.data.framerate > FlxG.drawFramerate) {
-					FlxG.updateFramerate = ClientPrefs.data.framerate;
-					FlxG.drawFramerate = ClientPrefs.data.framerate;
-				} else {
-					FlxG.drawFramerate = ClientPrefs.data.framerate;
-					FlxG.updateFramerate = ClientPrefs.data.framerate;
-				}
-			case "showFPS":
+		case "framerate", "updaterate", "unlimitedFPS", "fpsRework", "devideDrawAndUpdate":
+			// 所有帧率相关开关统一走 lime 帧调度入口（unlimitedFPS = FrameProfile.UNCAPPED）
+			ClientPrefs.applyFrameTiming();
+		case "showFPS":
 				if(Main.fpsVar != null)
 					Main.fpsVar.visible = ClientPrefs.data.showFPS;
 			case "autoPause":
@@ -710,20 +705,10 @@ class KEOption
 				// 当语言选项更改时，保存并触发语言重载以便立即生效
 				ClientPrefs.saveSettings();
 				backend.Language.reloadPhrases();
-			case "keyboardBGColor":
-			case "keyboardTextColor":
-				try {
-					var col = Reflect.getProperty(ClientPrefs.data, variable);
-					if (objects.KeyboardViewer.instance != null) {
-						var kv = objects.KeyboardViewer.instance;
-						for (m in kv.members) {
-							try Reflect.setProperty(m, "color", col) catch(_) {}
-						}
-						for (t in kv.keyTexts) t.color = ClientPrefs.data.keyboardTextColor;
-						if (kv.kpsText != null) kv.kpsText.color = ClientPrefs.data.keyboardTextColor;
-						if (kv.totalText != null) kv.totalText.color = ClientPrefs.data.keyboardTextColor;
-					}
-				} catch(e:Dynamic) {}
+			case "keyboardBGColor", "keyboardEdgeColor", "keyboardRainColor", "keyboardTextColor":
+				// 颜色按目标拆开（主体 / 边缘 / 键雨 / 文字），统一交给 KeyboardViewer 自己刷，
+				// 别再对 members 无脑 color = col —— 会把按压高亮层和按键文字一起染掉。
+				objects.KeyboardViewer.refreshAll();
 			// 移除了对noteSkin和splashSkin的即时预览代码
 		}
 	}

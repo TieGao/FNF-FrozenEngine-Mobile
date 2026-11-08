@@ -97,6 +97,9 @@ import states.TitleState;
 
 
 	public var ghostTapping:Bool = true;
+	// 对手模式专用：脚本 / 舞台回调名跟随 note 所属侧（打 dad 的 note 发 opponentNoteHit），
+	// 而不是跟随"谁在打"。只换回调名，计分 / 血量 / 动画不受影响。
+	public var swapNoteHitCallbacks:Bool = false;
 	public var timeBarType:String = 'Time Left';
 	public var scoreZoom:Bool = true;
 	public var Counter:Bool = true;
@@ -155,6 +158,10 @@ import states.TitleState;
 	public var freeplaySearch:Bool = true;
 	// Freeplay 右下角补充信息（音乐人 / 谱师 / 游玩次数）
 	public var freeplaySongMeta:Bool = true;
+	// Freeplay 右侧展示元素开关（默认全开）
+	public var freeplayStars:Bool = true;        // 官方星星评级（压在专辑封面上沿）
+	public var freeplayAlbumArt:Bool = true;     // 专辑封面（没配角色立绘时顶在右侧同一个槽位）
+	public var freeplayDiffCarousel:Bool = true; // 难度方块（右下角可点的难度条）
 	// 练习模式 / botplay 是否计入游玩次数（默认不计）
 	public var countPracticePlays:Bool = false;
 	public var charmPause:Bool = false;
@@ -270,6 +277,11 @@ import states.TitleState;
 	public var kbOffsetY:Float = 0.0;
 	public var keyboardAlpha:Float = 1.0;
 	public var keyboardBGColor:FlxColor = FlxColor.BLACK;
+	// 键位描边色。旧版描边是画白色再乘主体色，等价于"边缘永远等于主体色"，
+	// 拆出来之后默认给白色，键盘默认带一圈白边。
+	public var keyboardEdgeColor:FlxColor = FlxColor.WHITE;
+	// 键雨（TimeDis）颜色。旧版直接复用主体色，默认黑保持原样。
+	public var keyboardRainColor:FlxColor = FlxColor.BLACK;
 	public var keyboardTextColor:FlxColor = FlxColor.WHITE;
 	public var keyboardTimeDisplay:Bool = true;
 	public var keyboardTime:Float = 500.0;
@@ -295,6 +307,19 @@ import states.TitleState;
 	public var showCB:Bool = true;
 	public var showMiss:Bool = true;
 	public var showTNH:Bool = true;
+
+	// 判定计数器布局：left / center / right / split
+	public var counterPos:String = 'left';
+	// left / center / right 三者共用的微调偏移
+	public var counterOffsetX:Int = 0;
+	public var counterOffsetY:Int = 0;
+	// split 模式顶部块（Total Notes Hit + Combo）独立偏移
+	public var counterSplitTopX:Int = 0;
+	public var counterSplitTopY:Int = 0;
+	// split 模式底部块（5 个 rating）独立偏移
+	public var counterSplitBottomX:Int = 0;
+	public var counterSplitBottomY:Int = 0;
+
 	public var showEngineVer:Bool = true;
 	public var showDifficulty:Bool = true;
 
@@ -1008,6 +1033,82 @@ class ClientPrefs {
 		saveSettings();
 	}
 
+	/**
+	 * 统一应用帧率 / lime 帧调度。loadPrefs() 与三套设置菜单的即时生效都走这里。
+	 *
+	 * unlimitedFPS 用 lime 8.4.0 官方的 FrameProfile.UNCAPPED：主循环忽略 window.frameRate，
+	 * 一帧结束立刻开下一帧（UncapMode.SOFT 保留常规事件处理）。必须同时关掉 vsync，
+	 * 否则 realVSyncActive 仍把每帧锁在显示器刷新率。
+	 *
+	 * 别写成 `FlxG.drawFramerate = 0`：本机 lime 8.4.0 的
+	 * SDLApplication::ApplyMainLoopSettings() 把 <= 0 的帧率当成 effectiveFrameRate = 1.0
+	 * （约 1 FPS），flixel 6.2.1 那边还会算出 _stepMS / _maxAccumulation = Inf。
+	 */
+	public static function applyFrameTiming():Void
+	{
+		#if (!html5 && !switch)
+		if (FlxG.stage != null && FlxG.stage.application != null)
+		{
+			final app = FlxG.stage.application;
+			if (data.unlimitedFPS)
+			{
+				app.configureFrameTiming(lime.app.FrameProfile.UNCAPPED,
+					{uncapMode: lime.app.UncapMode.SOFT}, lime.app.VSyncMode.OFF);
+				return;
+			}
+
+			app.configureFrameTiming(lime.app.FrameProfile.BALANCED,
+				{uncapMode: lime.app.UncapMode.OFF},
+				data.vsync ? lime.app.VSyncMode.ON : lime.app.VSyncMode.OFF);
+		}
+		#end
+
+		// 无限制帧率时不动 FlxG.*Framerate：它们只决定 stage.frameRate 与固定步长，
+		// 而 UNCAPPED 由 lime 主循环直接放行，写这些值只会带来抖动。
+		if (data.unlimitedFPS) return;
+
+		// 核心修改：正确区分设置 Update 和 Draw 帧率
+		if (data.fpsRework)
+		{
+			// 使用 fpsRework 模式，可以完全分离 TPS 和 FPS
+			FlxG.stage.window.frameRate = data.framerate;  // 绘制帧率（屏幕刷新）
+			
+			if (data.devideDrawAndUpdate)
+			{
+				// 完全分离模式：更新速率和绘制速率可以完全不同
+				var drawFps = Std.int(FlxMath.bound(data.framerate, 30, 480));
+				var updateTps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
+				
+				FlxG.drawFramerate = drawFps;
+				FlxG.updateFramerate = updateTps;
+			}
+			else
+			{
+				// 同步模式：更新速率跟随绘制速率（传统行为）
+				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
+				FlxG.drawFramerate = fps;
+				FlxG.updateFramerate = fps;
+			}
+		}
+		else
+		{
+			// 传统模式（不使用 fpsRework）
+			if (data.devideDrawAndUpdate)
+			{
+				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
+				var tps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
+				FlxG.drawFramerate = fps;
+				FlxG.updateFramerate = tps;
+			}
+			else
+			{
+				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
+				FlxG.updateFramerate = fps;
+				FlxG.drawFramerate = fps;
+			}
+		}
+	}
+
 	public static function loadPrefs() {
 		#if ACHIEVEMENTS_ALLOWED Achievements.load(); #end
 
@@ -1077,46 +1178,7 @@ class ClientPrefs {
 		@:privateAccess openfl.Lib.current.stage.__setLogicalSize(Std.int(output[0]), Std.int(output[1]));
 		#end
 
-		// 核心修改：正确区分设置 Update 和 Draw 帧率
-		if (data.fpsRework)
-		{
-			// 使用 fpsRework 模式，可以完全分离 TPS 和 FPS
-			FlxG.stage.window.frameRate = data.framerate;  // 绘制帧率（屏幕刷新）
-			
-			if (data.devideDrawAndUpdate)
-			{
-				// 完全分离模式：更新速率和绘制速率可以完全不同
-				var drawFps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				var updateTps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
-				
-				FlxG.drawFramerate = drawFps;
-				FlxG.updateFramerate = updateTps;
-			}
-			else
-			{
-				// 同步模式：更新速率跟随绘制速率（传统行为）
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				FlxG.drawFramerate = fps;
-				FlxG.updateFramerate = fps;
-			}
-		}
-		else
-		{
-			// 传统模式（不使用 fpsRework）
-			if (data.devideDrawAndUpdate)
-			{
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				var tps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
-				FlxG.drawFramerate = fps;
-				FlxG.updateFramerate = tps;
-			}
-			else
-			{
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				FlxG.updateFramerate = fps;
-				FlxG.drawFramerate = fps;
-			}
-		}
+		applyFrameTiming();
 
 		if(FlxG.save.data.gameplaySettings != null)
 		{

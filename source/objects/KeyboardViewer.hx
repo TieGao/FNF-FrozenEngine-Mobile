@@ -22,6 +22,12 @@ class KeyboardViewer extends FlxSpriteGroup
 	public var noteArrays:Array<Array<TimeDis>> = [];
 	public var keyAlphas:Array<KeyButtonAlpha> = [];
 	public var keyTexts:Array<FlxText> = [];
+	/** 键位 / KPS 大方块的填充层 */
+	public var keyButtons:Array<KeyButton> = [];
+	/** 键位 / KPS 大方块的描边层（拆出来才能和填充色分开染） */
+	public var keyEdges:Array<KeyEdge> = [];
+	/** KPS / total 两个标题文字。原来建完就丢引用，换色时找不到 */
+	public var labelTexts:Array<FlxText> = [];
 
 	public var _width:Float;
 	public var _height:Float;
@@ -37,11 +43,17 @@ class KeyboardViewer extends FlxSpriteGroup
 	public var totalText:FlxText;
 
 	public var keys:Int = 4;
-	public var displayKeys:Int = 4; // 实际显示的键位数（coop模式下为8）
+	public var displayKeys:Int = 4; // 实际显示的键位数（coop 下为每侧键数 * 2）
 
 	var total:Int = 0;
 
 	public static var instance:KeyboardViewer;
+
+	/**
+	 * 所有存活实例。调色盘改色时要一起刷新，不能只依赖 `instance` ——
+	 * 设置页的预览会 `new KeyboardViewer` 把它顶掉，页面关掉后还会指向已销毁对象。
+	 */
+	public static var liveViewers:Array<KeyboardViewer> = [];
 	
 	// 用于追踪sustain状态
 	public var heldKeys:Array<Bool> = [];
@@ -52,13 +64,13 @@ class KeyboardViewer extends FlxSpriteGroup
 	{
 		super(X, Y);
 		instance = this;
+		liveViewers.push(this);
 
 		// 设置键位数量
 		this.keys = keys;
 		
-		// 确定显示键位数：coop模式显示8个，否则显示歌曲键位数
-		var isCoop:Bool = PlayState.instance != null && (PlayState.instance.opponentMode == "coop" || PlayState.instance.opponentMode == "coop_split");
-		displayKeys = isCoop ? 8 : keys;
+		// coop 下两侧各一套键，显示键数 = 每侧键数 * 2（6K/9K 同样成立）
+		displayKeys = coopActive() ? keys * 2 : keys;
 		
 		// 初始化noteArrays
 		for(i in 0...displayKeys) noteArrays.push([]);
@@ -74,10 +86,19 @@ class KeyboardViewer extends FlxSpriteGroup
 		{
 			var buttonX:Float = getButtonX(i);
 			var obj:KeyButton = new KeyButton(buttonX, 0, KeyButton.size, KeyButton.size);
+			keyButtons.push(obj);
 			add(obj);
 		}
 
-		// 创建高亮按钮（使用 displayKeys）
+		// 描边单独一层，压在填充之上（原来的描边和填充画在同一张位图里，只能共用一个颜色）
+		for (i in 0...displayKeys)
+		{
+			var obj:KeyEdge = new KeyEdge(getButtonX(i), 0, KeyButton.size, KeyButton.size);
+			keyEdges.push(obj);
+			add(obj);
+		}
+
+		// 创建高亮按钮（使用 displayKeys）—— 放在最后，按下的白块要压住描边
 		for (i in 0...displayKeys)
 		{
 			var alphaX:Float = getButtonX(i);
@@ -124,8 +145,14 @@ class KeyboardViewer extends FlxSpriteGroup
 		// 创建KPS和Total背景按钮
 		for (i in 0...2)
 		{
-			var obj:KeyButton = new KeyButton(startX + (bigButtonWidth + 4) * i, KeyButton.size + 4, bigButtonWidth, KeyButton.size);
+			var bx:Float = startX + (bigButtonWidth + 4) * i;
+			var obj:KeyButton = new KeyButton(bx, KeyButton.size + 4, bigButtonWidth, KeyButton.size);
+			keyButtons.push(obj);
 			add(obj);
+
+			var edge:KeyEdge = new KeyEdge(bx, KeyButton.size + 4, bigButtonWidth, KeyButton.size);
+			keyEdges.push(edge);
+			add(edge);
 		}
 
 		// 创建KPS和Total标签
@@ -139,6 +166,7 @@ class KeyboardViewer extends FlxSpriteGroup
 			obj.color = ClientPrefs.data.keyboardTextColor;
 			obj.alpha = ClientPrefs.data.keyboardAlpha;
 			obj.antialiasing = ClientPrefs.data.antialiasing;
+			labelTexts.push(obj);
 			add(obj);
 		}
 
@@ -205,9 +233,15 @@ class KeyboardViewer extends FlxSpriteGroup
 		return newRect;
 	}
 
+	/** 当前是否 coop（两侧各一套键，显示键数翻倍） */
+	private function coopActive():Bool
+	{
+		return PlayState.instance != null && PlayState.instance.isCoopMode();
+	}
+
 	/**
 	 * 获取按钮X位置
-	 * coop模式：前4个键显示在左半区（对应player的4个键），后4个键显示在右半区（对应opponent的4个键）
+	 * coop模式：前半段是玩家侧的键，后半段是对手侧的键
 	 * 非coop模式：按顺序显示所有键
 	 */
 	private function getButtonX(index:Int):Float
@@ -218,7 +252,7 @@ class KeyboardViewer extends FlxSpriteGroup
 	/**
 	 * 获取键名 - 支持4K legacy键名
 	 */
-	private function getKeyName(keyIndex:Int, bindIndex:Int = 0):String
+	private function getKeyName(keyIndex:Int):String
 	{
 		var totalKeys:Int = keys;
 		
@@ -236,17 +270,11 @@ class KeyboardViewer extends FlxSpriteGroup
 
 	public function pressed(key:Int, ?keyBindIndex:Int = 0)
 	{
-		var isCoop:Bool = PlayState.instance != null && (PlayState.instance.opponentMode == "coop" || PlayState.instance.opponentMode == "coop_split");
 		var displayIndex:Int = key;
 		
-		// coop模式下，player用左边4个，opponent用右边4个
-		if (isCoop && displayKeys == 8)
-		{
-			if (keyBindIndex == 0)
-				displayIndex = key; // player: 0-3
-			else
-				displayIndex = key + 4; // opponent: 4-7
-		}
+		// coop 下玩家侧占前半段、对手侧占后半段（按每侧键数偏移，6K/9K 同样成立）
+		if (coopActive() && keyBindIndex != 0)
+			displayIndex = key + keys;
 		
 		// 确保数组大小足够
 		while (heldKeys.length <= displayIndex) {
@@ -275,7 +303,7 @@ class KeyboardViewer extends FlxSpriteGroup
 		if (!ClientPrefs.data.keyboardTimeDisplay)
 			return;
 
-		var obj:TimeDis = new TimeDis(displayIndex, Conductor.songPosition, getButtonX(displayIndex), -4 - DisBitmap.Height);
+		var obj:TimeDis = new TimeDis(displayIndex, Conductor.songPosition, getButtonX(displayIndex), -4 - DisBitmap.Height, this);
 		add(obj);
 		
 		// 存储TimeDis引用
@@ -296,17 +324,11 @@ class KeyboardViewer extends FlxSpriteGroup
 
 	public function released(key:Int, ?keyBindIndex:Int = 0)
 	{
-		var isCoop:Bool = PlayState.instance != null && (PlayState.instance.opponentMode == "coop" || PlayState.instance.opponentMode == "coop_split");
 		var displayIndex:Int = key;
 		
-		// coop模式下，player用左边4个，opponent用右边4个
-		if (isCoop && displayKeys == 8)
-		{
-			if (keyBindIndex == 0)
-				displayIndex = key; // player: 0-3
-			else
-				displayIndex = key + 4; // opponent: 4-7
-		}
+		// coop 下玩家侧占前半段、对手侧占后半段（按每侧键数偏移，6K/9K 同样成立）
+		if (coopActive() && keyBindIndex != 0)
+			displayIndex = key + keys;
 		
 		if(displayIndex < keyAlphas.length && displayIndex >= 0) {
 			// 标记键已释放
@@ -335,113 +357,19 @@ class KeyboardViewer extends FlxSpriteGroup
 	public function createArray():Array<String>
 	{
 		var array:Array<String> = [];
-		
-		var isCoop:Bool = PlayState.instance != null && (PlayState.instance.opponentMode == "coop" || PlayState.instance.opponentMode == "coop_split");
-		var totalKeys:Int = keys;
-		
-		// 4K legacy 键名
-		var legacyKeys:Array<String> = ['note_left', 'note_down', 'note_up', 'note_right'];
-		
-		// 如果是coop模式，我们需要显示8个键（4个player + 4个opponent）
-		if (isCoop && displayKeys == 8)
+		// 每侧一套键：coop 时玩家侧取第一组键位、对手侧取第二组
+		var bindCount:Int = coopActive() ? 2 : 1;
+		for (b in 0...bindCount)
 		{
-			if (totalKeys == 4)
+			for (i in 0...keys)
 			{
-				// 4K coop - player侧 (bindIndex 0)
-				for (i in 0...4)
-				{
-					var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[legacyKeys[i]];
-					var keyCode:FlxKey = 0;
-					if (keyList != null && keyList.length > 0)
-					{
-						keyCode = keyList[0];
-					}
-					array.push(InputFormatter.getKeyName(keyCode));
-				}
-				
-				// 4K coop - opponent侧 (bindIndex 1)
-				for (i in 0...4)
-				{
-					var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[legacyKeys[i]];
-					var keyCode:FlxKey = 0;
-					if (keyList != null && keyList.length > 1)
-					{
-						keyCode = keyList[1];
-					}
-					else if (keyList != null && keyList.length > 0)
-					{
-						keyCode = keyList[0];
-					}
-					array.push(InputFormatter.getKeyName(keyCode));
-				}
-			}
-			else
-			{
-				// 5K+ coop
-				// player侧 (bindIndex 0)
-				for (i in 0...4)
-				{
-					var keyName = 'note_${totalKeys}k_${i+1}';
-					var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[keyName];
-					var keyCode:FlxKey = 0;
-					if (keyList != null && keyList.length > 0)
-					{
-						keyCode = keyList[0];
-					}
-					array.push(InputFormatter.getKeyName(keyCode));
-				}
-				
-				// opponent侧 (bindIndex 1)
-				for (i in 0...4)
-				{
-					var keyName = 'note_${totalKeys}k_${i+1}';
-					var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[keyName];
-					var keyCode:FlxKey = 0;
-					if (keyList != null && keyList.length > 1)
-					{
-						keyCode = keyList[1];
-					}
-					else if (keyList != null && keyList.length > 0)
-					{
-						keyCode = keyList[0];
-					}
-					array.push(InputFormatter.getKeyName(keyCode));
-				}
-			}
-			return array;
-		}
-		
-		// 非coop模式
-		if (totalKeys == 4)
-		{
-			// 4K 非coop
-			for (i in 0...4)
-			{
-				var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[legacyKeys[i]];
+				var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[getKeyName(i)];
 				var keyCode:FlxKey = 0;
 				if (keyList != null && keyList.length > 0)
-				{
-					keyCode = keyList[0];
-				}
+					keyCode = (b < keyList.length) ? keyList[b] : keyList[0];
 				array.push(InputFormatter.getKeyName(keyCode));
 			}
 		}
-		else
-		{
-			// 5K+ 非coop
-			for (i in 0...displayKeys)
-			{
-				var keyName = 'note_${totalKeys}k_${i+1}';
-				var keyList:Array<FlxKey> = Controls.instance.keyboardBinds[keyName];
-				var keyCode:FlxKey = 0;
-				if (keyList != null && keyList.length > 0)
-				{
-					keyCode = keyList[0];
-				}
-				array.push(InputFormatter.getKeyName(keyCode));
-			}
-		}
-		
 		return array;
 	}
 
@@ -452,6 +380,75 @@ class KeyboardViewer extends FlxSpriteGroup
 		}
 		remove(obj, true);
 		obj.destroy();
+	}
+
+	/**
+	 * 按 ClientPrefs 重新上色。
+	 * 填充 / 描边 / 键雨 / 文字是四个独立颜色，改色只是给 color 赋值，不重建任何位图。
+	 */
+	public function refreshColors():Void
+	{
+		var textColor:FlxColor = ClientPrefs.data.keyboardTextColor;
+		var rainColor:FlxColor = ClientPrefs.data.keyboardRainColor;
+		var alpha:Float = ClientPrefs.data.keyboardAlpha;
+
+		for (b in keyButtons)
+			if (b != null) b.applyColor();
+		for (e in keyEdges)
+			if (e != null) e.applyColor();
+
+		for (i in 0...keyTexts.length)
+		{
+			var t:FlxText = keyTexts[i];
+			if (t == null) continue;
+			// 正被按住的键要保持按下色，别被刷回正常色
+			t.color = (i < heldKeys.length && heldKeys[i]) ? FlxColor.BLACK : textColor;
+			t.alpha = alpha;
+		}
+
+		for (t in labelTexts)
+			if (t != null) { t.color = textColor; t.alpha = alpha; }
+
+		if (kpsText != null)   { kpsText.color = textColor;   kpsText.alpha = alpha; }
+		if (totalText != null) { totalText.color = textColor; totalText.alpha = alpha; }
+
+		for (arr in noteArrays)
+		{
+			for (td in arr)
+				if (td != null && td.exists) { td.color = rainColor; td.alpha = alpha; }
+		}
+	}
+
+	/** 刷新所有存活实例（游戏内那个 + 设置页预览那个） */
+	public static function refreshAll():Void
+	{
+		for (v in liveViewers.copy())
+			if (v != null && v.exists) v.refreshColors();
+	}
+
+	/**
+	 * 设置页预览专用：模拟一次按键，只出键雨 + 按压高亮。
+	 * 不走 pressed()，否则会刷高 total / KPS 并把键标记成按住状态。
+	 */
+	public function demoRain(index:Int):Void
+	{
+		if (index < 0 || index >= keyAlphas.length || index >= noteArrays.length) return;
+		// 时长 0 会让 TimeDis 里的除法出 NaN，直接不出雨（和游戏里关掉时间显示一样）
+		if (ClientPrefs.data.keyboardTime <= 0) return;
+
+		keyAlphas[index].alpha = 1 * ClientPrefs.data.keyboardAlpha;
+
+		var obj:TimeDis = new TimeDis(index, 0, getButtonX(index), -4 - DisBitmap.Height, this);
+		obj.demo = true;
+		add(obj);
+		noteArrays[index].push(obj);
+	}
+
+	override function destroy():Void
+	{
+		liveViewers.remove(this);
+		if (instance == this) instance = null;
+		super.destroy();
 	}
 
 	public var kps:Int = 0;
@@ -486,21 +483,20 @@ class KeyboardViewer extends FlxSpriteGroup
 
 class KeyButton extends FlxSprite
 {
-	var bgAlpha = 0.3 * ClientPrefs.data.keyboardAlpha;
-	var lineAlpha = 0.8 * ClientPrefs.data.keyboardAlpha;
-
 	public static var size = 50;
 
+	/**
+	 * 位图里恒画白色圆角块，真实颜色靠 color 乘算 + alpha 控制。
+	 * 旧版把描边和填充画进同一张位图再整体染色，导致描边色永远等于主体色。
+	 */
 	public function new(X:Float, Y:Float, Width:Int, Height:Int)
 	{
 		super(X, Y);
 
+		var radius:Int = Std.int(size / 3);
 		var shape:Shape = new Shape();
-		shape.graphics.lineStyle(2, 0xFFFFFF, lineAlpha);
-		shape.graphics.drawRoundRect(0, 0, Width, Height, Std.int(size / 3), Std.int(size / 3));
-		shape.graphics.lineStyle();
-		shape.graphics.beginFill(0xFFFFFF, bgAlpha);
-		shape.graphics.drawRoundRect(0, 0, Width, Height, Std.int(size / 3), Std.int(size / 3));
+		shape.graphics.beginFill(0xFFFFFF, 1);
+		shape.graphics.drawRoundRect(0, 0, Width, Height, radius, radius);
 		shape.graphics.endFill();
 
 		var bitmapData:BitmapData = new BitmapData(Width, Height, true, 0x00FFFFFF);
@@ -509,7 +505,44 @@ class KeyButton extends FlxSprite
 		makeGraphic(Width, Height, FlxColor.TRANSPARENT);
 		pixels = bitmapData;
 		antialiasing = ClientPrefs.data.antialiasing;
+		applyColor();
+	}
+
+	public function applyColor():Void
+	{
 		color = ClientPrefs.data.keyboardBGColor;
+		alpha = 0.3 * ClientPrefs.data.keyboardAlpha;
+	}
+}
+
+/**
+ * 键位描边层。与 KeyButton 同尺寸重叠，单独染边缘色。
+ * 画在 (1,1) 内缩一圈，2px 描边不会被位图边界裁掉半条。
+ */
+class KeyEdge extends FlxSprite
+{
+	public function new(X:Float, Y:Float, Width:Int, Height:Int)
+	{
+		super(X, Y);
+
+		var radius:Int = Std.int(KeyButton.size / 3);
+		var shape:Shape = new Shape();
+		shape.graphics.lineStyle(2, 0xFFFFFF, 1);
+		shape.graphics.drawRoundRect(1, 1, Width - 2, Height - 2, radius, radius);
+
+		var bitmapData:BitmapData = new BitmapData(Width, Height, true, 0x00FFFFFF);
+		bitmapData.draw(shape);
+
+		makeGraphic(Width, Height, FlxColor.TRANSPARENT);
+		pixels = bitmapData;
+		antialiasing = ClientPrefs.data.antialiasing;
+		applyColor();
+	}
+
+	public function applyColor():Void
+	{
+		color = ClientPrefs.data.keyboardEdgeColor;
+		alpha = 0.8 * ClientPrefs.data.keyboardAlpha;
 	}
 }
 
@@ -544,50 +577,78 @@ class TimeDis extends FlxSprite
 	public var endTime:Float = -999999;
 	public var line:Int;
 
+	/**
+	 * 预览模式：不走 Conductor 时钟。
+	 * 菜单里 `Conductor.songPosition` 根本没人推进（只在 PlayState / 编辑器播放里赋值），
+	 * 直接复用会让设置页的键雨永远停在开局那一帧。
+	 */
+	public var demo:Bool = false;
+	var demoClock:Float = 0;
+
+	/** 回收时找谁 —— 不能用 `KeyboardViewer.instance`，设置页会把指向顶掉 */
+	public var owner:KeyboardViewer = null;
+
 	var durationTime:Float = ClientPrefs.data.keyboardTime;
 
-	public function new(Line:Int, Time:Float, X:Float, Y:Float)
+	public function new(Line:Int, Time:Float, X:Float, Y:Float, ?Owner:KeyboardViewer)
 	{
 		this.line = Line;
 		super(X, Y);
 		this.startTime = Time;
+		this.owner = (Owner != null) ? Owner : KeyboardViewer.instance;
+		durationTime = ClientPrefs.data.keyboardTime;
 		frames = Cache.getFrame('keyboardViewer');
 		_frame.frame.height = 1;
-		color = ClientPrefs.data.keyboardBGColor;
+		color = ClientPrefs.data.keyboardRainColor;
 		alpha = ClientPrefs.data.keyboardAlpha;
 	}
+
+	inline function now():Float
+		return demo ? demoClock : Conductor.songPosition;
 
 	var saveTime:Float;
 
 	override function update(elapsed:Float)
 	{
+		if (demo) demoClock += elapsed * 1000;
+
 		if (endTime == -999999)
 		{
-			_frame.frame.y = (1 - ((Conductor.songPosition - startTime) / durationTime)) * DisBitmap.Height;
-			_frame.frame.height = ((Conductor.songPosition - startTime) / durationTime) * DisBitmap.Height;
-			offset.y = -(1 - ((Conductor.songPosition - startTime) / durationTime)) * DisBitmap.Height;
+			_frame.frame.y = (1 - ((now() - startTime) / durationTime)) * DisBitmap.Height;
+			_frame.frame.height = ((now() - startTime) / durationTime) * DisBitmap.Height;
+			offset.y = -(1 - ((now() - startTime) / durationTime)) * DisBitmap.Height;
 			if (_frame.frame.y < 0)
 				_frame.frame.y = 0;
-			if (Conductor.songPosition - startTime > durationTime)
+			if (now() - startTime > durationTime)
 				offset.y = 0;
-			saveTime = Conductor.songPosition;
+			saveTime = now();
 		}
 		else
 		{
 			if (endTime - startTime < durationTime)
-				_frame.frame.y = (1 - ((Conductor.songPosition - startTime) / durationTime)) * DisBitmap.Height;
+				_frame.frame.y = (1 - ((now() - startTime) / durationTime)) * DisBitmap.Height;
 			else
-				_frame.frame.y = (1 - ((Conductor.songPosition - (endTime - durationTime)) / durationTime)) * DisBitmap.Height;
-			offset.y -= -((Conductor.songPosition - saveTime) / durationTime) * DisBitmap.Height;
-			saveTime = Conductor.songPosition;
+				_frame.frame.y = (1 - ((now() - (endTime - durationTime)) / durationTime)) * DisBitmap.Height;
+			offset.y -= -((now() - saveTime) / durationTime) * DisBitmap.Height;
+			saveTime = now();
 		}
 		if (_frame.frame.height > DisBitmap.Height)
 			_frame.frame.height = DisBitmap.Height;
 		if (_frame.frame.height <= 0)
 			_frame.frame.height = 1; // fix bug
 
-		if (endTime != -999999 && Conductor.songPosition - endTime > durationTime)
-			KeyboardViewer.instance.removeObj(this);
+		// demo 没有 endTime，按自己的时钟跑完一轮就回收
+		if (demo)
+		{
+			if (now() - startTime > durationTime) recycle();
+		}
+		else if (endTime != -999999 && now() - endTime > durationTime)
+			recycle();
+	}
+
+	function recycle():Void
+	{
+		if (owner != null && owner.exists) owner.removeObj(this);
 	}
 }
 

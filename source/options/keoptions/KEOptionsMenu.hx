@@ -1172,7 +1172,7 @@ function onScrollChange()
 			KEOption.create("Divide Draw And Update", "Draw and Update in separate threads", "devideDrawAndUpdate", "bool"),
 			KEOption.create("Framerate", "Target framerate", "framerate", "int", 60, 60, 480, 1),
 			KEOption.create("Update Rate", "Target update rate", "updaterate", "int", 60, 60, 480, 1),
-			KEOption.create("Unlimited FPS", "Remove framerate cap (also for update rate)", "unlimitedFPS", "bool"),
+			KEOption.create("Unlimited FPS", "Remove framerate cap (lime UNCAPPED, takes priority over FPS Rework)", "unlimitedFPS", "bool"),
 			KEOption.create("FPS Rework", "Make ur game more smooth", "fpsRework", "bool")
 		];
 	}
@@ -1198,6 +1198,7 @@ function onScrollChange()
 			KEOption.create("Middlescroll", "Put your lane in the center", "middleScroll", "bool"),
 			KEOption.create("Centered Multi-Key Scaling", "When centered, multi-key notes shrink by key count; turn off to keep the 4K note size", "centerMultiKeyScale", "bool"),
 			KEOption.create("Opponent Notes", "Show opponent's strumline", "opponentStrums", "bool"),
+			KEOption.create("Swap Hit Callbacks", "Opponent mode only: dispatch opponentNoteHit for the notes you play (dad side) and goodNoteHit for the CPU side, instead of by who hit it", "swapNoteHitCallbacks", "bool"),
 			KEOption.create("Ghost Tapping", "Allow pressing keys without missing", "ghostTapping", "bool"),
 			KEOption.create("Auto Pause", "Pause when window loses focus", "autoPause", "bool"),
 			KEOption.create("Disable Reset", "Disable the reset button", "noReset", "bool"),
@@ -1288,6 +1289,9 @@ function onScrollChange()
 			[
 				KEOption.create("Old Freeplay Menu", "Use Psych Engine Default Freeplay Menu", "oldFreeplay", "bool"),
 				KEOption.create("Card Glow", "Enable breathing glow under selected card", "cardGlow", "bool"),
+				KEOption.create("Difficulty Stars", "Show the official star rating above the album cover", "freeplayStars", "bool"),
+				KEOption.create("Album Cover", "Show the album cover on the right side of Freeplay", "freeplayAlbumArt", "bool"),
+				KEOption.create("Difficulty Blocks", "Show the clickable difficulty blocks in Freeplay", "freeplayDiffCarousel", "bool"),
 				KEOption.create("Freeplay ToolBar", "Show tool bar in freeplay", "toolBar", "bool"),
 				KEOption.create("New Freeplay Space BackGround", "Just a cool background lol", "freeplayspace", "bool"),
 				KEOption.create("Save Freeplay Cache", "Save freeplay song metadata cache to disk", "saveFreeplayCache", "bool"),
@@ -1309,6 +1313,8 @@ function onScrollChange()
 			"Configure Judgements Counter settings",
 			[
 				KEOption.create("Judgements Counter", "Show judgements counter", "Counter", "bool"),
+				KEOption.createStringOption("Counter Position", "Layout of the judgements counter: left, centered, right, or split across the top and bottom",
+					"counterPos", ["left", "center", "right", "split"], "left"),
 				KEOption.create("Show Highest Combo", "Show highest combo in judgements counter", "showHC", "bool"),
 				KEOption.create("Show Current Combo", "Show current combo in judgements counter", "showCB", "bool"),
 				KEOption.create("Show Total Notes Hit", "Show total notes in judgements counter", "showTNH", "bool"),

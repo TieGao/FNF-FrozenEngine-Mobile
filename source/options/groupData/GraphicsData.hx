@@ -269,4 +269,4 @@ class GraphicsData
         Main.applyRenderResolution(idx, wide, resizeWindow);
         #end
     }
-}
+}

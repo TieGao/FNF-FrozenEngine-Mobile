@@ -4,8 +4,10 @@ import sys.thread.Thread;
 import backend.Highscore;
 import backend.StageData;
 import backend.WeekData;
+import backend.WeekReplay;
 import backend.Song;
 import backend.Rating;
+import backend.PlayMode;
 
 import flixel.FlxBasic;
 import flixel.FlxObject;
@@ -430,7 +432,7 @@ class PlayState extends MusicBeatState
 	public var instakillOnMiss:Bool = false;
 	public var cpuControlled:Bool = false;
 	public var practiceMode:Bool = false;
-	public var opponentMode:String = 'player';
+	public var opponentMode(default, set):PlayMode = PlayMode.PLAYER;
 	public var swapPlayerOpponent:Bool = false;
 	public static var lastKeyBindIndex:Int = 0;
 	public var pressMissDamage:Float = 0.05;
@@ -484,7 +486,7 @@ class PlayState extends MusicBeatState
 	{
 		if (isCoopMode() && keyBindIndex > 0)
 			return opponentStrums.members[key];
-		if (opponentMode == "opponent")
+		if (isOpponentMode())
 			return opponentStrums.members[key];
 		return playerStrums.members[key];
 	}
@@ -564,6 +566,19 @@ class PlayState extends MusicBeatState
 	public static var campaignGoods:Int = 0;
 	public static var campaignBads:Int = 0;
 	public static var campaignShits:Int = 0;
+	/** 整周累计的判定权重和 / 物量（Σ totalNotesHit、Σ totalPlayed），用于算周准确率。 */
+	public static var campaignNotesHit:Float = 0;
+	public static var campaignPlayed:Int = 0;
+
+	// —— 周目身份快照：selectWeek 时写死，结算只认这里 ——
+	// storyWeek 是 loadedWeeks 的下标（会跳过 hiddenUntilUnlocked 的周），
+	// 而 WeekData.getWeekFileName() 吃的是 weeksList 下标，两者会错位，所以不能事后反推。
+	public static var campaignWeekFile:String = null;
+	public static var campaignModFolder:String = null;
+	public static var campaignVariant:String = null;
+	public static var campaignSongCount:Int = 0;
+	/** 周目逐曲判定快照（结算页左右切换打击图表用）。项：{ song:String, judgments:Array<Dynamic> }，judgment = [hitDiff, rating, strumTime] */
+	public static var campaignCharts:Array<{song:String, judgments:Array<Dynamic>}> = [];
 	public static var seenCutscene:Bool = false;
 	public static var deathCounter:Int = 0;
 
@@ -850,12 +865,7 @@ class PlayState extends MusicBeatState
 		trace('Song: ' + replayData.songName);
         
         // 设置游戏模式（从replay数据中读取）
-		if (replayData.opponentMode != null)
-			opponentMode = replayData.opponentMode;
-        else
-            opponentMode = "player"; // 向后兼容
-        
-        keys = isCoopMode() ? 8 : 4; // 根据游戏模式设置键位数量
+		opponentMode = replayData.opponentMode; // normalize 内部兜底旧档 / 缺失值
         trace('Opponent mode set to: ' + opponentMode);
         
         // 设置回放模式标志
@@ -919,6 +929,8 @@ class PlayState extends MusicBeatState
 		{
 			keysArray.push('note_${totalKeys}k_$i');
 		}
+		// 实际键位数：coop 两侧各一套（不再写死 4/8，6K/9K 才对得上）
+		keys = totalKeys * (isCoopMode() ? 2 : 1);
 
 		if(FlxG.sound.music != null)
 			FlxG.sound.music.stop();
@@ -927,10 +939,13 @@ class PlayState extends MusicBeatState
 		healthGain = ClientPrefs.getGameplaySetting('healthgain');
 		healthLoss = ClientPrefs.getGameplaySetting('healthloss');
 		instakillOnMiss = ClientPrefs.getGameplaySetting('instakill');
-		practiceMode = ClientPrefs.getGameplaySetting('practice');
-		cpuControlled = ClientPrefs.getGameplaySetting('botplay');
-		opponentMode = ClientPrefs.getGameplaySetting('opponentplay');
-		keys = isCoopMode() ? 8 : 4; // 根据游戏模式设置键位数量
+		// 回放必须按录制时的模式 / 开关还原，不能被当前设置覆盖（否则对手、coop 回放会打到另一侧）
+		if (!loadRep)
+		{
+			practiceMode = ClientPrefs.getGameplaySetting('practice');
+			cpuControlled = ClientPrefs.getGameplaySetting('botplay');
+			opponentMode = ClientPrefs.getGameplaySetting('opponentplay');
+		}
 		guitarHeroSustains = ClientPrefs.data.guitarHeroSustains;
 
 		// var gameCam:FlxCamera = FlxG.camera;
@@ -1345,7 +1360,7 @@ class PlayState extends MusicBeatState
 		{
 		healthBar = new Bar(0, FlxG.height * (!ClientPrefs.data.downScroll ? 0.89 : 0.11), 'healthBar', function() return health, 0, 2);
 		healthBar.screenCenter(X);
-		if (opponentMode == 'opponent') healthBar.leftToRight = true;
+		if (isOpponentMode()) healthBar.leftToRight = true;
 		 else healthBar.leftToRight = false;
 		healthBar.scrollFactor.set();
 		healthBar.visible = !ClientPrefs.data.hideHud;
@@ -1415,6 +1430,7 @@ class PlayState extends MusicBeatState
 			if (isSplitCoopMode())
 			{
 				hitErrorBarPlayer = new HitErrorBar();
+				hitErrorBarPlayer.playbackRate = playbackRate;
 				hitErrorBarPlayer.screenCenter();
 				hitErrorBarPlayer.x = FlxG.width / 2 - 325;
 				hitErrorBarPlayer.y = FlxG.height * 0.27 + ClientPrefs.data.hitErrorBarOffsetY;
@@ -1423,6 +1439,7 @@ class PlayState extends MusicBeatState
 				uiGroup.add(hitErrorBarPlayer);
 
 				hitErrorBarOpponent = new HitErrorBar();
+				hitErrorBarOpponent.playbackRate = playbackRate;
 				hitErrorBarOpponent.screenCenter();
 				hitErrorBarOpponent.x = FlxG.width / 2 - hitErrorBarOpponent.width - 175;
 				hitErrorBarOpponent.y = hitErrorBarPlayer.y;
@@ -1431,6 +1448,7 @@ class PlayState extends MusicBeatState
 			else
 			{
 				hitErrorBar = new HitErrorBar();
+				hitErrorBar.playbackRate = playbackRate;
 				hitErrorBar.screenCenter(X);
 				hitErrorBar.x += ClientPrefs.data.hitErrorBarOffsetX - 5;
 				hitErrorBar.y = FlxG.height * 0.3 + ClientPrefs.data.hitErrorBarOffsetY; // 顶部10%位置
@@ -1679,6 +1697,10 @@ class PlayState extends MusicBeatState
 			}
 		}
 		playbackRate = value;
+		// 判定条的 ms 文本动画按播放速率缩放，速率变了要同步（HitErrorBar 不再反查 PlayState）
+		if (hitErrorBar != null) hitErrorBar.playbackRate = value;
+		if (hitErrorBarPlayer != null) hitErrorBarPlayer.playbackRate = value;
+		if (hitErrorBarOpponent != null) hitErrorBarOpponent.playbackRate = value;
 		FlxG.animationTimeScale = value;
 		Conductor.offset = Reflect.hasField(PlayState.SONG, 'offset') ? (PlayState.SONG.offset / value) : 0;
 		Conductor.safeZoneOffset = (ClientPrefs.data.safeFrames / 60) * 1000 * value;
@@ -3474,17 +3496,15 @@ public function reloadCounterColors()
 						if(cpuControlled && !daNote.blockHit && daNote.canBeHit && (daNote.isSustainNote || daNote.strumTime <= Conductor.songPosition))
 							goodNoteHit(daNote);
 					}
-					else if (opponentMode != "opponent")
+					else if (isOpponentMode())
 					{
-						if (daNote.wasGoodHit && !daNote.hitByOpponent && !daNote.ignoreNote)
-								opponentNoteHit(daNote);
-					}
-					else if (!daNote.blockHit && daNote.strumTime <= Conductor.songPosition)
-					{
-						if ((opponentMode == "opponent" && daNote.mustPress) || (opponentMode != "opponent" && !daNote.mustPress))
+						// 对手模式：CPU 打玩家侧，时间到就直接算命中
+						if (!daNote.blockHit && daNote.strumTime <= Conductor.songPosition)
 							opponentNoteHit(daNote);
-						else if (opponentMode == "opponent" && !daNote.mustPress && daNote.wasGoodHit)
-							opponentNoteHit(daNote); // 在对手模式下，对手控制BF的note
+					}
+					else if (daNote.wasGoodHit && !daNote.hitByOpponent && !daNote.ignoreNote)
+					{
+						opponentNoteHit(daNote);
 					}
 
 					if(daNote.isSustainNote && strum.sustainReduce) daNote.clipToStrumNote(strum);
@@ -4418,8 +4438,12 @@ public function reloadCounterColors()
 		seenCutscene = false;
 
 		#if ACHIEVEMENTS_ALLOWED
-		var weekNoMiss:String = WeekData.getWeekFileName() + '_nomiss';
-		checkForAchievement([weekNoMiss, 'ur_bad', 'ur_good', 'hype', 'two_keys', 'toastie' #if BASE_GAME_FILES, 'debugger' #end]);
+		// 回放不该解锁任何成就（周回放会连触发 3-7 次）
+		if (!loadRep && !inReplay)
+		{
+			var weekNoMiss:String = WeekData.getWeekFileName() + '_nomiss';
+			checkForAchievement([weekNoMiss, 'ur_bad', 'ur_good', 'hype', 'two_keys', 'toastie' #if BASE_GAME_FILES, 'debugger' #end]);
+		}
 		#end
 
 		var ret:Dynamic = callOnScripts('onEndSong', null, true);
@@ -4432,7 +4456,7 @@ public function reloadCounterColors()
 			// 只在非回放模式下保存分数
 			if (!loadRep && !inReplay)
 			{
-				var mode:String = opponentMode == 'player' ? null : opponentMode;
+				var mode:String = isPlayerMode() ? null : Std.string(opponentMode);
 
 				// saveScore 前抓旧档最佳 accuracy（跨难度，与 FreeplayCard 口径一致），供升档判定
 				var oldBest:Float = 0;
@@ -4494,11 +4518,14 @@ public function reloadCounterColors()
 				statsRecorded = true;
 				recordSongStats();
 				accumulateCampaignStats();
+				// 周目逐曲图表快照（结算页左右切换用）；回放被上面的 guard 挡住，不会混进来
+				if (isStoryMode) snapshotCampaignChart();
 			}
 
 			// ========== 根据模式显示结算界面 ==========
-			// 周目只在最后一首歌结束时结算，中途直接进下一首
-			var showResults:Bool = ClientPrefs.data.scoreScreen && (!isStoryMode || storyPlaylist.length <= 1);
+			// 周目只在最后一首歌结束时结算，中途直接进下一首；周回放全程不弹结算
+			var showResults:Bool = ClientPrefs.data.scoreScreen && (!isStoryMode || storyPlaylist.length <= 1)
+				&& !WeekReplay.isActive();
 			if (showResults)
 			{	
 				if (ClientPrefs.data.blurEffects)
@@ -4601,6 +4628,66 @@ public function reloadCounterColors()
 		campaignGoods += ratingsData[2].hits;
 		campaignBads += ratingsData[3].hits;
 		campaignShits += ratingsData[4].hits;
+		// 周准确率直接用本曲的累计值，口径与结算页 ratingPercent 完全一致
+		campaignNotesHit += totalNotesHit;
+		campaignPlayed += totalPlayed;
+	}
+
+	/**
+	 * 周目每首歌结束时抓一份判定历史，供结算页左右切换各曲打击图表。
+	 * 结构对齐 HitGraph.history：[hitDiff, rating, strumTime]。
+	 * 必须在 endSong 统计块里调 —— 此时 finishRecording() 已跑完，frameData 是全的。
+	 */
+	function snapshotCampaignChart():Void
+	{
+		var judgments:Array<Dynamic> = [];
+		if (frameRep != null && frameRep.replay != null && frameRep.replay.frameData != null)
+		{
+			for (frame in frameRep.replay.frameData)
+			{
+				if (frame.noteJudgments == null) continue;
+				for (judgment in frame.noteJudgments)
+					judgments.push([judgment.hitDiff, judgment.rating, judgment.strumTime]);
+			}
+		}
+		var songName:String = Song.loadedSongName;
+		if (songName == null || songName.length == 0) songName = SONG.song;
+		campaignCharts.push({song: songName, judgments: judgments});
+	}
+
+	/** 开始新周目时清空全部周目累加器（含身份快照）。 */
+	public static function resetCampaignStats():Void
+	{
+		campaignScore = 0;
+		campaignMisses = 0;
+		campaignMarvelous = 0;
+		campaignSicks = 0;
+		campaignGoods = 0;
+		campaignBads = 0;
+		campaignShits = 0;
+		campaignNotesHit = 0;
+		campaignPlayed = 0;
+		campaignWeekFile = null;
+		campaignModFolder = null;
+		campaignVariant = null;
+		campaignSongCount = 0;
+		campaignCharts = [];
+	}
+
+	/**
+	 * 整周 FC 判定。
+	 *
+	 * 单曲口径：miss == 0 才算 FC，miss >= 10 记 Clear。
+	 * 周目按物量放大：miss 阈值 = 歌曲数 × 10（单歌 Clear 的 10 个 miss）。
+	 */
+	public static function computeWeekRatingFC(misses:Int, bads:Int, shits:Int, goods:Int, songCount:Int):String
+	{
+		if (songCount <= 0) return 'Clear';
+		if (misses >= songCount * 10) return 'Clear';
+		if (misses > 0) return 'SDCB';
+		if (bads > 0 || shits > 0) return 'FC';
+		if (goods > 0) return 'GFC';
+		return 'SFC';
 	}
 
 	/**
@@ -4660,6 +4747,15 @@ public function reloadCounterColors()
 		if (vocals != null) vocals.stop();
 		if (opponentVocals != null) opponentVocals.stop();
 		if (FlxG.sound.music != null) FlxG.sound.music.stop();
+
+		// 周回放接管：必须在下面的"清理回放变量"之前，也必须在 story 分支之前。
+		// transitioning 必写 —— 舞台脚本会二次调 endSong()，不设会连跳两首。
+		if (WeekReplay.isActive())
+		{
+			transitioning = true;
+			WeekReplay.advance();
+			return;
+		}
 		
 		// 清理回放相关变量
 		if (loadRep || inReplay)
@@ -4688,8 +4784,18 @@ public function reloadCounterColors()
 				MusicBeatState.switchState(new StoryMenuState());
 
 				if(!ClientPrefs.getGameplaySetting('practice') && !ClientPrefs.getGameplaySetting('botplay')) {
-					StoryMenuState.weekCompleted.set(WeekData.weeksList[storyWeek], true);
-					Highscore.saveWeekScore(WeekData.getWeekFileName(), campaignScore, storyDifficulty, Mods.currentModDirectory);
+					var weekFile:String = (campaignWeekFile != null && campaignWeekFile.length > 0)
+						? campaignWeekFile : WeekData.getWeekFileName();
+
+					StoryMenuState.weekCompleted.set(weekFile, true);
+
+					var diffName:String = (storyDifficulty >= 0 && storyDifficulty < Difficulty.list.length)
+						? Difficulty.list[storyDifficulty] : Difficulty.getDefault();
+					var weekAcc:Float = (campaignPlayed > 0) ? (campaignNotesHit / campaignPlayed) : 0;
+					if (Math.isNaN(weekAcc)) weekAcc = 0;
+					var weekFC:String = computeWeekRatingFC(campaignMisses, campaignBads, campaignShits, campaignGoods, campaignSongCount);
+
+					Highscore.saveWeekResult(weekFile, campaignScore, diffName, campaignModFolder, campaignVariant, weekAcc, weekFC);
 
 					FlxG.save.data.weekCompleted = StoryMenuState.weekCompleted;
 					FlxG.save.flush();
@@ -4841,7 +4947,7 @@ public function reloadCounterColors()
 		}
 		var noteDiff = Math.abs(effectiveNoteDiff);
         vocals.volume = 1;
-		if(opponentMode != 'player' && opponentVocals != null)
+		if(!isPlayerMode() && opponentVocals != null)
 			opponentVocals.volume = 1;
 		if (isSplitCoopMode() && side == null)
 			side = getSideFromNote(note);
@@ -5860,10 +5966,9 @@ public function reloadCounterColors()
 
 		if(ClientPrefs.data.replayQuality) frameRep.recordJudgment(note.strumTime, note.noteData, 0, 'miss', note.isSustainNote);
 
-		// play character anims
+		// play character anims：谁在唱这条 note 谁播 miss（与 goodNoteHit 的角色选择保持同一口径）
 		var char:Character = boyfriend;
-		if(note != null && !note.mustPress && opponentMode != "opponent") char = dad;
-		if(note != null && note.mustPress && opponentMode == "opponent") char = boyfriend;
+		if(note != null && !note.mustPress) char = dad;
 		if((note != null && note.gfNote) || (SONG.notes[curSection] != null && SONG.notes[curSection].gfSection)) char = gf;
 
 		if(char != null && (note == null || !note.noMissAnimation))
@@ -5910,8 +6015,11 @@ public function reloadCounterColors()
 
 	function opponentNoteHit(note:Note):Void
 	{
-		var result:Dynamic = callOnLuas('opponentNoteHitPre', [notes.members.indexOf(note), Math.abs(note.noteData), note.noteType, note.isSustainNote]);
-		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) result = callOnHScript('opponentNoteHitPre', [note]);
+		// 对手模式 + 开了交换时，CPU 打的这条（BF 侧）发 goodNoteHit
+		var hitEvent:String = shouldSwapHitCallbacks() ? 'goodNoteHit' : 'opponentNoteHit';
+
+		var result:Dynamic = callOnLuas(hitEvent + 'Pre', [notes.members.indexOf(note), Math.abs(note.noteData), note.noteType, note.isSustainNote]);
+		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) result = callOnHScript(hitEvent + 'Pre', [note]);
 		#if HSCRIPT_ALLOWED
 		if (nmvNoteCall('opponentNoteHitPre', [note])) result = LuaUtils.Function_Stop;
 		#end
@@ -5923,7 +6031,8 @@ public function reloadCounterColors()
 
 		if(note.noteType == 'Hey!')
 		{
-			var heyChar:Character = (opponentMode == "opponent") ? boyfriend : dad;
+			// 谁在唱这条 note 谁播动画：玩家侧 = BF，对手侧 = dad（与谁操作无关）
+			var heyChar:Character = note.mustPress ? boyfriend : dad;
 			if(note.gfNote) heyChar = gf;
 			if(heyChar.hasAnimation('hey'))
 			{
@@ -5934,7 +6043,7 @@ public function reloadCounterColors()
 		}
 		else if(!note.noAnimation)
 		{
-			// NMV 兼容：opponentNoteHitPre 里脚本可设 note.owner（如 doubletrouble 的 red），
+			var char:Character = note.mustPress ? boyfriend : dad;
 			// 演唱动画跟随 owner 而不是固定 dad/gf（NMV opponentNoteHit → characterSing(owner ?? 常规)）
 			var char:Character = (opponentMode == "opponent") ? boyfriend : dad;
 			final noteOwner:Character = liveCharacter(note.owner);
@@ -5978,15 +6087,19 @@ public function reloadCounterColors()
 		}
 
 		if(opponentVocals.length <= 0) vocals.volume = 1;
-		if(opponentMode != "player" && opponentVocals != null) opponentVocals.volume = 1;
-		var isDadStrum:Bool = !(opponentMode == "opponent" && note.mustPress);
+		if(!isPlayerMode() && opponentVocals != null) opponentVocals.volume = 1;
+		// 动画永远落在 note 所属的一侧（对手模式下 CPU 打的是 BF 侧，所以这里是 false）
+		var isDadStrum:Bool = !note.mustPress;
 		strumPlayAnim(isDadStrum, Std.int(Math.abs(note.noteData)), Conductor.stepCrochet * 1.25 / 1000 / playbackRate, note.nmvLane);
 		note.hitByOpponent = true;
 		note.wasGoodHit = true;
 
-		stagesFunc(function(stage:BaseStage) stage.opponentNoteHit(note));
-		var result:Dynamic = callOnLuas('opponentNoteHit', [notes.members.indexOf(note), Math.abs(note.noteData), note.noteType, note.isSustainNote]);
-		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('opponentNoteHit', [note]);
+		if (hitEvent == 'goodNoteHit')
+			stagesFunc(function(stage:BaseStage) stage.goodNoteHit(note));
+		else
+			stagesFunc(function(stage:BaseStage) stage.opponentNoteHit(note));
+		var result:Dynamic = callOnLuas(hitEvent, [notes.members.indexOf(note), Math.abs(note.noteData), note.noteType, note.isSustainNote]);
+		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript(hitEvent, [note]);
 		#if HSCRIPT_ALLOWED
 		nmvNoteCall('opponentNoteHit', [note]);
 		#end
@@ -6008,14 +6121,17 @@ public function reloadCounterColors()
 		if(note.wasGoodHit) return;
 		if(cpuControlled && note.ignoreNote) return;
 
-		if ((isCoopMode() || opponentMode == "opponent") && songName != "tutorial") camZooming = true;
+		// 除纯 player 模式外，玩家都在打对手侧（或两侧），镜头缩放按玩家命中触发
+		if (!isPlayerMode() && songName != "tutorial") camZooming = true;
 
 		var isSus:Bool = note.isSustainNote; //GET OUT OF MY HEAD, GET OUT OF MY HEAD, GET OUT OF MY HEAD
 		var leData:Int = Math.round(Math.abs(note.noteData));
 		var leType:String = note.noteType;
+		// 对手模式 + 开了交换时，回调名跟随 note 所属侧（人类打的是 dad 侧 → 发 opponentNoteHit）
+		var hitEvent:String = shouldSwapHitCallbacks() ? 'opponentNoteHit' : 'goodNoteHit';
 
-		var result:Dynamic = callOnLuas('goodNoteHitPre', [notes.members.indexOf(note), leData, leType, isSus]);
-		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) result = callOnHScript('goodNoteHitPre', [note]);
+		var result:Dynamic = callOnLuas(hitEvent + 'Pre', [notes.members.indexOf(note), leData, leType, isSus]);
+		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) result = callOnHScript(hitEvent + 'Pre', [note]);
 		#if HSCRIPT_ALLOWED
 		if (nmvNoteCall('goodNoteHitPre', [note])) result = LuaUtils.Function_Stop;
 		#end
@@ -6153,9 +6269,12 @@ public function reloadCounterColors()
 					noteHoldCover.onPlayerNoteHit(Std.int(Math.abs(note.noteData)), note.isSustainNote, note);
 			}
 
-		stagesFunc(function(stage:BaseStage) stage.goodNoteHit(note));
-		var result:Dynamic = callOnLuas('goodNoteHit', [notes.members.indexOf(note), leData, leType, isSus]);
-		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript('goodNoteHit', [note]);
+		if (hitEvent == 'goodNoteHit')
+			stagesFunc(function(stage:BaseStage) stage.goodNoteHit(note));
+		else
+			stagesFunc(function(stage:BaseStage) stage.opponentNoteHit(note));
+		var result:Dynamic = callOnLuas(hitEvent, [notes.members.indexOf(note), leData, leType, isSus]);
+		if(result != LuaUtils.Function_Stop && result != LuaUtils.Function_StopHScript && result != LuaUtils.Function_StopAll) callOnHScript(hitEvent, [note]);
 		#if HSCRIPT_ALLOWED
 		nmvNoteCall('goodNoteHit', [note]);
 		#end
@@ -6994,18 +7113,31 @@ public function reloadCounterColors()
         poolsWarmed = true;
     }
 
-		private function isCoopMode():Bool
+	// ============ 模式判定（唯一入口，调用方不要再自己拼字符串比较） ============
+	// opponentMode 存的是 PlayMode，赋值时自动归一化（旧存档的 bool / 空值都能兜住）
+
+	function set_opponentMode(value:PlayMode):PlayMode
 	{
-		return opponentMode == "coop" || opponentMode == "coop_split";
+		return opponentMode = PlayMode.normalize(value);
 	}
+
+	public function isPlayerMode():Bool
+		return opponentMode.isPlayer();
+
+	public function isOpponentMode():Bool
+		return opponentMode.isOpponent();
+
+	public function isCoopMode():Bool
+		return opponentMode.isCoop();
 
 	public function isSplitCoopMode():Bool
-	{
-		return opponentMode == "coop_split";
-	}
+		return opponentMode.isSplitCoop();
+
+	/** 该侧（mustPress）是否由玩家操作；keyBindIndex 0 = 玩家侧、1 = 对手侧（coop 用） */
+	public function sideIsHuman(mustPress:Bool, keyBindIndex:Int = -1):Bool
+		return opponentMode.sideIsHuman(mustPress, keyBindIndex);
 
 	// middlescroll 是否真正生效。coop 两侧都由人类操作，没有理由只把一侧居中 → 静默失效。
-	// 不要加 inline：函数体调用了 private 的 isCoopMode()，内联展开到外部类会编译失败。
 	public function middleScrollActive():Bool
 	{
 		return ClientPrefs.data.middleScroll && !isCoopMode();
@@ -7014,16 +7146,13 @@ public function reloadCounterColors()
 	// 该 strum 组是否为 CPU 自动演奏（非人类操作）的一侧。player: 0 = opponentStrums, 1 = playerStrums
 	public function strumGroupIsCpuSide(player:Int):Bool
 	{
-		if (isCoopMode()) return false; // coop 两侧都是人
-		return (opponentMode == "opponent") ? player > 0 : player < 1;
+		return !sideIsHuman(player == 1);
 	}
 
 	// 该 note 是否属于 CPU 自动演奏（非人类操作）的一侧
 	public function noteIsCpuSide(note:Note):Bool
 	{
-		if (note == null) return false;
-		if (isCoopMode()) return false; // coop 两侧都是人
-		return (opponentMode == "opponent") ? note.mustPress : !note.mustPress;
+		return note != null && !noteIsHuman(note);
 	}
 
 	private function get_health():Float
@@ -7047,7 +7176,7 @@ public function reloadCounterColors()
 		health = value;
 		var newPercent:Null<Float> = FlxMath.remapToRange(FlxMath.bound(healthBar.valueFunction(), healthBar.bounds.min, healthBar.bounds.max), healthBar.bounds.min, healthBar.bounds.max, 0, 100);
 		healthBar.percent = (newPercent != null ? newPercent : 0);
-		if (opponentMode == 'opponent')
+		if (isOpponentMode())
 		{
 			iconP1.animation.curAnim.curFrame = (healthBar.percent > 80) ? 1 : 0; //If health is under 20%, change player icon to frame 1 (losing icon), otherwise, frame 0 (normal)
 			iconP2.animation.curAnim.curFrame = (healthBar.percent < 20) ? 1 : 0; //If health is over 80%, change opponent icon to frame 1 (losing icon), otherwise, frame 0 (normal)
@@ -7137,18 +7266,11 @@ public function reloadCounterColors()
 		return (side == "opponent") ? opponentRatingsData : playerRatingsData;
 	}
 
-	private function noteIsHuman(note:Note, keyBindIndex:Int = -1):Bool
+	/** 该 note 是否由玩家操作（Note / 外部对象也用它，别再各自抄一份模式判断） */
+	public function noteIsHuman(note:Note, keyBindIndex:Int = -1):Bool
 	{
-		switch(opponentMode)
-		{
-			case "opponent":
-				return !note.mustPress;
-			case "coop", "coop_split":
-				if (keyBindIndex < 0) return true;
-				return keyBindIndex == 0 ? note.mustPress : !note.mustPress;
-			default:
-				return note.mustPress;
-		}
+		if (note == null) return false;
+		return sideIsHuman(note.mustPress, keyBindIndex);
 	}
 
 	private function noteShouldUseOpponentSide(note:Note):Bool
@@ -7208,9 +7330,22 @@ public function reloadCounterColors()
 		return -1;
 	}
 
+	/**
+	 * 对手模式下是否把两套命中回调名对调。
+	 * 关（默认）：回调跟随"谁在打"——人类命中发 goodNoteHit，CPU 命中发 opponentNoteHit。
+	 * 开：回调跟随 note 所属侧——人类打 dad 的 note 发 opponentNoteHit，CPU 打 BF 的 note 发 goodNoteHit。
+	 * 只换脚本 / 舞台回调名，计分、血量、combo、角色动画一律不受影响。
+	 */
+	public function shouldSwapHitCallbacks():Bool
+	{
+		return isOpponentMode() && ClientPrefs.data.swapNoteHitCallbacks;
+	}
+
+	/** 玩家打的是对手侧时（opponent / coop），要补发对手侧的 note 事件 */
 	private function shouldFireOpponentEvents(note:Note):Bool
 	{
-		return !note.mustPress && (opponentMode == "opponent" || isCoopMode());
+		// 开了回调交换时，goodNoteHit 自己就派发了 opponentNoteHit*，不能再补发一次
+		return !note.mustPress && !isPlayerMode() && !shouldSwapHitCallbacks();
 	}
 
 	private function triggerOpponentEventsForHumanHit(note:Note):Void

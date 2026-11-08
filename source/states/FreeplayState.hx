@@ -28,6 +28,7 @@ import options.psychoptions.GameplayChangersSubstate;
 import substates.ResetScoreSubState;
 
 import flixel.math.FlxMath;
+import flixel.math.FlxRect;
 import flixel.util.FlxDestroyUtil;
 import flixel.FlxBasic;
 import flixel.group.FlxGroup.FlxTypedGroup;
@@ -109,6 +110,8 @@ class FreeplayState extends MusicBeatState
     var songArtDisplay:SongArtDisplay;
     var characterArtDisplay:CharacterArtDisplay;
     var albumArtDisplay:AlbumArtDisplay;
+    /** 官方星星难度显示（仅原版 + 拓展包），摆位锚在封面/立绘槽上方。 */
+    var difficultyStars:DifficultyStars;
     var difficultyCarousel:DifficultyCarousel;
 
     var scoreBG:FlxFilteredSprite;
@@ -128,9 +131,14 @@ class FreeplayState extends MusicBeatState
     // Personal Best 行的 FC 档位（SFC/GFC/FC/SDCB/Clear），随 changeDiff 与子状态关闭刷新
     var intendedFC:String = "";
 
-    var missingTextBG:FlxSprite;
-	var missingText:FlxText;
-    
+    /** 谱面加载失败时的全局提示条（objects.MessageBox），再次失败会先关掉上一条 */
+    var loadErrorToast:MessageBox = null;
+
+    /** 空列表提示（没有歌 / 筛不到 / 内容包空），顶栏照常可用 */
+    var emptyHint:FlxText = null;
+    /** 空列表的具体原因，由 loadSongs / 切换来源时写入 */
+    var emptyReason:String = '';
+
     var bottomString:String;
     var bottomText:FlxText;
     var bottomBG:FlxFilteredSprite;
@@ -406,8 +414,9 @@ class FreeplayState extends MusicBeatState
         DiscordClient.changePresence("In the Freeplay Menu", null);
         #end
 
-        // 失败时 loadSongs 内部已经切到 ErrorState
-        if (!loadSongs()) return;
+        // 一首都没有也照样把界面建出来：顶栏（来源 / 模组文件夹 / 工具栏）必须留着，
+        // 玩家才能在界面里切到别的模组或内容包，而不是被全屏错误页卡到只能重启。
+        var hasSongs:Bool = loadSongs();
 
         Mods.loadTopMod();
         if (isContentMode())
@@ -422,12 +431,24 @@ class FreeplayState extends MusicBeatState
 
         buildBackground();
         buildArtDisplays();
+        // 星星火焰评级：紧跟封面之后 add —— 层级在封面之上、但在卡片和右上信息文本之下
+        // （PLAYER/RATING 那两行要压在评级上面，所以必须比 buildInfoPanel 早）
+        buildDifficultyStars();
         buildCardLayer();
         buildInfoPanel();
         buildSearchBar();
         buildStatusOverlay();
         buildBottomBar();
-        initializeSelection();
+        buildEmptyHint();
+
+        if (hasSongs)
+            initializeSelection();
+        else
+        {
+            // 空列表：难度码位先落回 0，免得 Difficulty.getString(-1) 取到空串
+            curDifficulty = 0;
+            updateEmptyState();
+        }
 
         FlxG.mouse.visible = true;
 
@@ -442,17 +463,14 @@ class FreeplayState extends MusicBeatState
 
     /**
      * 收集周定义并展开成歌曲列表（含 ModFolder 分组与来源筛选）。
-     * 返回 false 表示没有可显示的歌曲，create 直接结束。
+     * 返回 false 表示没有可显示的歌曲 —— 注意这里**不再切 ErrorState**：
+     * 界面照建（顶栏可用），由调用方决定显示空列表提示。
      */
     private function loadSongs():Bool
     {
         if (WeekData.weeksList.length < 1 && !isContentMode())
         {
-            FlxTransitionableState.skipNextTransIn = true;
-            persistentUpdate = false;
-            MusicBeatState.switchState(new states.ErrorState("NO WEEKS ADDED FOR FREEPLAY\n\nPress ACCEPT to go to the Week Editor Menu.\nPress BACK to return to Main Menu.",
-            function() MusicBeatState.switchState(new states.editors.WeekEditorState()),
-            function() MusicBeatState.switchState(new states.MainMenuState())));
+            emptyReason = Language.getPhrase('freeplay_empty_no_weeks', 'No weeks found. Check your mods folder.');
             return false;
         }
 
@@ -477,21 +495,23 @@ class FreeplayState extends MusicBeatState
 
         if (songs.length == 0)
         {
-            FlxTransitionableState.skipNextTransIn = true;
-            persistentUpdate = false;
-            MusicBeatState.switchState(new states.ErrorState("NO CUSTOM CHARTS FOUND.",
-                function() MusicBeatState.switchState(new states.MainMenuState()),
-                function() MusicBeatState.switchState(new states.MainMenuState())));
+            emptyReason = isContentMode()
+                ? Language.getPhrase('freeplay_empty_no_charts', 'No custom charts in this folder.')
+                : Language.getPhrase('freeplay_empty_no_songs', 'No songs match the current filter.');
             return false;
         }
 
+        emptyReason = '';
         return true;
     }
 
     /** 背景：menuDesat 底图 + 马赛克 shader + freeplayspace 的星空与角光。 */
     private function buildBackground():Void
     {
-        var menuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(songs[curSelected].folder);
+        // 空列表时没有选中歌可参考，退回当前模组目录
+        var folder:String = (curSelected >= 0 && curSelected < songs.length)
+            ? songs[curSelected].folder : Mods.currentModDirectory;
+        var menuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(folder);
         menuBg = new FlxSprite().loadGraphic(menuBgGraphic);
         menuBg.antialiasing = ClientPrefs.data.antialiasing;
         menuBg.alpha = 1;
@@ -552,6 +572,21 @@ class FreeplayState extends MusicBeatState
     }
 
     /**
+     * 官方星星难度显示（只给原版周 + VanillaSongs 拓展包，判断在 updateDifficultyStars）。
+     * 摆位不在这里定 —— DifficultyStars 自己按专辑封面的可见矩形算（星星行居中压在上沿）。
+     * add 的时机决定层级：这里在封面之后、卡片与右上信息文本之前，所以文字压在评级上面。
+     */
+    private function buildDifficultyStars():Void
+    {
+        // 设置里关掉就不建 —— 顺手省掉一次图集加载；所有调用点都判了 null
+        if (!ClientPrefs.data.freeplayStars) return;
+
+        difficultyStars = new DifficultyStars();
+        add(difficultyStars);
+        updateStarsAnchor();
+    }
+
+    /**
      * 卡片层级锚点 + 滚动控制器。
      * 卡片是懒加载的：ensureCard 会把新卡插到 cardLayer 之前，保证画在背景之上、UI 之下。
      */
@@ -588,9 +623,10 @@ class FreeplayState extends MusicBeatState
         diffText.font = scoreText.font;
         add(diffText);
 
-        // 难度改由下方 carousel 展示。这个控件留着不删 —— changeDiff 和
-        // positionHighscore 还在写它的 text / x。
-        diffText.visible = false;
+        // 难度默认由下方 carousel 展示。这个控件留着不删 —— changeDiff 和
+        // positionHighscore 还在写它的 text / x；carousel 被设置关掉时靠它顶上，
+        // 否则关掉难度方块后就完全看不到当前难度了。
+        diffText.visible = !ClientPrefs.data.freeplayDiffCarousel;
 
         noteCountText = new FlxText(scoreText.x, scoreText.y + 66, 0, "", 20);
         noteCountText.antialiasing = ClientPrefs.data.antialiasing;
@@ -631,8 +667,12 @@ class FreeplayState extends MusicBeatState
 
         // 必须在 topBar 之后 add —— 卡片都插在 cardLayer 之前，只有排在 topBar 后面的
         // 元素才画在卡片之上。中心 x 取 FlxG.width - 200，和角色图/专辑封面的中心对齐。
-        difficultyCarousel = new DifficultyCarousel(FlxG.width - 200, FlxG.height * 0.75);
-        add(difficultyCarousel);
+        // 设置里关掉就不建；键盘左右切难度照旧，点击相关的调用点都判了 null。
+        if (ClientPrefs.data.freeplayDiffCarousel)
+        {
+            difficultyCarousel = new DifficultyCarousel(FlxG.width - 200, FlxG.height * 0.75);
+            add(difficultyCarousel);
+        }
     }
 
     /** 顶部搜索入口（图标 / 提示文字 / 下划线 / 高亮线）。 */
@@ -696,7 +736,7 @@ class FreeplayState extends MusicBeatState
         add(highlightLine);
     }
 
-    /** 左上角来源标签 + 谱面加载失败提示层。 */
+    /** 左上角来源标签（谱面加载失败改用 MessageBox 提示，不再铺全屏黑幕）。 */
     private function buildStatusOverlay():Void
     {
         var selectedSong:NewSongMetaData = (curSelected >= 0 && curSelected < songs.length) ? songs[curSelected] : null;
@@ -704,18 +744,56 @@ class FreeplayState extends MusicBeatState
         modFolderText.antialiasing = ClientPrefs.data.antialiasing;
         modFolderText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT);
         add(modFolderText);
+    }
 
-        missingTextBG = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
-        missingTextBG.alpha = 0.6;
-        missingTextBG.visible = false;
-        add(missingTextBG);
+    /**
+     * 空列表提示层：只有文字，不铺黑幕 —— 顶栏（来源 / 模组文件夹 / 工具栏）
+     * 必须保持可见可点，玩家才能自己切到有歌的模组或内容包。
+     */
+    private function buildEmptyHint():Void
+    {
+        emptyHint = new FlxText(0, FlxG.height * 0.36, FlxG.width, '', 24);
+        emptyHint.antialiasing = ClientPrefs.data.antialiasing;
+        emptyHint.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+        emptyHint.borderSize = 1.5;
+        emptyHint.scrollFactor.set();
+        emptyHint.visible = false;
+        add(emptyHint);
+    }
 
-        missingText = new FlxText(50, 0, FlxG.width - 100, '', 24);
-        missingText.antialiasing = ClientPrefs.data.antialiasing;
-        missingText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
-        missingText.scrollFactor.set();
-        missingText.visible = false;
-        add(missingText);
+    /** 空列表时没有更具体原因可写，就按当前浏览模式给一句话。 */
+    private function defaultEmptyReason():String
+        return isContentMode()
+            ? Language.getPhrase('freeplay_empty_no_charts', 'No custom charts in this folder.')
+            : Language.getPhrase('freeplay_empty_no_songs', 'No songs match the current filter.');
+
+    /** songs 是否为空 → 刷新空列表提示、并把「有歌才有意义」的控件收起来。 */
+    private function updateEmptyState():Void
+    {
+        var empty:Bool = (songs == null || songs.length == 0);
+
+        if (emptyHint != null)
+        {
+            emptyHint.visible = empty;
+            if (empty)
+            {
+                var reason:String = (emptyReason != null && emptyReason.length > 0)
+                    ? emptyReason
+                    : defaultEmptyReason();
+
+                emptyHint.text = Language.getPhrase('freeplay_empty_title', 'NO SONGS AVAILABLE')
+                    + '\n\n' + reason
+                    + '\n\n' + Language.getPhrase('freeplay_empty_hint',
+                        'Pick another mod or content pack from the folder name in the top-left corner.');
+                emptyHint.screenCenter(X);
+            }
+            else
+                emptyHint.text = '';
+        }
+
+        // 难度轮盘是按选中歌的难度表建的，没有歌时留着只会显示上一首的档位
+        if (difficultyCarousel != null)
+            difficultyCarousel.visible = !empty;
     }
 
     /** 底部提示条 + ToolBar + Replay 按钮 + 试听播放器。 */
@@ -1261,6 +1339,11 @@ class FreeplayState extends MusicBeatState
         if (!Reflect.hasField(info, 'album'))
             return false;
 
+        // starRating 同 album 的先例：加字段前的老缓存没有这个键，判无效重算一次，
+        // 否则旧缓存永远命中、官方星星永远显示不出来。
+        if (!Reflect.hasField(info, 'starRating'))
+            return false;
+
         // 谱面解析失败时 SongInfoParser 会兜一份 getDefaultInfo()（bpm 0 / 时长 0），
         // 它的字段是齐的、能通过上面所有检查 —— 一旦被当成"有效"写进缓存就再也重算不了，
         // 之后就算修好解析逻辑，Freeplay 上也永远显示 BPM/LENGTH/KEYS: --、评级 0。
@@ -1295,7 +1378,9 @@ class FreeplayState extends MusicBeatState
             ratingColor: info.ratingColor,
             // 缓存必须带上 album，否则开了 saveFreeplayCache 的玩家拿不到封面。
             // 注意 isParsedSongInfoValid 的 requiredFields 不能加它 —— 老缓存没这个字段。
-            album: info.album
+            album: info.album,
+            // 官方星数同理：漏写会让缓存条目缺键、星星显示不出来。
+            starRating: info.starRating
         };
     }
 
@@ -1336,13 +1421,14 @@ class FreeplayState extends MusicBeatState
     {
         if (!ClientPrefs.data.saveFreeplayCache)
             return;
-        trace('cache saved');
         #if sys 
         var cachePath:String = 'freeplaySongCache.json';
         var tempPath:String = cachePath + '.tmp';
-        var output = File.write(tempPath, false);
+        // 缓存只是加速用的旁路数据，落盘失败（目录只读 / 空间不足 / 文件被占用）
+        // 不能把整个 Freeplay 拖崩 —— 记一行 trace 就放弃本次会话的写入。
         try
         {
+            var output = File.write(tempPath, false);
             output.writeString('{');
             var isFirst:Bool = true;
             for (key in freeplaySongCache.keys())
@@ -1359,16 +1445,17 @@ class FreeplayState extends MusicBeatState
                 isFirst = false;
             }
             output.writeString('}');
+            output.close();
+
+            if (FileSystem.exists(cachePath))
+                FileSystem.deleteFile(cachePath);
+            FileSystem.rename(tempPath, cachePath);
+            trace('cache saved');
         }
         catch (e:Dynamic)
         {
-            output.close();
-            throw e;
+            trace('Failed to save Freeplay cache: $e');
         }
-        output.close();
-        if (FileSystem.exists(cachePath))
-            FileSystem.deleteFile(cachePath);
-        FileSystem.rename(tempPath, cachePath);
         freeplayCacheDirty = false;
         #end
     }
@@ -1534,11 +1621,12 @@ class FreeplayState extends MusicBeatState
 
         var oldModDir:String = Mods.currentModDirectory;
         Mods.currentModDirectory = songs[index].folder;
-        // 内容包歌的小图标等资源只在包里 —— 建卡期间把资源根临时指过去，
-        // 否则 HealthIcon 命中不了 content/<包>/images/icons/（Freeplay 平时没有包根上下文）
+        // 内容包歌的卡片素材（如 Collab 的 sserafim 图标）在包资源根下 —— ALL 视图里
+        // currentContentRoot 是空的，建卡期间临时切到这首歌的包根，getPath 加性回退不会误伤
         var oldContentRoot:String = Paths.currentContentRoot;
-        var packRoot:String = songs[index].contentRoot;
-        if (packRoot != null && packRoot.length > 0) Paths.currentContentRoot = packRoot;
+        var songContentRoot:String = songs[index].contentRoot;
+        if (songContentRoot != null && songContentRoot.length > 0)
+            Paths.currentContentRoot = songContentRoot;
         card = new FreeplayCard(0, 0, songs[index].songName, songs[index].songCharacter, songs[index].color,
             songs[index].displayName, getSongVariant(songs[index]), getSongDifficultyNames(songs[index]));
         card.targetY = index;
@@ -1897,6 +1985,14 @@ class FreeplayState extends MusicBeatState
 
     function updateTexts()
     {
+        if (songs == null || songs.length == 0)
+        {
+            // 空列表：别在右上角挂一条 "PERSONAL BEST: 0 (0.00%)"
+            scoreText.text = '';
+            positionHighscore();
+            return;
+        }
+
         var ratingSplit:Array<String> = Std.string(CoolUtil.floorDecimal(lerpRating * 100, 2)).split('.');
         if(ratingSplit.length < 2) ratingSplit.push('');
         
@@ -2280,8 +2376,8 @@ class FreeplayState extends MusicBeatState
 
     override function update(elapsed:Float)
     {
-        if(WeekData.weeksList.length < 1 && !isContentMode())
-            return;
+        // 空列表也要跑 update：BACK 返回主菜单、点左上角切来源都靠这里处理输入。
+        // （以前这里对「没有任何周」直接 return，因为那时已经切到 ErrorState 了）
         if (musicPlayer == null)
             return;
 
@@ -2309,7 +2405,7 @@ class FreeplayState extends MusicBeatState
             return;
         }
 
-        if (FlxG.sound.music.volume < 0.7 && !musicPlayer.playingMusic)
+        if (FlxG.sound.music != null && FlxG.sound.music.volume < 0.7 && !musicPlayer.playingMusic)
             FlxG.sound.music.volume += 0.5 * elapsed;
 
         // 来源 / 文件夹切换后的卡片重建：选择器关掉后第一帧补上，
@@ -2621,6 +2717,9 @@ class FreeplayState extends MusicBeatState
         // 缺谱面、或只存在于编译期资源索引里（Assets.getText 不是线程安全的）→ 交回同步路径
         if (resolved.path == null) return false;
 
+        // 官方星数的 metadata 路径也留在主线程解析（同 resolveChartPathFor 的全局边界）
+        var metadataPath:String = SongInfoParser.resolveMetadataPathFor(song.songName, song.folder, task.diffName, task.weekData);
+
         var mode:String = SongInfoParser.resolveDifficultyMode();
         var mirror:Null<Bool> = cast ClientPrefs.getGameplaySetting('mirrornotes', false, true);
         var epoch:Int = preloadEpoch;
@@ -2631,8 +2730,9 @@ class FreeplayState extends MusicBeatState
         threadedAt = haxe.Timer.stamp();
         threadedTask = task;
 
+        var diffName:String = task.diffName;
         var future = new lime.app.Future<ParsedSongInfo>(
-            function() return SongInfoParser.parseChartFile(resolved.path, mode, false, mirror),
+            function() return SongInfoParser.parseChartFile(resolved.path, mode, false, mirror, metadataPath, diffName),
             true // ★ 第二参才是 useThreads（LoadingState 传的是 isIntrusive，别照抄）
         );
         future.onComplete(function(info:ParsedSongInfo)
@@ -2741,6 +2841,8 @@ class FreeplayState extends MusicBeatState
             updateSongInfoTexts();
             // album 和评级数字都是异步到达的，到了要一起刷新
             showCharacterForIndex(curSelected, false);
+            // 官方星数也是随谱面解析异步到达的，到了补一次
+            updateDifficultyStars();
             if (difficultyCarousel != null)
                 difficultyCarousel.refreshRatings(carouselRatingProvider);
         }
@@ -2984,8 +3086,10 @@ class FreeplayState extends MusicBeatState
         if (FlxG.mouse.justReleased)
             replayPressed = false;
 
-        // Mod 文本同理：按住时提亮，松手仍在文本上才打开选择器
-        var modTextHover:Bool = ClientPrefs.data.freeplayModFolder && FlxG.mouse.overlaps(modFolderText);
+        // Mod 文本同理：按住时提亮，松手仍在文本上才打开选择器。
+        // 空列表时无论设置开没开都允许点 —— 这是玩家切到别的模组 / 内容包的入口。
+        var canPickFolder:Bool = ClientPrefs.data.freeplayModFolder || songs.length == 0;
+        var modTextHover:Bool = canPickFolder && FlxG.mouse.overlaps(modFolderText);
         if (modTextHover && FlxG.mouse.justPressed)
             modTextPressed = true;
 
@@ -3003,7 +3107,7 @@ class FreeplayState extends MusicBeatState
 
         // 点难度方块：点别的块 = 切难度（音效由 changeDiff -> setSelected 放），
         // 点当前选中的那块 = 直接开始这首歌。
-        if (FlxG.mouse.justPressed && difficultyCarousel != null)
+        if (FlxG.mouse.justPressed && difficultyCarousel != null && songs.length > 0)
         {
             var hitDiff:Int = difficultyCarousel.tryClick();
             if (hitDiff >= 0)
@@ -3216,7 +3320,7 @@ class FreeplayState extends MusicBeatState
 
     /**
      * 把当前选中的谱面加载进 PlayState.SONG（进入游戏 / 编辑器的公共部分）。
-     * 成功返回 true；失败时写 missingText 并返回 false。
+     * 成功返回 true；失败时弹一条 MessageBox（右上角 toast）并返回 false。
      */
     function loadSongIntoPlayState():Bool
     {
@@ -3232,16 +3336,21 @@ class FreeplayState extends MusicBeatState
         catch(e:haxe.Exception)
         {
             trace('ERROR! ${e.message}');
+            trace(e.stack); // 完整栈只留给控制台，通知条里放不下
 
             var songLowercase:String = Paths.formatToSongPath(songs[curSelected].songName);
             var errorStr:String = e.message;
-            if(errorStr.contains('There is no TEXT asset with an ID of')) errorStr = 'Missing file: ' + errorStr.substring(errorStr.indexOf(songLowercase), errorStr.length-1);
-            else errorStr += '\n\n' + e.stack;
+            if(errorStr.contains('There is no TEXT asset with an ID of') && errorStr.indexOf(songLowercase) >= 0)
+                errorStr = 'Missing file: ' + errorStr.substring(errorStr.indexOf(songLowercase), errorStr.length-1);
 
-            missingText.text = 'ERROR WHILE LOADING CHART:\n$errorStr';
-            missingText.screenCenter(Y);
-            missingText.visible = true;
-            missingTextBG.visible = true;
+            // 折成三四行就够看了，再长会把通知条撑到半个屏幕
+            if (errorStr.length > 160) errorStr = errorStr.substr(0, 157) + '...';
+
+            // 连点失败卡片会堆一串提示，先把上一条关掉
+            if (loadErrorToast != null && MessageBox.active.indexOf(loadErrorToast) >= 0)
+                loadErrorToast.close();
+            loadErrorToast = MessageBox.show('Failed to load the song', 'Error: ' + errorStr, MESSAGE, null, 8);
+
             FlxG.sound.play(Paths.sound('cancelMenu'));
 
             return false;
@@ -3269,7 +3378,7 @@ class FreeplayState extends MusicBeatState
     /**
      * 离开 Freeplay 前的公共前置：停试听、把谱面读进 PlayState.SONG、
      * 换过模组目录就释放旧图形、准备加载屏。
-     * 返回 false 表示谱面加载失败（错误已写进 missingText），界面保持可操作。
+     * 返回 false 表示谱面加载失败（错误已用 MessageBox 弹出），界面保持可操作。
      */
     private function prepareSongLoad():Bool
     {
@@ -3393,13 +3502,15 @@ class FreeplayState extends MusicBeatState
             diffText.text = displayDiff.toUpperCase();
 
         positionHighscore();
-        missingText.visible = false;
-        missingTextBG.visible = false;
+        // 顺带把空列表提示 / 难度轮盘的可见性对一遍（名单变了就会走这里）
+        updateEmptyState();
 
         updateCardDifficultyInfo();
         updateSongInfoTexts();
         // 专辑是按难度取的（原版每个变体一个 album），换难度要重挑一次封面
         showCharacterForIndex(curSelected, false);
+        // 官方星星跟难度走（ratings 按难度档），和封面同节奏刷
+        updateDifficultyStars();
 
         if (difficultyCarousel != null)
         {
@@ -3412,7 +3523,7 @@ class FreeplayState extends MusicBeatState
 
     function openSearchSubstate()
     {
-        if (musicPlayer.playingMusic) return;
+        if (musicPlayer.playingMusic || songs.length == 0) return;
         persistentUpdate = false;
         openSubState(new SearchSubState(songs, function(song:NewSongMetaData) {
             // ★ 打开搜索界面的那一帧，MouseMove 已经把本次鼠标按下记成了“待拖拽”，
@@ -3549,8 +3660,6 @@ class FreeplayState extends MusicBeatState
         // 定稿之后 —— 上面那句 changeDiff() 就是定稿点。
         rebuildDifficultyCarousel();
 
-        missingText.visible = false;
-        missingTextBG.visible = false;
         
         if (songs[curSelected].customChart != null && songs[curSelected].customChart.isValid())
             modFolderText.text = "Chart Folder:" + (songs[curSelected].customChart.sourceFolder != null
@@ -3606,11 +3715,15 @@ class FreeplayState extends MusicBeatState
 
         // 角色图优先：配了 characterArt 就显示它，否则用专辑封面顶上同一个位置。
         // 这个判断放在宿主而不是组件里 —— 两个组件互不知道对方，编排留给宿主。
+        // 设置里关掉封面展示就一律不显示（星星评级仍按 getShowRect 的槽位常数对齐）。
         var hasChar:Bool = characterArtDisplay.showCharacter(songs[index].songName, songs[index].folder, animated);
-        if (hasChar)
+        if (hasChar || !ClientPrefs.data.freeplayAlbumArt)
             albumArtDisplay.hide();
         else
             albumArtDisplay.showAlbum(getAlbumIdForCurrentDiff(index), songs[index].folder, animated);
+
+        // 封面尺寸可能随歌变（少数封面不是正方形），评级跟着重新锚一次
+        updateStarsAnchor();
     }
 
     /**
@@ -3627,6 +3740,63 @@ class FreeplayState extends MusicBeatState
 
         var baseInfo:ParsedSongInfo = songs[index].difficultyInfo.get(Difficulty.getDefault());
         return baseInfo == null ? null : baseInfo.album;
+    }
+
+    /**
+     * 把星星火焰评级锚到当前专辑封面上：星星行左右居中、底边压在封面上沿。
+     *
+     * 锚的是封面"落定"后的可见矩形（AlbumArtDisplay.getShowRect），不是 x/y ——
+     * 封面有 0.3s 滑入 tween，读实时坐标会让评级跟着飞出屏幕。
+     * 角色立绘顶替封面时封面只是隐藏、矩形没变，评级照样待在同一个槽位上。
+     */
+    function updateStarsAnchor():Void
+    {
+        if (difficultyStars == null || albumArtDisplay == null) return;
+
+        var rect:FlxRect = albumArtDisplay.getShowRect();
+        if (rect == null) return;
+
+        difficultyStars.alignToAlbum(rect);
+        // FlxRect.get 是对象池，用完必须还，否则每次切歌漏一个
+        rect.put();
+    }
+
+    /**
+     * 官方星星难度显示。只给原版周 + VanillaSongs 拓展包：folder 为空且非自定义谱面
+     * （自定义谱面的 folder 也是空，靠 customChart 区分）；第三方模组曲一概不显示。
+     * 星数取当前难度 metadata 的官方 ratings（starRating，随谱面解析异步到达），
+     * 没解析到 / 键缺失 / 0 星都不显示。
+     */
+    function updateDifficultyStars():Void
+    {
+        if (difficultyStars == null) return;
+
+        updateStarsAnchor();
+
+        var starRating:Int = -1;
+        if (curSelected >= 0 && curSelected < songs.length)
+        {
+            var song:NewSongMetaData = songs[curSelected];
+            var isVanilla:Bool = (song.folder == null || song.folder.length == 0) && song.customChart == null;
+            if (isVanilla)
+            {
+                // difficultyInfo 的 key 是原始难度名，传 false（和封面/轮盘同一套约定）
+                var info:ParsedSongInfo = song.difficultyInfo.get(Difficulty.getString(curDifficulty, false));
+                if (info != null) starRating = info.starRating;
+            }
+        }
+
+        if (starRating > 0)
+        {
+            // 同值不重设 —— setter 会重播帧段动画，异步多次刷新不能让星星反复重转
+            if (difficultyStars.difficulty != starRating)
+                difficultyStars.difficulty = starRating;
+            difficultyStars.visible = difficultyStars.atlasOK;
+        }
+        else
+        {
+            difficultyStars.visible = false;
+        }
     }
 
     /** 难度列表变了就重建 carousel（块数、名字都跟着变）。 */
@@ -3799,6 +3969,8 @@ class FreeplayState extends MusicBeatState
         clearPreloadQueue();
         // 换分类后进度条的前提（总数）也作废，连同提示一起清掉
         resetConvertProgress();
+        // 换了来源，上一个来源的原因（比如「没有任何周」）不再适用
+        emptyReason = '';
 
         #if HSCRIPT_ALLOWED
         reloadNmvScripts();
@@ -3863,6 +4035,8 @@ class FreeplayState extends MusicBeatState
         if (songs.length == 0)
         {
             resetCardScroller();
+            // 切到的这一项一首歌都没有：顶栏留着，中间给出原因，别让界面看起来像卡死
+            updateEmptyState();
             return;
         }
 
@@ -3893,6 +4067,7 @@ class FreeplayState extends MusicBeatState
         showArtForIndex(curSelected, false);
         showCharacterForIndex(curSelected, false);
         rebuildDifficultyCarousel();
+        updateEmptyState();
         if (toolBar != null)
             toolBar.refreshChartModeButtons();
     }
@@ -3917,6 +4092,7 @@ class FreeplayState extends MusicBeatState
         {
             visibleCardMin = 0;
             visibleCardMax = -1;
+            updateEmptyState();
             return;
         }
 
@@ -3928,6 +4104,7 @@ class FreeplayState extends MusicBeatState
         updateCardsPosition();
         updateCardDifficultyInfo();
         updateCardsRating();
+        updateEmptyState();
     }
 
     /** 卡片列表的滚动控制器。create 与来源切换后重建走同一份参数。 */
