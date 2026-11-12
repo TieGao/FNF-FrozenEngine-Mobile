@@ -1,7 +1,7 @@
 package options.objects.backend;
 
-import options.Option;
 import backend.UIControlTheme;
+import flixel.FlxCamera;
 import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
 import flixel.util.FlxColor;
@@ -17,7 +17,7 @@ import flixel.util.FlxColor;
  */
 class StringSelect extends FlxSpriteGroup
 {
-    var follow:Option;
+    var follow:IStringValueSource;
 
     var bg:Rect;          // 当前值的条
     var border:FlxSprite; // Win8 描边
@@ -65,7 +65,7 @@ class StringSelect extends FlxSpriteGroup
     // 手动绘制的箭头
     var arrowGfx:FlxSprite;
 
-    public function new(X:Float, Y:Float, width:Float, height:Float, follow:Option, ?topLayer:FlxSpriteGroup)
+    public function new(X:Float, Y:Float, width:Float, height:Float, follow:IStringValueSource, ?topLayer:FlxSpriteGroup)
     {
         super(X, Y);
         UITheme.ensure();
@@ -642,7 +642,7 @@ class StringSelect extends FlxSpriteGroup
 
         if (c.RESET)
         {
-            OptionNav.reset(follow, this);
+            resetToDefault();
             keyIndex = currentOptionIndex();
             scrollToShow(keyIndex);
             applyPopupScroll();
@@ -650,6 +650,24 @@ class StringSelect extends FlxSpriteGroup
         }
 
         return true;
+    }
+
+    /**
+     * R 键复位到默认值。之前走 OptionNav.reset（写死 options.Option），
+     * follow 换成 IStringValueSource 后就地实现，逻辑同款。
+     */
+    function resetToDefault():Void
+    {
+        follow.setValue(follow.defaultValue);
+        if (follow.options != null)
+        {
+            var idx:Int = follow.options.indexOf(Std.string(follow.getValue()));
+            follow.curOption = idx < 0 ? 0 : idx;
+        }
+        follow.change();
+        follow.saveCurrentValue();
+        refreshValue();
+        FlxG.sound.play(Paths.sound('cancelMenu'), 0.5);
     }
 
     /** 键盘在下拉里上下移动高亮项 */
@@ -699,6 +717,27 @@ class StringSelect extends FlxSpriteGroup
     }
 
     /**
+     * 宿主列表滚动裁剪：按世界/视图坐标逐叶子裁主条（bg/border/dis/arrow）。
+     * 弹层挂在 topLayer 上、不归本组件裁 —— 展开的下拉永远完整显示。
+     * 半截在裁剪区外的行调用；完全可见的行走 clearClipRect()。
+     */
+    public function applyClipRect(l:Float, t:Float, r:Float, b:Float, cam:FlxCamera):Void
+    {
+        if (bg != null) bg.clipToViewBounds(l, t, r, b, cam);
+        if (border != null) border.clipToViewBounds(l, t, r, b, cam);
+        if (dis != null) dis.clipToViewBounds(l, t, r, b, cam);
+        if (arrowGfx != null) arrowGfx.clipToViewBounds(l, t, r, b, cam);
+    }
+
+    public function clearClipRect():Void
+    {
+        if (bg != null) bg.clipRect = null;
+        if (border != null) border.clipRect = null;
+        if (dis != null) dis.clipRect = null;
+        if (arrowGfx != null) arrowGfx.clipRect = null;
+    }
+
+    /**
      * 下拉弹层是挂在 topLayer（overlayContainer）上的，
      * 销毁时如果不手动清掉，会残留在外层容器里继续渲染。
      */
@@ -712,4 +751,4 @@ class StringSelect extends FlxSpriteGroup
         popup = null;
         super.destroy();
     }
-}
+}
