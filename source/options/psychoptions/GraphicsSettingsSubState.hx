@@ -51,6 +51,12 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 			STRING, ['auto', 'on', 'off']);
 		addOption(option);
 
+		var option:Option = new Option('Keep Song on Freeplay',
+			"Keep textures of the last played song loaded when returning to Freeplay, so replaying the same song skips decoding entirely. They are freed when you pick a different song or leave the menu. Costs RAM while you sit in the menu",
+			'keepSongAssetsOnFreeplay',
+			BOOL);
+		addOption(option);
+
 
 		#if !html5
 		var option:Option = new Option('Framerate',
