@@ -128,18 +128,23 @@ class MainMenuState extends MusicBeatState
 		menuItems = new FlxTypedGroup<FlxSprite>();
 		add(menuItems);
 
+		// 纵向异形屏适配：菜单坐标一律按 720 高画布书写；wideScreen 开启时 Main 以
+		// 21:9 基准宽反推画布高（iPad 4:3 = 1260），硬编码 Y 会让整块菜单悬在半空。
+		// 平移多出的高度，保持到底边的边距与 16:9 一致；720 基准下 extraH = 0，布局不变。
+		var extraH:Float = FlxG.height - 720;
+
 		for (num => option in optionShit)
 		{
-			var item:FlxSprite = createMenuItem(option, 0, (num * 140) + 90);
+			var item:FlxSprite = createMenuItem(option, 0, (num * 140) + 90 + extraH);
 			item.y += (4 - optionShit.length) * 70; // Offsets for when you have anything other than 4 items
 			item.screenCenter(X);
 		}
 
 		if (leftOption != null)
-			leftItem = createMenuItem(leftOption, 60, 490);
+			leftItem = createMenuItem(leftOption, 60, 490 + extraH);
 		if (rightOption != null)
 		{
-			rightItem = createMenuItem(rightOption, FlxG.width - 60, 490);
+			rightItem = createMenuItem(rightOption, FlxG.width - 60, 490 + extraH);
 			rightItem.x -= rightItem.width;
 		}
 
