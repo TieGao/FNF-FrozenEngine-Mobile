@@ -235,10 +235,10 @@ class TitleState extends MusicBeatState
 	// 标题页布局基准：gfDanceTitle.json 里的坐标一律按 16:9 的 1280 宽画布书写。
 	inline static var BASE_WIDTH:Int = 1280;
 
-	// 无 JSON 时的默认锚点（按 FlxG 动态计算）：GF 右缘锚定、logo 左上、enter 左下
+	// 无 JSON 时的默认锚点（本身已按 FlxG 动态计算）：GF 右缘锚定、logo 左上、enter 居中偏下
 	var gfPosition:FlxPoint = FlxPoint.get(FlxG.width - 768, 40);
 	var logoPosition:FlxPoint = FlxPoint.get(-150, -100);
-	var enterPosition:FlxPoint = FlxPoint.get(100, 576);
+	var enterPosition:FlxPoint = FlxPoint.get(FlxG.width /2, 576);
 	
 	var useIdle:Bool = false;
 	var musicBPM:Float = 102;
