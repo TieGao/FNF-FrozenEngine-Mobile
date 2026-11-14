@@ -1,4 +1,6 @@
-package options.psychoptions;
+package options;
+
+import options.psychoptions.PsychOptionsState;
 
 import objects.Character;
 import objects.DraggableBar;
@@ -45,6 +47,14 @@ class NoteOffsetState extends MusicBeatState
 	var testCount:Int = 0;
 	var testAvg:Float = 0;
 	var lastSampleBeat:Int = -999999;
+
+	#if mobile
+	// 点屏采样/长按应用的计时（见 update 里的 #if mobile 块）
+	var tapHoldTime:Float = 0;
+	var tapOnUI:Bool = false; // 这一按落在延迟条/虚拟键上时不采样、不长按应用
+	var tapLongPressDone:Bool = false;
+	var tapPos:FlxPoint = new FlxPoint();
+	#end
 
 	// === KeyboardViewer 和 HitErrorBar 预览 ===
 	var keyboardViewer:KeyboardViewer;
@@ -580,12 +590,34 @@ class NoteOffsetState extends MusicBeatState
 			}
 
 			// 延迟测试：跟着节拍敲 SPACE 采样，SHIFT+SPACE 把建议值写进 noteOffset
-			// （手柄用 A 采样；模式切换已经让给纯 ENTER，所以 SPACE 空出来了）
-			if(FlxG.keys.justPressed.SPACE || FlxG.gamepads.anyJustPressed(A) || touchPad.buttonB.justPressed)
+			// （手柄用 A 采样；touchPad 的 B 是返回键，不能掺进采样；模式切换已经让给纯 ENTER，所以 SPACE 空出来了）
+			if(FlxG.keys.justPressed.SPACE || FlxG.gamepads.anyJustPressed(A))
 			{
 				if(FlxG.keys.pressed.SHIFT) applySuggestedOffset();
 				else sampleBeat();
 			}
+
+			#if mobile
+			// 移动端特化：没有物理键盘，点屏幕任意处等效敲 SPACE——
+			// 按下瞬间就采样（必须和键盘按下对齐，等抬起会整体偏晚）；按住约一拍半等效 SHIFT+SPACE 应用建议值。
+			// 落在延迟条/虚拟键上的按压不算敲拍，避免调条、点按钮时污染样本。
+			if(FlxG.mouse.justPressed)
+			{
+				tapHoldTime = 0;
+				tapLongPressDone = false;
+				tapOnUI = !isTapFreeArea();
+				if(!tapOnUI) sampleBeat();
+			}
+			else if(FlxG.mouse.pressed && !tapOnUI && !tapLongPressDone)
+			{
+				tapHoldTime += elapsed;
+				if(tapHoldTime >= 0.7)
+				{
+					tapLongPressDone = true; // 只触发一次，松手前不重复应用
+					if(testCount > 0) applySuggestedOffset();
+				}
+			}
+			#end
 
 			hintMusicBeat();
 		}
@@ -703,14 +735,29 @@ class NoteOffsetState extends MusicBeatState
 		if (testCount <= 0)
 		{
 			testInfoText.text = Language.getPhrase('delay_test_empty', 'Tap along with the beat to measure your offset');
-			testHintText.text = Language.getPhrase('delay_test_hint', 'Press [SPACE] on each beat - the error shows on the bar');
+			testHintText.text = delayTestHintText();
 			return;
 		}
 
 		var avgStr:String = (testAvg >= 0 ? '+' : '') + Std.string(Math.round(testAvg));
 		testInfoText.text = Language.getPhrase('delay_test_result', 'Samples {1}   Average {2} ms   Suggest {3} ms',
 			[Std.string(testCount), avgStr, Std.string(getSuggestedOffset())]);
-		testHintText.text = Language.getPhrase('delay_test_apply', 'Press [SHIFT+SPACE] to apply the suggested offset');
+		testHintText.text = delayTestApplyText();
+	}
+
+	// 提示文案按运行环境分家：移动端没有键盘，说"点屏幕/长按"，桌面说 SPACE/SHIFT+SPACE
+	function delayTestHintText():String
+	{
+		return controls.mobileC
+			? Language.getPhrase('delay_test_hint_touch', 'Tap the screen on each beat - the error shows on the bar')
+			: Language.getPhrase('delay_test_hint', 'Press [SPACE] on each beat - the error shows on the bar');
+	}
+
+	function delayTestApplyText():String
+	{
+		return controls.mobileC
+			? Language.getPhrase('delay_test_apply_touch', 'Hold the screen to apply the suggested offset')
+			: Language.getPhrase('delay_test_apply', 'Press [SHIFT+SPACE] to apply the suggested offset');
 	}
 
 	/** 以音乐拍点为准采一次样：早为负、晚为正，和判定条左右方向一致。 */
@@ -747,6 +794,32 @@ class NoteOffsetState extends MusicBeatState
 		return Std.int(Math.max(delayMin, Math.min(delayMax, suggest)));
 	}
 
+	#if mobile
+	/** 点屏采样只认空白处：延迟条（拖动调偏移）和虚拟按键（左右/A/B/C）上的按压不算敲拍。 */
+	function isTapFreeArea():Bool
+	{
+		FlxG.mouse.getViewPosition(camHUD, tapPos);
+
+		// y 范围放宽一点，把条上方的百分比小字也盖进去
+		if (timeBar != null && timeBar.visible
+			&& tapPos.x >= timeBar.x && tapPos.x <= timeBar.x + timeBar.width
+			&& tapPos.y >= timeBar.y - 30 && tapPos.y <= timeBar.y + timeBar.height + 10)
+			return false;
+
+		if (touchPad != null)
+		{
+			for (btn in touchPad.members)
+			{
+				if (btn == null || !btn.exists || !btn.visible) continue;
+				if (tapPos.x >= btn.x && tapPos.x <= btn.x + btn.width
+					&& tapPos.y >= btn.y && tapPos.y <= btn.y + btn.height)
+					return false;
+			}
+		}
+		return true;
+	}
+	#end
+
 	function applySuggestedOffset():Void
 	{
 		if (testCount <= 0) return;
@@ -769,7 +842,7 @@ class NoteOffsetState extends MusicBeatState
 		if (appliedTo != null && testInfoText != null && testHintText != null)
 		{
 			testInfoText.text = Language.getPhrase('delay_test_applied', 'Applied: {1} ms', [Std.string(appliedTo)]);
-			testHintText.text = Language.getPhrase('delay_test_hint', 'Press [SPACE] on each beat - the error shows on the bar');
+			testHintText.text = delayTestHintText();
 		}
 		else updateTestText();
 	}
@@ -1018,6 +1091,9 @@ class NoteOffsetState extends MusicBeatState
 		startMousePos.put();
 		startComboOffset.put();
 		startCounterOffset.put();
+		#if mobile
+		tapPos.put();
+		#end
 		super.destroy();
 	}
 }

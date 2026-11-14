@@ -1,6 +1,7 @@
 package options.keoptions;
 
 import backend.Language;
+import options.groupData.GraphicsData;
 
 import flixel.FlxG;
 import flixel.util.FlxColor;
@@ -201,9 +202,11 @@ class KEOption implements options.objects.backend.IStringValueSource
 		return resolveTranslation("no description available", "No description available.");
 	}
 
-	/** IStringValueSource 契约：返回**裸值**（string → 当前字符串，color → FlxColor Int）。展示文本走 getOptionText / updateDisplay */
+	/** IStringValueSource 契约：返回**裸值**（bool → "on"/"off"，string → 当前字符串，color → FlxColor Int）。展示文本走 getOptionText / updateDisplay */
 	public function getValue():Dynamic
 	{
+		if (type == "bool") return value ? "on" : "off";
+
 		return value;
 	}
 
@@ -219,7 +222,14 @@ class KEOption implements options.objects.backend.IStringValueSource
 	/** IStringValueSource 契约：写裸值 + 同步 curOption，不落盘（落盘由 saveCurrentValue 负责） */
 	public function setValue(raw:Dynamic):Void
 	{
-		if (type == "string" && options.length > 0)
+		if (type == "bool")
+		{
+			// 下拉栏传回 "on"/"off"（也可能直接传 Bool）
+			value = (raw == true || raw == "on" || raw == 1);
+			curOption = value ? 0 : 1;
+		}
+		else if (type == "string" && options.length > 0)
+
 		{
 			var s:String = Std.string(raw);
 			curOption = options.indexOf(s);
@@ -293,6 +303,7 @@ class KEOption implements options.objects.backend.IStringValueSource
 
 		if(type == "bool") {
 			value = !value;
+			curOption = value ? 0 : 1; // options = ["on","off"]，与下拉栏同步
 			saveValue();
 			return true;
 		}
@@ -307,6 +318,9 @@ class KEOption implements options.objects.backend.IStringValueSource
 				case "Open Note Colors":
 					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.psychoptions.NotesColorSubState());
+					return false;
+				case "Open Note HSV Colors":
+					KEOptionsMenu.instance.openSubState(new options.psychoptions.NotesHSVSubState());
 					return false;
 				case "Open Controls":
 					KEOptionsMenu.instance.removeTouchPad();
@@ -339,7 +353,7 @@ class KEOption implements options.objects.backend.IStringValueSource
 					KEOptionsMenu.instance.openSubState(new mobile.options.MobileOptionsSubState());
 					return false;
 				case "Adjust Delay and Combo":
-					MusicBeatState.switchState(new options.psychoptions.NoteOffsetState());
+					MusicBeatState.switchState(new options.NoteOffsetState());
 					return false;
 				case "Customize Mobile Controls":
 					KEOptionsMenu.instance.removeTouchPad();
@@ -593,6 +607,7 @@ class KEOption implements options.objects.backend.IStringValueSource
 				return true;
 			case "bool":
 				value = !value;
+				curOption = value ? 0 : 1;
 				saveValue();
 				return true;
 			case "int", "float":
@@ -632,6 +647,7 @@ class KEOption implements options.objects.backend.IStringValueSource
 				return true;
 			case "bool":
 				value = !value;
+				curOption = value ? 0 : 1;
 				saveValue();
 				return true;
 			case "int", "float":
@@ -694,6 +710,13 @@ class KEOption implements options.objects.backend.IStringValueSource
 			case "sessionLogMax":
 				// 保留上限改动立即清理旧日志档案
 				debug.LogFile.trimArchives();
+			case "renderResolution":
+				// string 标签走 Main 的 Dynamic 入口（兼容旧 Int 存档）；DPI 模式不重调物理窗口
+				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
+			case "wideScreen":
+				// 宽屏切换：分辨率标签列表换血，掉列表的标签回落到第一档，再整体重应用
+				updateStringOptions(GraphicsData.getResolutionLabels());
+				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
 			case "keyboardBGColor", "keyboardEdgeColor", "keyboardRainColor", "keyboardTextColor":
 				// 颜色按目标拆开（主体 / 边缘 / 键雨 / 文字），统一交给 KeyboardViewer 自己刷，
 				// 别再对 members 无脑 color = col —— 会把按压高亮层和按键文字一起染掉。
@@ -810,6 +833,12 @@ class KEOption implements options.objects.backend.IStringValueSource
 			if (val > maxValue) val = maxValue;
 			option.value = (type == "int") ? Math.round(val) : val;
 		}
+			// bool 也走下拉栏（BIOS 式统一）：options 固定 ["on","off"]，curOption 与当前值同步
+			if (type == "bool") {
+				option.options = ["on", "off"];
+				option.curOption = (option.value == true) ? 0 : 1;
+			}
+
 			// 颜色类型初始化与接受值
 			if (type == "color") {
 				if (option.value == null) option.value = (defaultValue != null ? defaultValue : FlxColor.WHITE);

@@ -15,6 +15,7 @@ import objects.MessageBox;
 
 import backend.MouseMove;
 import options.objects.OptionInput;
+import options.groupData.GraphicsData;
 import shapeEx.Rect;
 
 class KEOptionsMenu extends MusicBeatState
@@ -50,7 +51,6 @@ class KEOptionsMenu extends MusicBeatState
 	var hitsoundList:Array<String> = Mods.mergeAllTextsNamed('sounds/hitsounds/HitSound.txt');
 
 	var descText:FlxText;
-	var descBack:FlxFilteredSprite;
 	var valueBar:DraggableBar;
 	var valueBarText:FlxText;
 
@@ -62,11 +62,12 @@ class KEOptionsMenu extends MusicBeatState
 	/** 下拉弹层挂这层，永远画在内容与描述框之上、不参与列表裁剪 */
 	var overlay:FlxSpriteGroup;
 
-	// ---- 主界面内子视图（原 KESubMenu / KEConfirmMenu 的替代） ----
+	// ---- 主界面内子视图（原 KESubMenu 的替代） ----
 	var inSubView:Bool = false;
 	var subReturnIndex:Int = 0;
 	var backOption:KEOption;
-	var yesOption:KEOption;
+	/** 子视图首行：不可选中的标题（type="title"） */
+	var titleOption:KEOption;
 
 	var optionScroller:MouseMove;
 
@@ -78,6 +79,12 @@ class KEOptionsMenu extends MusicBeatState
 
 	var optionClickCooldown:Float = 0;
 	var optionClickProtected:Bool = false;
+
+	// ---- 按压候选（拖拽防误触 + 点击先选择）----
+	var pressRow:Int = -1;
+	var pressWasSelected:Bool = false;
+	var pressY:Float = 0;
+	var pressTarget:Float = 0;
 
 	// ---- 数值直接输入 ----
 	var numericInput:Bool = false;
@@ -101,28 +108,8 @@ class KEOptionsMenu extends MusicBeatState
 	public static var OPTION_LEFT_MARGIN:Int = 20;
 	public static var TAB_ALPHA:Float = 0.8;
 	public static var OPTION_ALPHA:Float = 0.6;
-	public static var DESC_ALPHA:Float = 0.8;
 
 	public static var optionScrollPos:Float = 0;
-	var _lastResolution:Int = -1;
-
-	// 普通分辨率名称（900p 为移动版额外档位）
-	var _resolutionNames:Array<String> = [
-		"1280x720 (720p)",
-		"1600x900 (900p)",
-		"1920x1080 (1080p)",
-		"2560x1440 (1440p)",
-		"3840x2160 (2160p)"
-	];
-
-	// 普通分辨率
-	var _normalResolutions:Array<Array<Int>> = [
-		[1280, 720],
-		[1600, 900],
-		[1920, 1080],
-		[2560, 1440],
-		[3840, 2160]
-	];
 
 	public static function updateLayout():Void
 	{
@@ -133,72 +120,6 @@ class KEOptionsMenu extends MusicBeatState
 		CATEGORY_WIDTH = Std.int(SCREEN_WIDTH / CATEGORY_COUNT);
 		CATEGORY_HEIGHT = Std.int(Math.max(40, Std.int(SCREEN_HEIGHT * 0.07)));
 		OPTION_LEFT_MARGIN = Std.int(Math.max(16, Std.int(SCREEN_WIDTH * 0.015)));
-	}
-
-	// 21:9 宽屏分辨率
-	var _wideResolutions:Array<Array<Int>> = [
-		[Math.round(720 * 21.0 / 9.0), 720],   // 1680x720
-		[Math.round(1080 * 21.0 / 9.0), 1080], // 2520x1080
-		[Math.round(1440 * 21.0 / 9.0), 1440], // 3360x1440
-		[Math.round(2160 * 21.0 / 9.0), 2160]  // 5040x2160
-	];
-
-	// 宽屏分辨率名称
-	var _wideResolutionNames:Array<String> = [
-		"1680x720 (21:9)",
-		"2520x1080 (21:9)",
-		"3360x1440 (21:9)",
-		"5040x2160 (21:9)"
-	];
-
-	// 获取当前分辨率列表
-	function getCurrentResolutions():Array<Array<Int>>
-	{
-		var wideScreen:Bool = ClientPrefs.data != null && ClientPrefs.data.wideScreen;
-		return wideScreen ? _wideResolutions : _normalResolutions;
-	}
-
-	// 获取当前分辨率名称列表
-	function getCurrentResolutionNames():Array<String>
-	{
-		var wideScreen:Bool = ClientPrefs.data != null && ClientPrefs.data.wideScreen;
-		return wideScreen ? _wideResolutionNames : _resolutionNames;
-	}
-
-	function getResolutionName(index:Int):String
-	{
-		if (index >= 0 && index < _resolutionNames.length) return _resolutionNames[index];
-		return "Unknown";
-	}
-
-	function applyRenderResolution(index:Int):Void
-	{
-		#if mobile
-		// 移动端编译目标：不做任何 resize（分辨率设置不生效）
-		return;
-		#else
-		var resolutions = getCurrentResolutions();
-		if (index < 0 || index >= resolutions.length) return;
-		if (index == _lastResolution) return;
-		if (ClientPrefs.data.useDpiSettings) return;
-
-		var res = resolutions[index];
-		var w = res[0];
-		var h = res[1];
-
-		#if (cpp || hl)
-		try {
-			var window = openfl.Lib.current.stage.window;
-			window.resize(w, h);
-			var displayBounds = window.display.bounds;
-			window.x = Std.int(displayBounds.x + (displayBounds.width - w) / 2);
-			window.y = Std.int(displayBounds.y + (displayBounds.height - h) / 2);
-		} catch(e:Dynamic) {}
-		#end
-		flixel.FlxG.resizeGame(w, h);
-		flixel.FlxG.scaleMode = new flixel.system.scaleModes.RatioScaleMode(false);
-		_lastResolution = index;
-		#end
 	}
 
 	// ---- 布局辅助 ----
@@ -294,18 +215,11 @@ class KEOptionsMenu extends MusicBeatState
 		var contentHeight:Int = SCREEN_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM - CATEGORY_HEIGHT;
 
 		bg = new FlxFilteredSprite(0, MARGIN_TOP + CATEGORY_HEIGHT);
-		bg.makeGraphic(SCREEN_WIDTH, contentHeight, FlxColor.BLACK);
-		bg.alpha = 0.6;
+		bg.makeGraphic(SCREEN_WIDTH, contentHeight, FlxColor.GRAY);
+		bg.alpha = 0.8;
 		bg.scrollFactor.set();
 		bg.antialiasing = ClientPrefs.data.antialiasing;
 		add(bg);
-
-		descBack = new FlxFilteredSprite(0, SCREEN_HEIGHT - MARGIN_BOTTOM);
-		descBack.makeGraphic(SCREEN_WIDTH, 32, FlxColor.BLACK);
-		descBack.alpha = DESC_ALPHA;
-		descBack.scrollFactor.set();
-		descBack.antialiasing = ClientPrefs.data.antialiasing;
-		add(descBack);
 
 		// 选项卡 + 选中下划线
 		for (i in 0...options.length)
@@ -350,7 +264,7 @@ class KEOptionsMenu extends MusicBeatState
 		valueBar.screenCenter(X);
 		valueBar.onValueChanged = function(percentValue:Float) {
 			if (selectedOption == null || !isNumericOption(selectedOption)) return;
-			cancelNumericInput(false);
+			commitNumericPending();
 			var rawValue:Float = FlxMath.lerp(selectedOption.minValue, selectedOption.maxValue, percentValue / 100);
 			var newValue:Float = snapOptionValue(rawValue, selectedOption);
 			selectedOption.value = newValue;
@@ -381,12 +295,12 @@ class KEOptionsMenu extends MusicBeatState
 		add(overlay);
 
 		// 主界面内子视图的固定行
+		titleOption = new KEOption();
+		titleOption.name = "";
+		titleOption.type = "title";
 		backOption = new KEOption();
 		backOption.name = "Back";
 		backOption.type = "back";
-		yesOption = new KEOption();
-		yesOption.name = "Yes";
-		yesOption.type = "action";
 
 		selectedCat = options[0];
 		doSwitchToCat(selectedCat, false);
@@ -468,10 +382,12 @@ class KEOptionsMenu extends MusicBeatState
 			null
 		);
 		optionScroller.useLerp = true;
-		optionScroller.lerpSmooth = 10;
+		optionScroller.lerpSmooth = 5; // 滑动动画放慢（10 → 5）
 		optionScroller.dragSensitivity = 1.5;
 		optionScroller.deceleration = 0.96;
-		optionScroller.enableMouseWheel = false;
+		// 滚轮统一交给 MouseMove（velocity 惯性滚动，与模组界面同参），不再自配音效
+		optionScroller.enableMouseWheel = true;
+		optionScroller.mouseWheelSensitivity = -200.0;
 		add(optionScroller);
 	}
 
@@ -513,21 +429,20 @@ class KEOptionsMenu extends MusicBeatState
 		rows = [];
 		rowGroup.clear();
 
-		var widgetW:Float = Math.min(SCREEN_WIDTH * 0.30, 440);
+		// BIOS 式统一列：下拉/输入框宽 0.2×宽、右缘固定 0.85×宽（右侧留白 0.15×宽）
+		var widgetW:Float = SCREEN_WIDTH * 0.20;
 
 		for (i in 0...selectedList.length)
 		{
 			var opt = selectedList[i];
 			if (opt == null) continue;
 			var row = new KEOptionRow(opt, i, widgetW, FlxColor.WHITE, overlay);
-			rowGroup.add(row.indicator);
-			rowGroup.add(row.nameText);
-			if (row.valueText != null) rowGroup.add(row.valueText);
-			if (row.widget != null) rowGroup.add(row.widget);
-			rowGroup.add(row.hitbox);
+			row.attachTo(rowGroup);
 			row.refreshTexts(valueTextFor);
 			rows.push(row);
 		}
+
+		pressRow = -1; // 行已重建，进行中的按压候选作废
 
 		if (optionScroller != null)
 			optionScroller.moveLimit = [0, maxScrollPixels()];
@@ -536,7 +451,7 @@ class KEOptionsMenu extends MusicBeatState
 	public function doSwitchToCat(cat:KEOptionCata, checkForOutOfBounds:Bool = true)
 	{
 		closeWidgetPopups();
-		cancelNumericInput(false);
+		commitNumericPending();
 		inSubView = false;
 
 		if (checkForOutOfBounds && selectedCatIndex > options.length - 1)
@@ -567,49 +482,23 @@ class KEOptionsMenu extends MusicBeatState
 		}
 
 		rebuildRows();
-		updateUnderlines(true);
+		updateUnderlines(false); // 点击切换也走 tween，展开条有过渡而不是直接变长
 		doSelectCurrentOption();
 	}
 
-	/** 进入分组子视图：同一份列表，首行变 BACK | 子标题 */
+	/** 进入分组子视图：首行 = 不可选中标题，次行 = BACK，其后是组内选项 */
 	function enterSubView(group:KEOption):Void
 	{
 		closeWidgetPopups();
-		cancelNumericInput(false);
+		commitNumericPending();
 
 		subReturnIndex = selectedOptionIndex;
-		var subViewTitle:String = backend.Language.getPhrase(group.subMenuTitle, group.subMenuTitle);
-		backOption.name = backend.Language.getPhrase('back', 'BACK') + " | " + subViewTitle;
+		titleOption.name = backend.Language.getPhrase(group.subMenuTitle, group.subMenuTitle);
+		backOption.name = backend.Language.getPhrase('back', 'BACK');
 
-		selectedList = [backOption].concat(group.subMenuOptions);
+		selectedList = [titleOption, backOption].concat(group.subMenuOptions);
 		inSubView = true;
-		selectedOptionIndex = 0;
-
-		resetScroll();
-		rebuildRows();
-		doSelectCurrentOption();
-		FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
-	}
-
-	/** 确认类选项（三个 Reset）：主界面内确认子视图 = BACK | 选项名 + YES */
-	function enterConfirmView(opt:KEOption):Void
-	{
-		closeWidgetPopups();
-		cancelNumericInput(false);
-
-		subReturnIndex = selectedOptionIndex;
-		backOption.name = backend.Language.getPhrase('back', 'BACK') + " | " + opt.getDisplayName();
-
-		yesOption.name = backend.Language.getPhrase('yes', 'Yes');
-		yesOption.setDescription(opt.getWarning());
-		yesOption.onAction = function() {
-			opt.executeWarningAction();
-			exitSubView();
-		};
-
-		selectedList = [backOption, yesOption];
-		inSubView = true;
-		selectedOptionIndex = 1; // 光标直接落在 YES 上
+		selectedOptionIndex = 1; // 光标落在 BACK 上
 
 		resetScroll();
 		rebuildRows();
@@ -620,7 +509,7 @@ class KEOptionsMenu extends MusicBeatState
 	function exitSubView():Void
 	{
 		closeWidgetPopups();
-		cancelNumericInput(false);
+		commitNumericPending();
 
 		inSubView = false;
 		selectedList = selectedCat.options;
@@ -716,7 +605,7 @@ class KEOptionsMenu extends MusicBeatState
 		}
 	}
 
-	/** 行右侧值文本（bool 双态 / 数值 / 分组 ">" 标记；string/color 走 widget） */
+	/** 行右侧值文本（数值 / 分组 ">" 标记；string/color/bool 走 widget 下拉框） */
 	function valueTextFor(opt:KEOption):String
 	{
 		if (opt.hasSubMenu) return ">";
@@ -725,8 +614,6 @@ class KEOptionsMenu extends MusicBeatState
 			case "bool":
 				return backend.Language.getPhrase(opt.value ? "on" : "off", opt.value ? "on" : "off");
 			case "int", "float":
-				if (opt.variable == "renderResolution")
-					return getResolutionName(Std.int(opt.value));
 				return Std.string(opt.value);
 			default:
 				return "";
@@ -827,7 +714,6 @@ class KEOptionsMenu extends MusicBeatState
 	{
 		numericInput = true;
 		numericBuf = "";
-		if (optionScroller != null) optionScroller.inputAllow = false;
 		descText.text = backend.Language.getPhrase("type_number_hint", "Type a number, Enter to apply, Esc to cancel");
 	}
 
@@ -924,8 +810,35 @@ class KEOptionsMenu extends MusicBeatState
 		if (!numericInput) return;
 		numericInput = false;
 		numericBuf = "";
-		if (optionScroller != null) optionScroller.inputAllow = true;
 		if (restoreDesc) doSelectCurrentOption();
+	}
+
+	/** 有未提交缓冲就提交（离开该行/切分类/进子视图/拖值条时走这里） */
+	inline function commitNumericPending():Void
+	{
+		if (numericInput) commitNumericInput();
+	}
+
+	/** PC F9：恢复全部设置到默认值（等同 BIOS load defaults） */
+	function resetAllSettings():Void
+	{
+		closeWidgetPopups();
+		cancelNumericInput(false);
+
+		ClientPrefs.data = ClientPrefs.defaultData;
+		ClientPrefs.saveSettings();
+		ClientPrefs.loadPrefs();
+
+		// 分辨率随默认值重新应用（string 标签走 Main 的 Dynamic 入口）
+		Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
+
+		// 重建行 + 复位滚动 + 选中刷新（值全变默认了）
+		doSwitchToCat(options[selectedCatIndex], false);
+
+		MessageBox.show(
+			backend.Language.getPhrase("settings_restored", "Settings restored"),
+			backend.Language.getPhrase("all_settings_reset_hint", "All settings have been reset to defaults (F9)"),
+			MessageBoxType.MESSAGE, null, 2.5);
 	}
 
 	// ==================== 行激活 ====================
@@ -936,6 +849,8 @@ class KEOptionsMenu extends MusicBeatState
 		if (idx < 0 || idx >= selectedList.length) return;
 		var opt = selectedList[idx];
 		if (opt == null) return;
+
+		if (opt.type == "title") return; // 标题行不可交互
 
 		if (opt.type == "back")
 		{
@@ -949,10 +864,14 @@ class KEOptionsMenu extends MusicBeatState
 		}
 		if (opt.type == "confirm")
 		{
-			enterConfirmView(opt);
+			// 阻塞式确认对话框：菜单输入被 subState 门禁挡住，Yes 才执行
+			FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
+			openSubState(new KEConfirmDialog(opt.getDisplayName(), opt.getWarning(), function() {
+				opt.executeWarningAction();
+			}));
 			return;
 		}
-		if ((opt.type == "string" || opt.type == "color") && rows[idx] != null && rows[idx].widget != null)
+		if ((opt.type == "string" || opt.type == "color" || opt.type == "bool") && rows[idx] != null && rows[idx].widget != null)
 		{
 			rows[idx].widget.openPopup(true);
 			FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
@@ -970,6 +889,11 @@ class KEOptionsMenu extends MusicBeatState
 	function selectRow(idx:Int, silent:Bool = false):Void
 	{
 		if (idx < 0 || idx >= selectedList.length) return;
+		var target:KEOption = selectedList[idx];
+		if (target != null && target.type == "title") return; // 标题行不可选中
+		// 输入中离开本行 → 先提交缓冲再走（"离开即保存"）
+		if (numericInput && idx != selectedOptionIndex)
+			commitNumericInput();
 		selectedOptionIndex = idx;
 		ensureOptionVisible();
 		doSelectCurrentOption();
@@ -999,13 +923,6 @@ class KEOptionsMenu extends MusicBeatState
 
 		super.update(elapsed);
 
-		// 检查分辨率是否需要更新 - 使用当前分辨率列表
-		var curRes = ClientPrefs.data.renderResolution;
-		var resolutions = getCurrentResolutions();
-		if (curRes >= 0 && curRes < resolutions.length && curRes != _lastResolution && !FlxG.save.data.fullscreen) {
-			applyRenderResolution(curRes);
-		}
-
 		if (optionClickCooldown > 0) {
 			optionClickCooldown -= elapsed;
 			if (optionClickCooldown <= 0) {
@@ -1016,20 +933,43 @@ class KEOptionsMenu extends MusicBeatState
 		FlxG.mouse.visible = true;
 		FlxG.mouse.useSystemCursor = ClientPrefs.data.useSystemCursor;
 
+		// ---- 有 substate 挡在前（确认对话框 / 键位编辑器等）：主菜单不再吃任何输入 ----
+		if (this.subState != null)
+		{
+			optionScroller.inputAllow = false;
+			positionRows();
+			return;
+		}
+
+		// ---- PC：F9 恢复全部设置（BIOS load defaults 便捷键） ----
+		#if desktop
+		if (FlxG.keys.justPressed.F9)
+		{
+			resetAllSettings();
+		}
+		#end
+
 		// ---- 弹层展开时先让下拉接管键盘（上下选/回车/ESC/R） ----
 		var openWidget = findOpenWidget();
 
-		// ---- BACK：数值输入取消 > 子视图返回 > 关闭菜单 ----
+		// ---- BACK：输入中仅 ESC/右键取消（BACKSPACE 绑在 BACK 上，归删字符管） > 子视图返回 > 关闭菜单 ----
 		if (!isClosing && (controls.BACK || FlxG.mouse.justPressedRight))
 		{
 			if (numericInput)
 			{
-				cancelNumericInput(true);
+				if (FlxG.keys.justPressed.ESCAPE || FlxG.mouse.justPressedRight)
+					cancelNumericInput(true);
 			}
 			else if (openWidget != null)
 			{
 				// 键盘 BACK 由弹层 handleKeyNav 收起；鼠标右键这里就地收起
+				#if mobile
+				// 移动端没有 ESC/右键：虚拟 B 键（controls.BACK）就地收起弹层，
+				// 层级语义 = B 一次关一层（弹层 → 子视图 → 菜单）。点弹层外也能收。
+				openWidget.closePopup();
+				#else
 				if (FlxG.mouse.justPressedRight) openWidget.closePopup();
+				#end
 			}
 			else if (inSubView)
 			{
@@ -1058,15 +998,8 @@ class KEOptionsMenu extends MusicBeatState
 		if (popupConsumesKeys)
 			openWidget.handleKeyNav();
 
-		// 弹层展开 / 输入数字时让出列表拖动
-		optionScroller.inputAllow = (openWidget == null && !numericInput);
-
-		// ---- 滚轮：平滑滚动（弹层展开时整页让位，弹层自己翻页） ----
-		if (openWidget == null && !numericInput && FlxG.mouse.wheel != 0)
-		{
-			optionScroller.target = FlxMath.bound(optionScroller.target - FlxG.mouse.wheel * ROW_H, 0, maxScrollPixels());
-			FlxG.sound.play(Paths.sound('scrollMenu'), 0.35);
-		}
+		// 弹层展开时让出列表拖动与滚轮（wheel 由 MouseMove 在 inputAllow 门内处理）；数值输入不屏蔽
+		optionScroller.inputAllow = (openWidget == null);
 
 		// ---- 选项卡悬停/点击 + 下划线动效 ----
 		var tabHoverIndex = -1;
@@ -1144,7 +1077,7 @@ class KEOptionsMenu extends MusicBeatState
 			{
 				row.nameText.color = FlxColor.WHITE;
 			}
-			else if (i == hoveredOptionIndex)
+			else if (i == hoveredOptionIndex && row.option.type != "title") // 标题行不响应悬停高亮
 			{
 				row.nameText.color = FlxColor.YELLOW;
 			}
@@ -1154,34 +1087,56 @@ class KEOptionsMenu extends MusicBeatState
 			}
 		}
 
-		if (FlxG.mouse.justPressed && openWidget == null && !numericInput && !optionClickProtected)
+		// ---- 行点击：按下记候选，松开时先做拖拽防误触判定，再"先选择、再执行" ----
+		if (FlxG.mouse.justPressed && openWidget == null && !optionClickProtected)
 		{
+			pressRow = -1;
 			if (hoveredOptionIndex >= 0)
 			{
 				var row = rows[hoveredOptionIndex];
-				var widgetW:Float = Math.min(SCREEN_WIDTH * 0.30, 440);
+				var widgetW:Float = SCREEN_WIDTH * 0.20;
 
 				if (row.widget != null && mouseInWidget(row.widget, widgetW))
 				{
 					// 点在下拉条上：只移动选中，打开/关闭由控件自己的 update 处理
 					if (selectedOptionIndex != hoveredOptionIndex)
-					{
-						selectedOptionIndex = hoveredOptionIndex;
-						ensureOptionVisible();
-						doSelectCurrentOption();
-					}
+						selectRow(hoveredOptionIndex);
 				}
-				else
+				else if (row.option.type != "title")
 				{
-					selectRow(hoveredOptionIndex);
-					activateRow(hoveredOptionIndex);
-					optionClickProtected = true;
-					optionClickCooldown = 0.2;
+					// 记录按压候选（不立即执行）：松开时未拖拽才结算
+					pressRow = hoveredOptionIndex;
+					pressWasSelected = (pressRow == selectedOptionIndex);
+					pressY = FlxG.mouse.y;
+					pressTarget = optionScroller.target;
 				}
 			}
 		}
 
-		// ---- 数值直接输入：选中数值项时敲数字即开始 ----
+		if (FlxG.mouse.justReleased && pressRow >= 0)
+		{
+			// 拖拽防误触：指针位移 >8px 或按压期间滚动位移 >2 → 这次是拖拽，全部作废
+			var dragged:Bool = Math.abs(FlxG.mouse.y - pressY) > 8
+				|| Math.abs(optionScroller.target - pressTarget) > 2;
+
+			if (!dragged)
+			{
+				if (!pressWasSelected)
+				{
+					selectRow(pressRow); // 首点：只选中
+				}
+				else
+				{
+					activateRow(pressRow); // 已选中的行再点：才执行
+					optionClickProtected = true;
+					optionClickCooldown = 0.2;
+				}
+			}
+			pressRow = -1;
+		}
+
+		// ---- 数值直接输入：选中数值项时敲数字即开始（不屏蔽导航，离开该行自动保存） ----
+		var numericJustStarted:Bool = false;
 		if (!numericInput && openWidget == null && isNumericOption(selectedOption))
 		{
 			var d:Int = digitJustPressed();
@@ -1189,11 +1144,18 @@ class KEOptionsMenu extends MusicBeatState
 			{
 				startNumericInput();
 				numericBuf = Std.string(d);
+				numericJustStarted = true; // 起手帧不再进 handleNumericInput，修掉首输必双写
 			}
 		}
 
-		// ---- 键盘导航（弹层展开/输入数字时全部让位） ----
-		if (!numericInput && !popupConsumesKeys)
+		// 缓冲编辑（数字/负号/小数点/退格）每帧跑；导航不受影响
+		if (numericInput && !numericJustStarted)
+		{
+			handleNumericInput();
+		}
+
+		// ---- 键盘导航（弹层展开时让位；数值输入期间照常导航，离开该行自动提交） ----
+		if (!popupConsumesKeys)
 		{
 			var accept = controls.ACCEPT;
 			var right = controls.UI_RIGHT_P;
@@ -1258,20 +1220,17 @@ class KEOptionsMenu extends MusicBeatState
 				scrollHoldTime = 0;
 			}
 
-			if (accept)
+			// 数值输入中：Esc 取消；Enter 提交。其余导航照常（离开该行时 selectRow/doSwitchToCat 自动提交）
+			if (numericInput && FlxG.keys.justPressed.ESCAPE)
 			{
-				activateRow(selectedOptionIndex);
+				cancelNumericInput(true);
 			}
-		}
-		else if (numericInput)
-		{
-			if (controls.ACCEPT)
+			else if (accept)
 			{
-				commitNumericInput();
-			}
-			else
-			{
-				handleNumericInput();
+				if (numericInput)
+					commitNumericInput();
+				else
+					activateRow(selectedOptionIndex);
 			}
 		}
 
@@ -1329,18 +1288,13 @@ class KEOptionsMenu extends MusicBeatState
 			"FPS Counter Settings"
 		);
 
-		// 获取当前分辨率名称列表的最大索引
-		var maxResIdx = getCurrentResolutionNames().length - 1;
-
 		return [
 			fpsOptions,
 			KEOption.create("Low Quality", "Reduce graphics for performance", "lowQuality", "bool"),
 			KEOption.create("Anti-Aliasing", "Smoother visuals", "antialiasing", "bool"),
-			// Resolution：动态获取最大索引；值文本按分辨率名显示
-			KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "int", 0, 0, maxResIdx, 1),
-			#if !mobile
+			// Resolution：string 选择（与 Win10 页同一套标签），旧 Int 存档由 Main.getRenderResolutionIndex 兼容
+			KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "string", GraphicsData.getResolutionLabels()),
 			KEOption.create("DPI Scale", "Scale the game based on your screen's DPI", "useDpiSettings", "bool"),
-			#end
 			KEOption.create("Shaders", "Enable shader effects", "shaders", "bool"),
 			KEOption.create("Wide Screen", "Enable 21:9 widescreen mode", "wideScreen", "bool"),
 			KEOption.createStringOption("GPU Caching", "Texture caching mode: disabled = RAM only; auto = drop the CPU copy after the first draw; full = upload and drop the CPU copy at load (least RAM, risky on low VRAM)", "gpuCaching", ["disabled", "auto", "full"], "disabled"),
@@ -1406,9 +1360,8 @@ class KEOptionsMenu extends MusicBeatState
 				KEOption.create("Force Number Color", "Force numbers to a specific color", "forceNumberColor", "bool"),
 				KEOption.create("showEarlyLate", "Show early/late text on hit", "showEarlyLate", "bool"),
 				KEOption.create("showCombo", "Show combo text when combo > 10", "showCombo", "bool"),
-				KEOption.create("Force Note Skin", "Force using the custom note skin", "forceNoteSkin", "bool"),
-				KEOption.create("Force Splash Skin", "Force using the custom splash skin", "forceSplashSkin", "bool"),
-				KEOption.create("Force RGB Shader", "Force using the RGB shader for notes and splashes", "forceRGBShader", "bool")
+				KEOption.create("Note System", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "noteSystem", "string", ['auto', 'legacy', 'new']),
+				KEOption.create("Splash System", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "splashSystem", "string", ['auto', 'legacy', 'new'])
 			],
 			"Skin Settings"
 		);
@@ -1558,40 +1511,40 @@ class KEOptionsMenu extends MusicBeatState
 			"Mobile Settings",
 			"Configure mobile-specific settings",
 			[
-				KEOption.create("Extra Controls", 
-					"Select how many extra buttons you prefer to have?\nThey can be used for mechanics with LUA or HScript.", 
-					"extraButtons", 
-					"string", 
+				KEOption.create("Extra Controls",
+					"Select how many extra buttons you prefer to have?\nThey can be used for mechanics with LUA or HScript.",
+					"extraButtons",
+					"string",
 					["NONE", "SINGLE", "DOUBLE"]),
-					
+
 				KEOption.create("Mobile Controls Opacity",
-					"Selects the opacity for the mobile buttons (careful not to put it at 0 and lose track of your buttons).", 
-					"controlsAlpha", 
-					"float", 
+					"Selects the opacity for the mobile buttons (careful not to put it at 0 and lose track of your buttons).",
+					"controlsAlpha",
+					"float",
 					0.8, 0.001, 1.0, 0.1),
-				#if mobile	
+				#if mobile
 				KEOption.create("Allow Phone Screensaver",
-					"If checked, the phone will sleep after going inactive for few seconds.\n(The time depends on your phone's options)", 
-					"screensaver", 
+					"If checked, the phone will sleep after going inactive for few seconds.\n(The time depends on your phone's options)",
+					"screensaver",
 					"bool"),
-					
+
 				KEOption.create("Wide Screen Mode",
 					"If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)",
-					"wideScreen", 
+					"wideScreen",
 					"bool"),
 				#end
-					
-				KEOption.create("Hitbox Design", 
-					"Choose how your hitbox should look like.", 
-					"hitboxType", 
-					"string", 
+
+				KEOption.create("Hitbox Design",
+					"Choose how your hitbox should look like.",
+					"hitboxType",
+					"string",
 					["No Gradient", "No Gradient (Old)", "Gradient", "Hidden"]),
-					
-				KEOption.create("Hitbox Position", 
+
+				KEOption.create("Hitbox Position",
 					"If checked, the hitbox will be put at the bottom of the screen, otherwise will stay at the top.",
-					"hitboxPos", 
+					"hitboxPos",
 					"bool"),
-					
+
 				KEOption.create("Dynamic Controls Color",
 					"If checked, the mobile controls color will be set to the notes color in your settings.\n(have effect during gameplay only)",
 					"dynamicColors",
@@ -1601,12 +1554,13 @@ class KEOptionsMenu extends MusicBeatState
 		);
 		return [
 			KEOption.create("Open Note Colors", "Customize note colors", "", "action"),
+			KEOption.create("Open Note HSV Colors", "Customize legacy note HSV colors", "", "action"),
 			KEOption.create("Open Controls", "Customize key bindings", "", "action"),
 			KEOption.create("Open EK Controls", "Customize key bindings for EK mode", "", "action"),
 			KEOption.create("Adjust Delay and Combo", "Customize ingame experience", "", "action"),
 			mobileSettings,
 			KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"),
-			KEOption.create("Customize Mobile Extra Controls", "Customize extra keys you required","","action"),
+			KEOption.create("Customize Mobile Extra Controls", "Customize extra keys you required", "", "action"),
 			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']),
 			KEOption.create("Color Mode", "Switch between dark and white mode", "colorMode", "string", ['dark', 'white']),
 			KEOption.createResetOption("Reset KeyBinds", "keybinds"),
@@ -1617,6 +1571,7 @@ class KEOptionsMenu extends MusicBeatState
 	{
 	return [
 			KEOption.create("Check Updates", "Check for game updates", "checkForUpdates", "bool"),
+			KEOption.create("Beta Updates", "Change the channel to beta", "betaUpdates", "bool"),
 			KEOption.create("Loading Screen", "Show loading screen", "loadingScreen", "bool"),
 			KEOption.create('Lua Text Antialiasing', "Enable antialiasing on lua texts", "luatextantialiasing", "bool"),
 			KEOption.create("Frequent GC", "Full GC + heap compact on every state transition: returns freed textures to the OS, may cause short hitches", "frequentGC", "bool"),
@@ -1644,9 +1599,9 @@ class KEOptionsMenu extends MusicBeatState
 		];
 	}
 
-	 override function closeSubState()
-    {
-        super.closeSubState();
-        addTouchPad('LEFT_RIGHT', 'A_B');
+	override function closeSubState()
+	{
+		super.closeSubState();
+		addTouchPad('LEFT_RIGHT', 'A_B');
 	}
 }

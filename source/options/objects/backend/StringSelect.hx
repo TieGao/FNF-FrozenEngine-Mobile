@@ -9,18 +9,21 @@ import flixel.util.FlxColor;
 /**
  * 字符串选项下拉条
  *
- * Win10 风格：4px 圆角、无描边
+ * Win10 风格：4px 圆角 + 1px 细描边（Fluent 下拉框）
  * Win8  风格：方角 + 2px 描边（Metro 下拉）
  *
  * 列表超过 MAX_VISIBLE_ROWS 行时弹层高度封顶，靠滚轮（鼠标悬停弹层上）或上下键翻动，
  * 右侧画一条滑块。键盘回车是「打开列表 → 上下选 → 回车确认」，不再直接循环改值。
+ *
+ * 弹层展开时会把自己登记成 OptionInput 的遮挡区：列表压在别的选项行上面时，
+ * 点列表不会顺手把下面那行的按钮也点掉（Debug 页「Crash Test」就是这么被误触的）。
  */
 class StringSelect extends FlxSpriteGroup
 {
     var follow:IStringValueSource;
 
     var bg:Rect;          // 当前值的条
-    var border:FlxSprite; // Win8 描边
+    var border:FlxSprite; // 描边：Win8 = 2px 方角 / Win10 = 1px 圆角
     var dis:FlxText;
 
     var popup:FlxSpriteGroup;   // 展开的下拉
@@ -48,6 +51,16 @@ class StringSelect extends FlxSpriteGroup
     var scrollIndex:Int = 0;
     /** 键盘在下拉里高亮的那一项（-1 = 还没用键盘操作过） */
     var keyIndex:Int = -1;
+
+    #if mobile
+    // 触屏滚动：弹层上纵拖翻行（滚轮的替代）。
+    // 列表项是"松手点击"语义，拖动手势期间要抑制松手点击，避免从 A 拖到 B 松手选中 B。
+    var popupDragPend:Bool = false;
+    var popupDragActive:Bool = false;
+    var popupDragSuppressed:Bool = false; // 本次手势已判定为拖动，松手不选
+    var popupDragY:Float = 0;
+    var popupDragBase:Int = 0;
+    #end
 
     // 下拉项尺寸 / 边缘留白
     static inline var ITEM_H:Float = 32.0;
@@ -80,12 +93,10 @@ class StringSelect extends FlxSpriteGroup
         bg.antialiasing = ClientPrefs.data.antialiasing;
         add(bg);
 
-        if (win8)
-        {
-            border = UIControlTheme.makeFrameSprite(width, height);
-            border.color = borderColor();
-            add(border);
-        }
+        // 两种风格都带描边：Win8 是 2px 方角，Win10 是 1px、跟着下拉条自己的 4px 圆角走
+        border = UIControlTheme.makeFrameSprite(width, height);
+        border.color = borderColor();
+        add(border);
 
         dis = new FlxText(10, 0, width - 30, '', 16);
         dis.setFormat(Paths.font('montserrat.ttf'), 16, textColor(), LEFT);
@@ -133,10 +144,14 @@ class StringSelect extends FlxSpriteGroup
         return (hover || isOpen || keyboardHighlight) ? accentColor() : mainTextColor();
 
     function borderColor():FlxColor
-        return (hover || isOpen || keyboardHighlight) ? UIControlTheme.accent() : UIControlTheme.border();
+        return (hover || isOpen || keyboardHighlight) ? accentColor() : UIControlTheme.border();
 
     public function refreshValue()
     {
+        // 宿主可能在 follow.change() / saveCurrentValue() 里同步重建整页（改语言、改选项风格），
+        // 把本控件连同 dis 一起销毁；已销毁的 FlxText 再写 text/color 就是 Null Object Reference。
+        if (!exists || dis == null) return;
+
         var v = follow.getValue();
         dis.text = follow.getOptionText(v);
         dis.color = textColor();
@@ -368,12 +383,15 @@ class StringSelect extends FlxSpriteGroup
      * 注意：不能在遍历 `popup.members` 的同时 `remove`（splice 会就地删元素，
      * 结果隔一个漏一个，旧项会残留在弹层里变成幽灵行）。
      * 另外必须把 popupBg / popupBorder 置空——它们已经被 destroy，
-     * 留着非 null 引用会被 update() 里的 `OptionInput.overlaps(popupBg)` 拿去用，
+     * 留着非 null 引用会被 update() 里的 `OptionInput.overlaps(popupBg, true)` 拿去用，
      * 触发 Null Object Reference。
      */
     function clearPopup():Void
     {
         if (popup == null) return;
+
+        // 旧弹层正要被销毁：先把它的遮挡登记摘掉，否则 OptionInput 里会留一个已销毁的判定对象
+        OptionInput.endBlock(popupBg);
 
         var old = popup.members.copy();
         for (m in old)
@@ -479,8 +497,9 @@ class StringSelect extends FlxSpriteGroup
         syncPopupPosition();
         var mouse = FlxG.mouse;
 
-        // 如果鼠标在下拉菜单上，主条不再抢悬停（避免覆盖时误判）
-        var overPopup = isOpen && popup.visible && popupBg != null && OptionInput.overlaps(popupBg);
+        // 如果鼠标在下拉菜单上，主条不再抢悬停（避免覆盖时误判）。
+        // 弹层自己就是遮挡区，所以这里必须传 insidePopup = true 才能拿到原始判定
+        var overPopup = isOpen && popup.visible && popupBg != null && OptionInput.overlaps(popupBg, true);
 
         // ---- 列表放不下时：滚轮在弹层上滚动 ----
         // 宿主界面的列表滚动在弹层展开时已经被让出来（scroller.inputAllow），
@@ -490,6 +509,48 @@ class StringSelect extends FlxSpriteGroup
             scrollIndex = Std.int(FlxMath.bound(scrollIndex - mouse.wheel, 0, maxScrollIndex()));
             applyPopupScroll();
         }
+
+        #if mobile
+        // ---- 触屏：弹层上纵拖滚动（滚轮的替代） ----
+        // 拖动手势期间抑制列表项的松手点击；新手势恢复点击语义。
+        if (mouse.justPressed)
+            popupDragSuppressed = false;
+
+        if (isOpen && overPopup)
+        {
+            if (mouse.justPressed)
+            {
+                popupDragPend = true;
+                popupDragActive = false;
+                popupDragY = mouse.y;
+                popupDragBase = scrollIndex;
+            }
+            else if (popupDragPend && !mouse.pressed)
+            {
+                popupDragPend = false;
+            }
+            else if (popupDragPend && mouse.pressed)
+            {
+                var dy:Float = mouse.y - popupDragY;
+                if (!popupDragActive && Math.abs(dy) >= 12)
+                    popupDragActive = true;
+                if (popupDragActive)
+                {
+                    popupDragSuppressed = true;
+                    if (maxScrollIndex() > 0)
+                    {
+                        scrollIndex = Std.int(FlxMath.bound(popupDragBase - dy / ITEM_H, 0, maxScrollIndex()));
+                        applyPopupScroll();
+                    }
+                }
+            }
+        }
+        else if (popupDragPend)
+        {
+            popupDragPend = false;
+            popupDragActive = false;
+        }
+        #end
 
         // ---- 主条悬浮/按下反馈 ----
         var wasHover = hover;
@@ -551,16 +612,25 @@ class StringSelect extends FlxSpriteGroup
             var it = popupItems[i];
             if (!it.visible) continue;   // 滚出窗口的项不参与悬停 / 点击
 
-            var itHover = OptionInput.overlaps(it);
+            var itHover = OptionInput.overlaps(it, true);   // 弹层内部：绕开自己的遮挡
             // 键盘高亮和鼠标悬停共用同一条底色
             it.alpha = (itHover || i == keyIndex) ? 1.0 : 0.0;
 
-            if (itHover && mouse.justReleased)
+            var itemClickable:Bool = itHover && mouse.justReleased;
+            #if mobile
+            if (popupDragSuppressed) itemClickable = false; // 拖动手势的松手不选
+            #end
+            if (itemClickable)
             {
                 follow.setValue(follow.options[i]);
                 follow.curOption = i;
                 follow.change();
                 follow.saveCurrentValue();
+
+                // saveCurrentValue() 可能同步重建整页（改语言 / 改选项风格）→ 本控件已销毁，
+                // 后面的 refreshValue / closePopup 一次都不能碰
+                if (!exists) return;
+
                 refreshValue();
                 closePopup();
                 FlxG.sound.play(Paths.sound('confirmMenu'), 0.6);
@@ -588,6 +658,10 @@ class StringSelect extends FlxSpriteGroup
         syncPopupPosition();
         if (popup != null) popup.visible = true;
 
+        // 弹层压在别的选项行上面：登记遮挡区，让下面那些按钮这一帧起不再吃鼠标
+        // （否则点列表项会穿透过去，Debug 页误触「Crash Test」直接崩游戏）
+        OptionInput.beginBlock(popupBg);
+
         isOpen = true;
         redrawArrow();
         refreshValue();
@@ -597,9 +671,11 @@ class StringSelect extends FlxSpriteGroup
     public function closePopup():Void
     {
         keyIndex = -1;
+        if (!exists) return;   // 已经被重建掉的控件（见 refreshValue 的注释）
         if (!isOpen) return;
         isOpen = false;
         if (popup != null) popup.visible = false;
+        OptionInput.endBlock(popupBg);
         redrawArrow();
         refreshValue();
     }
@@ -740,9 +816,11 @@ class StringSelect extends FlxSpriteGroup
     /**
      * 下拉弹层是挂在 topLayer（overlayContainer）上的，
      * 销毁时如果不手动清掉，会残留在外层容器里继续渲染。
+     * 遮挡登记也要一起摘掉 —— 留着一个已销毁的判定对象会让整页控件失灵。
      */
     override function destroy():Void
     {
+        OptionInput.endBlock(popupBg);
         if (popup != null && topLayer != null)
         {
             topLayer.remove(popup, true);
