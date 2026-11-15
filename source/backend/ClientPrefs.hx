@@ -18,7 +18,6 @@ import states.TitleState;
 	public var wideScreen:Bool = false;
 	// DPI 缩放开关（主版同步键）。移动端 applyRenderResolution 整体 no-op，此键仅保住
 	// KE 菜单 Graphics 页「DPI Scale」开关的存档链路，不产生实际 resize。
-	public var useDpiSettings:Bool = true;
 	public var hitboxType:String = "Gradient";
 	public var popUpRating:Bool = true;
 	public var vsync:Bool = false;
