@@ -1570,7 +1570,7 @@ class KEOptionsMenu extends MusicBeatState
 			#if mobile
 			// 边缘安全区：自动检测（刘海/灵动岛/挖孔/Home 条，仅宽屏生效）之外的手动补充量
 			KEOption.create("Edge Safe Offset",
-				"Extra inset (px) added to screen-edge controls (touch buttons / hitbox / toolbar) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.",
+				"Extra inset (px) added to screen-edge UI (FPS counter, menu corner buttons, toolbar, judgement counter) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.",
 				"edgeSafeOffset", "int", 0, 0, 80, 2),
 			#end
 			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']),

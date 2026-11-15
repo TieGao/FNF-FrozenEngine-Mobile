@@ -570,8 +570,10 @@ class OptionsState extends MusicBeatState
     {
         var btnW = 220;
         var btnH = 44;
-        var btnX = 0;
-        var btnY = FlxG.height - btnH - 20;
+        // 左下角贴边钮缩回边缘安全区：宽屏下刘海/圆角/Home 条会盖住或压住它（16:9 恒 0 不动）
+        var cornerIns = mobile.backend.SafeArea.get();
+        var btnX = 0 + cornerIns.left;
+        var btnY = FlxG.height - btnH - 20 - cornerIns.bottom;
 
         backButton = new Win10BackButton(
             btnX, btnY, btnW, btnH,
@@ -589,8 +591,10 @@ class OptionsState extends MusicBeatState
     {
         var btnW = 220;
         var btnH = 44;
-        var btnX = FlxG.width - btnW - 20;
-        var btnY = FlxG.height - btnH - 20;
+        // 右下角贴边钮缩回边缘安全区（与返回钮同规则，16:9 恒 0 不动）
+        var cornerIns = mobile.backend.SafeArea.get();
+        var btnX = FlxG.width - btnW - 20 - cornerIns.right;
+        var btnY = FlxG.height - btnH - 20 - cornerIns.bottom;
 
         // 复用已有的 colorMode 字段，只把它当成一个"动作"来用
         themeOption = new Option('Theme', 'Switch between dark and light mode',

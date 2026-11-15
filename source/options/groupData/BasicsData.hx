@@ -78,7 +78,7 @@ class BasicsData
         mobileCat.add(wideScreen);
 
         var edgeSafeOffset = new Option('Edge Safe Offset',
-            'Extra inset (px) added to screen-edge controls (touch buttons / hitbox / toolbar) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.',
+            'Extra inset (px) added to screen-edge UI (FPS counter, menu corner buttons, toolbar, judgement counter) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.',
             'edgeSafeOffset', INT);
         edgeSafeOffset.minValue = 0; edgeSafeOffset.maxValue = 80; edgeSafeOffset.decimals = 0;
         mobileCat.add(edgeSafeOffset);

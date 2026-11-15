@@ -800,10 +800,10 @@ class NoteOffsetState extends MusicBeatState
 	{
 		FlxG.mouse.getViewPosition(camHUD, tapPos);
 
-		// y 范围放宽一点，把条上方的百分比小字也盖进去
+		// y 范围放宽一点，把条上方的百分比小字与条下的触控扩边（DraggableBar.hitPadY=20）都盖进去
 		if (timeBar != null && timeBar.visible
 			&& tapPos.x >= timeBar.x && tapPos.x <= timeBar.x + timeBar.width
-			&& tapPos.y >= timeBar.y - 30 && tapPos.y <= timeBar.y + timeBar.height + 10)
+			&& tapPos.y >= timeBar.y - 30 && tapPos.y <= timeBar.y + timeBar.height + 20)
 			return false;
 
 		if (touchPad != null)

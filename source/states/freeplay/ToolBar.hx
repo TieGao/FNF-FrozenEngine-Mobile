@@ -33,13 +33,6 @@ class ToolBar extends FlxSpriteGroup
     public static inline var PLAYER_BTN_SIZE:Int = #if mobile 56 #else 44 #end;
     /** 播放/暂停按钮的边长 */
     public static inline var PLAYER_BTN_SIZE_MAIN:Int = #if mobile 72 #else 56 #end;
-    /**
-     * 移动端工具栏的底部让位基准（720 画布坐标系）：
-     * 工具栏开着时触摸层是 A_B 两颗钮（base y=596），720-596=124，再留 15px 呼吸缝。
-     * 构造时按 FlxG.height/720 比例折算，叠加宽屏下的边缘安全区底部内缩。桌面恒 0。
-     */
-    public static inline var TOUCH_CLEARANCE_BASE:Int = 124;
-    public static inline var TOUCH_CLEARANCE_GAP:Int = 15;
 
     public var background:FlxFilteredSprite;
     public var textDisplay:FlxText;
@@ -131,10 +124,9 @@ class ToolBar extends FlxSpriteGroup
         loadVizSettings();
 
         #if mobile
-        // 整条抬到触摸簇（虚拟方向键 + A/B/C…）上沿之上，别让玩家在拇指底下按工具栏；
-        // 宽屏下再叠加边缘安全区的底部内缩（刘海 / Home 条），16:9 时该项恒 0
-        bottomClearance = TOUCH_CLEARANCE_BASE * FlxG.height / 720 + TOUCH_CLEARANCE_GAP
-            + mobile.backend.SafeArea.get().bottom;
+        // 底部只让出边缘安全区（宽屏下的 Home 条 / 刘海，16:9 画布够不到 → 恒 0，布局照旧贴底）。
+        // 与底部虚拟键的少量重叠实测互不影响，不做触摸簇避让。
+        bottomClearance = mobile.backend.SafeArea.get().bottom;
         #end
 
         // 一次按最大栏高造图，切模式只改 y —— 重造贴图会生成新的 BitmapData，

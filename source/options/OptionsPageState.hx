@@ -412,8 +412,10 @@ class OptionsPageState extends MusicBeatState
     {
         var btnW = NAV_W - NAV_PAD * 2;
         var btnH = 44;
-        var btnX = NAV_PAD;
-        var btnY = FlxG.height - btnH - NAV_PAD;
+        // 左下角贴边钮缩回边缘安全区：宽屏下刘海/圆角/Home 条会盖住或压住它（16:9 恒 0 不动）
+        var cornerIns = mobile.backend.SafeArea.get();
+        var btnX = NAV_PAD + cornerIns.left;
+        var btnY = FlxG.height - btnH - NAV_PAD - cornerIns.bottom;
 
         backButton = new Win10BackButton(
             btnX, btnY, btnW, btnH,

@@ -359,6 +359,13 @@ class FPSCounter extends TextField
 		scaleX = scaleY = #if android (scale > 1 ? scale : 1) #else (scale < 1 ? scale : 1) #end;
 		x = FlxG.game.x + X;
 		y = FlxG.game.y + Y;
+		#if mobile
+		// 边缘安全区缩回：计数器贴左上，宽屏下刘海/灵动岛/圆角会盖住文字（16:9 恒 0 不动）。
+		// 本体是 stage 坐标系的 TextField，用 stage 像素域的 inset（画布域会差一个缩放比）
+		var ins = mobile.backend.SafeArea.getStage();
+		x += ins.left;
+		y += ins.top;
+		#end
 	}
 
 	#if cpp

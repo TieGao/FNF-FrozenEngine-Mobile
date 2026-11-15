@@ -94,7 +94,6 @@ class Hitbox extends MobileInputManager implements IMobileControls
 
 		storedButtonsIDs.clear();
 		scrollFactor.set();
-		applySafeInsets();
 		updateTrackedButtons();
 
 		instance = this;
@@ -136,41 +135,6 @@ class Hitbox extends MobileInputManager implements IMobileControls
 	private function getColumnCount():Int
 	{
 		return (PlayState.SONG != null) ? Note.getColumnsPerPlayer(PlayState.SONG) : 4;
-	}
-
-	/**
-	 * 边缘安全区内缩（刘海 / 灵动岛 / 挖孔 / 圆角 / Home 条，wideScreen 才非零，见 mobile.backend.SafeArea）。
-	 * 击打区是整片贴边的矩形：外缘往里收，同时用宽/高补偿保住**内部分界线**不动——
-	 * 只让够不到的刘海侧让位，四个区之间的分界手感不变。图形是渐变块，轻微拉伸看不出来。
-	 */
-	function applySafeInsets():Void
-	{
-		var ins = mobile.backend.SafeArea.get();
-		if (!ins.hasAny()) return;
-
-		var all:Array<TouchButton> = [];
-		for (btn in members)
-			if (btn != null) all.push(btn);
-		for (btn in multiKHints)
-			if (btn != null) all.push(btn);
-
-		for (btn in all)
-		{
-			if (btn.x <= 1)
-			{
-				btn.x += ins.left;
-				btn.width -= ins.left;
-			}
-			if (btn.x + btn.width >= FlxG.width - 1)
-				btn.width -= ins.right;
-			if (btn.y <= 1)
-			{
-				btn.y += ins.top;
-				btn.height -= ins.top;
-			}
-			if (btn.y + btn.height >= FlxG.height - 1)
-				btn.height -= ins.bottom;
-		}
 	}
 
 	/**

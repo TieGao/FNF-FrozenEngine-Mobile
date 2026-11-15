@@ -16,7 +16,8 @@ import lime.system.System;
  * 画布根本伸不到刘海里（黑边把刘海挡在外面），内缩反而白浪费操作区。
  *
  * 手动叠加：ClientPrefs.data.edgeSafeOffset（KE / Win10 Basic 页可调）。
- * 取值时机：TouchPad / Hitbox 构建时各查一次，改设置后下一个界面生效。
+ * 应用面：FPSCounter / 主页左下角版本行 / 设置返回钮 / JudgementCounter 贴边布局（缩回），
+ * ToolBar 底部（抬让）；全部是构建/定位时各查一次，改设置后下一个界面生效。
  */
 class SafeArea
 {
@@ -37,30 +38,18 @@ class SafeArea
 		var out:SafeArea = new SafeArea();
 
 		#if mobile
-		// 16:9 画布伸不到刘海（黑边在外）——只有宽屏铺满时才需要内缩
-		if (ClientPrefs.data == null || !ClientPrefs.data.wideScreen) return out;
-
-		var win = FlxG.stage != null ? FlxG.stage.window : null;
-		if (win == null || win.width <= 0 || win.height <= 0) return out;
-
-		var display = System.getDisplay(0);
-		var safe = display != null ? display.safeArea : null;
-		if (safe == null || safe.width <= 0 || safe.height <= 0) return out; // 桌面/取不到 → 无遮挡
-
-		// 物理像素四边内缩（display 坐标系 → 相对窗口）
-		var physL:Float = safe.x - win.x;
-		var physT:Float = safe.y - win.y;
-		var physR:Float = (win.x + win.width) - (safe.x + safe.width);
-		var physB:Float = (win.y + win.height) - (safe.y + safe.height);
+		var phys = physicalInsets();
+		if (phys == null) return out;
 
 		// 物理 px → 画布 px（画布按 RatioScaleMode 等比铺窗口，横向比例即统一比例）
+		var win = FlxG.stage.window;
 		var f:Float = FlxG.width / win.width;
 
 		var manual:Float = ClientPrefs.data.edgeSafeOffset;
-		out.left = Math.max(0, physL * f) + manual;
-		out.top = Math.max(0, physT * f) + manual;
-		out.right = Math.max(0, physR * f) + manual;
-		out.bottom = Math.max(0, physB * f) + manual;
+		out.left = Math.max(0, phys.l * f) + manual;
+		out.top = Math.max(0, phys.t * f) + manual;
+		out.right = Math.max(0, phys.r * f) + manual;
+		out.bottom = Math.max(0, phys.b * f) + manual;
 
 		// 兜底：内缩总量吃掉半个屏幕以上必然是读数异常，直接不缩
 		if (out.left + out.right >= FlxG.width * 0.5 || out.top + out.bottom >= FlxG.height * 0.5)
@@ -71,4 +60,49 @@ class SafeArea
 
 		return out;
 	}
+
+	/**
+	 * stage/窗口像素域的四边内缩：不折算画布、不叠手动量。
+	 * 给活在 openfl stage 坐标系里的 TextField 系贴边元素用（FPSCounter.positionFPS）。
+	 */
+	public static function getStage():SafeArea
+	{
+		var out:SafeArea = new SafeArea();
+
+		#if mobile
+		var phys = physicalInsets();
+		if (phys == null) return out;
+		out.left = Math.max(0, phys.l);
+		out.top = Math.max(0, phys.t);
+		out.right = Math.max(0, phys.r);
+		out.bottom = Math.max(0, phys.b);
+		#end
+
+		return out;
+	}
+
+	#if mobile
+	/**
+	 * 四边物理内缩（display 坐标系 → 相对窗口）。
+	 * 仅 wideScreen 非零；16:9 画布伸不到刘海（黑边在外）。取不到读数返回 null。
+	 */
+	static function physicalInsets():{l:Float, t:Float, r:Float, b:Float}
+	{
+		if (ClientPrefs.data == null || !ClientPrefs.data.wideScreen) return null;
+
+		var win = FlxG.stage != null ? FlxG.stage.window : null;
+		if (win == null || win.width <= 0 || win.height <= 0) return null;
+
+		var display = System.getDisplay(0);
+		var safe = display != null ? display.safeArea : null;
+		if (safe == null || safe.width <= 0 || safe.height <= 0) return null; // 桌面/取不到 → 无遮挡
+
+		return {
+			l: safe.x - win.x,
+			t: safe.y - win.y,
+			r: (win.x + win.width) - (safe.x + safe.width),
+			b: (win.y + win.height) - (safe.y + safe.height)
+		};
+	}
+	#end
 }
