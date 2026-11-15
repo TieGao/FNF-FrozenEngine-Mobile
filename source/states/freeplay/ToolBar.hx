@@ -30,20 +30,37 @@ class ToolBar extends FlxSpriteGroup
     /** 音乐播放器模式的栏高 */
     public static inline var BAR_HEIGHT_PLAYER:Int = #if mobile 80 #else 64 #end;
     /** 播放器控件的边长 */
-    public static inline var PLAYER_BTN_SIZE:Int = 44;
+    public static inline var PLAYER_BTN_SIZE:Int = #if mobile 56 #else 44 #end;
     /** 播放/暂停按钮的边长 */
-    public static inline var PLAYER_BTN_SIZE_MAIN:Int = 56;
+    public static inline var PLAYER_BTN_SIZE_MAIN:Int = #if mobile 72 #else 56 #end;
+    /**
+     * 移动端工具栏的底部让位基准（720 画布坐标系）：
+     * 工具栏开着时触摸层是 A_B 两颗钮（base y=596），720-596=124，再留 15px 呼吸缝。
+     * 构造时按 FlxG.height/720 比例折算，叠加宽屏下的边缘安全区底部内缩。桌面恒 0。
+     */
+    public static inline var TOUCH_CLEARANCE_BASE:Int = 124;
+    public static inline var TOUCH_CLEARANCE_GAP:Int = 15;
 
     public var background:FlxFilteredSprite;
     public var textDisplay:FlxText;
     public var musicPlayer:MusicPlayerLegacy;
-    
+
     // 按钮相关（自造的斜切按钮，见 ToolBarButton —— 不再依赖 PsychUIButton）
     public var buttons:Array<ToolBarButton> = [];
     public var buttonWidth:Int = 200;
-    public var buttonHeight:Int = 32;
+    public var buttonHeight:Int = #if mobile 44 #else 32 #end;
     /** 斜度：和 StoryMode 的 BTN_SKEW/BTN_H（28/70）同量级的角度，平行四边形才看得出来 */
     public var buttonSkew:Int = 12;
+
+    /**
+     * 工具栏整体离屏幕底部的让位量（画布 px）。移动端 = 触摸簇让位 + 安全区底部内缩，
+     * 所有贴底锚点（background / 按钮条 / 播放器控件 / 音频可视化）统一从这里推。
+     * 桌面恒 0，布局与原来逐像素一致。
+     */
+    public var bottomClearance:Float = 0;
+
+    inline function barBottomY():Float
+        return FlxG.height - bottomClearance;
 
     /** 需要"当前有选中歌"才有意义的几块（RESET / LISTEN / EDITOR）：没歌时置灰禁用 */
     private var songButtons:Array<ToolBarButton> = [];
@@ -104,18 +121,25 @@ class ToolBar extends FlxSpriteGroup
     public function new(state:FreeplayState, width:Int, height:Int)
     {
         super();
-        
+
         freeplayState = state;
         parentState = state;
         barHeight = height;
         syncMusicPlayer();
-        
+
         // 从配置读取可视化参数
         loadVizSettings();
-        
+
+        #if mobile
+        // 整条抬到触摸簇（虚拟方向键 + A/B/C…）上沿之上，别让玩家在拇指底下按工具栏；
+        // 宽屏下再叠加边缘安全区的底部内缩（刘海 / Home 条），16:9 时该项恒 0
+        bottomClearance = TOUCH_CLEARANCE_BASE * FlxG.height / 720 + TOUCH_CLEARANCE_GAP
+            + mobile.backend.SafeArea.get().bottom;
+        #end
+
         // 一次按最大栏高造图，切模式只改 y —— 重造贴图会生成新的 BitmapData，
         // 被 Paths.clearStoredMemory() 清掉后整条栏会变白
-        background = new FlxFilteredSprite(-100, FlxG.height - height);
+        background = new FlxFilteredSprite(-100, FlxG.height - height - bottomClearance);
         background.makeGraphic(width, BAR_HEIGHT_PLAYER + 50, 0xFF000000);
         background.alpha = 0.6;
         background.scrollFactor.set();
@@ -169,7 +193,7 @@ class ToolBar extends FlxSpriteGroup
         audioDisplay = new AudioDisplay(
             FlxG.sound.music,
             0,                          // X 位置（居中）
-            FlxG.height - barHeight,   // Y 位置（贴在工具栏上沿）
+            barBottomY() - barHeight,  // Y 位置（贴在工具栏上沿）
             FlxG.width,                // 宽度
             300,                       // 高度
             vizBarCount,               // 条形数量
@@ -278,7 +302,7 @@ class ToolBar extends FlxSpriteGroup
         var stripW:Float = buttonWidth + (count - 1) * step;
         var left:Float = (FlxG.width - stripW) * 0.5;
         // 只按"可见栏高"垂直居中：不要用 background.height，那是按最大栏高造的，多 50px 模糊出血
-        var top:Float = FlxG.height - barHeight * 0.5 - buttonHeight * 0.5;
+        var top:Float = barBottomY() - barHeight * 0.5 - buttonHeight * 0.5;
 
         for (i in 0...count)
         {
@@ -545,10 +569,10 @@ class ToolBar extends FlxSpriteGroup
         if (background != null)
         {
             FlxTween.cancelTweensOf(background);
-            FlxTween.tween(background, {y: FlxG.height - h}, 0.15, {ease: FlxEase.quadOut});
+            FlxTween.tween(background, {y: barBottomY() - h}, 0.15, {ease: FlxEase.quadOut});
         }
         if (audioDisplay != null)
-            audioDisplay.y = FlxG.height - h;
+            audioDisplay.y = barBottomY() - h;
     }
     
     /** 自造的图标图是否已被销毁（不要用 pixels != null 判活，那个 getter 就是 graphic.bitmap） */
@@ -655,7 +679,7 @@ class ToolBar extends FlxSpriteGroup
     
     private function updatePlayerPositions():Void
     {
-        var centerY:Float = FlxG.height - barHeight / 2;
+        var centerY:Float = barBottomY() - barHeight / 2;
         var spacing:Int = 10;
         
         // 一行里从左到右的控件：音量百分比夹在两个音量键中间
@@ -835,15 +859,17 @@ class ToolBar extends FlxSpriteGroup
     
     public function setXY(x:Float, y:Float):Void
     {
+        // y 语义 = 栏底缘的画布 y；移动端自动扣掉让位量，调用方无需感知
+        var baseY:Float = y - bottomClearance;
         if (background != null)
         {
             background.x = x;
-            background.y = y;
+            background.y = baseY;
         }
         if (textDisplay != null)
         {
             textDisplay.x = x;
-            textDisplay.y = y + 4;
+            textDisplay.y = baseY + 4;
         }
         
         // 摆位公式只有 layoutButtons() 一份，这里不要另算一套

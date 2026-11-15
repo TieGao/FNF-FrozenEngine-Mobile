@@ -92,6 +92,12 @@ class NotesHSVSubState extends MusicBeatSubstate
 	{
 		super.create();
 
+		#if mobile
+		// Controls 在子状态打开期间读子状态自己的 touchPad（requestedInstance 指向子状态），
+		// 不建的话虚拟键全灭——B（BACK）返回、A（ACCEPT）进出微调、方向键选轨/换通道都靠它
+		addTouchPad('LEFT_FULL', 'A_B');
+		#end
+
 		laneCount = (ClientPrefs.data.arrowHSV == null || ClientPrefs.data.arrowHSV.length < 1) ? 16 : ClientPrefs.data.arrowHSV.length;
 		totalPages = Std.int(Math.max(1, Math.ceil(laneCount / NOTES_PER_PAGE)));
 		if (curSelected >= laneCount) curSelected = 0;

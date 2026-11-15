@@ -320,6 +320,9 @@ class KEOption implements options.objects.backend.IStringValueSource
 					KEOptionsMenu.instance.openSubState(new options.psychoptions.NotesColorSubState());
 					return false;
 				case "Open Note HSV Colors":
+					// 子状态打开期间 Controls 读的是子状态自己的 touchPad（requestedInstance 指向子状态），
+					// 父层的留着既看不见输入也挡画面——先撤，子状态里自建，关回来时 closeSubState 重挂
+					KEOptionsMenu.instance.removeTouchPad();
 					KEOptionsMenu.instance.openSubState(new options.psychoptions.NotesHSVSubState());
 					return false;
 				case "Open Controls":
@@ -712,11 +715,13 @@ class KEOption implements options.objects.backend.IStringValueSource
 				debug.LogFile.trimArchives();
 			case "renderResolution":
 				// string 标签走 Main 的 Dynamic 入口（兼容旧 Int 存档）；DPI 模式不重调物理窗口
-				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
+				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen,
+					#if !mobile !ClientPrefs.data.useDpiSettings #else true #end);
 			case "wideScreen":
 				// 宽屏切换：分辨率标签列表换血，掉列表的标签回落到第一档，再整体重应用
 				updateStringOptions(GraphicsData.getResolutionLabels());
-				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
+				Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen,
+					#if !mobile !ClientPrefs.data.useDpiSettings #else true #end);
 			case "keyboardBGColor", "keyboardEdgeColor", "keyboardRainColor", "keyboardTextColor":
 				// 颜色按目标拆开（主体 / 边缘 / 键雨 / 文字），统一交给 KeyboardViewer 自己刷，
 				// 别再对 members 无脑 color = col —— 会把按压高亮层和按键文字一起染掉。

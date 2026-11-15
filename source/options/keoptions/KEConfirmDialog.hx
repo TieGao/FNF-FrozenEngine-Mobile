@@ -34,6 +34,12 @@ class KEConfirmDialog extends MusicBeatSubstate
 		super();
 		this.confirmCb = confirmCb;
 
+		#if mobile
+		// Controls 在子状态打开期间读子状态自己的 touchPad（requestedInstance 指向子状态），
+		// 不建的话 B 取消 / A 确认 / 左右切换全灭。父菜单的 touchPad 已在打开前撤掉。
+		addTouchPad('LEFT_RIGHT', 'A_B');
+		#end
+
 		bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
 		bg.alpha = 0;
 		bg.scrollFactor.set();

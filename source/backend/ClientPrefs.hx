@@ -16,8 +16,9 @@ import states.TitleState;
 	public var controlsAlpha:Float = FlxG.onMobile ? 0.6 : 0;
 	public var screensaver:Bool = false;
 	public var wideScreen:Bool = false;
-	// DPI 缩放开关（主版同步键）。移动端 applyRenderResolution 整体 no-op，此键仅保住
-	// KE 菜单 Graphics 页「DPI Scale」开关的存档链路，不产生实际 resize。
+	// 边缘安全区额外内缩（画布 px）：刘海/灵动岛/挖孔自动检测之外的补充量。
+	// 仅 wideScreen 下与自动检测叠加生效（16:9 画布够不到刘海，恒 0）；改后下一个界面生效。
+	public var edgeSafeOffset:Int = 0;
 	public var hitboxType:String = "Gradient";
 	public var popUpRating:Bool = true;
 	public var vsync:Bool = false;
@@ -181,7 +182,7 @@ import states.TitleState;
 	 *   false → 顶部搜索框只当入口，点开独立的 SearchSubState
 	 *   true  → 输入直接过滤 Freeplay 列表本身（不弹窗）
 	 */
-	public var freeplaySearchInline:Bool = false;
+	public var freeplaySearchInline:Bool = true;
 	// Freeplay 右下角补充信息（音乐人 / 谱师 / 游玩次数）
 	public var freeplaySongMeta:Bool = true;
 	// Freeplay 右侧展示元素开关（默认全开）
@@ -323,7 +324,7 @@ import states.TitleState;
 	public var hitErrorBarOffsetY:Int = 0;
 	public var noteSustainsOffset:Float = 0.0;
 	public var legacymp:Bool = true;
-	public var useSystemCursor:Bool = false;
+	public var useSystemCursor:Bool = #if mobile true #else false #end;
 	public var showEarlyLate:Bool = true;
 	public var showCombo:Bool = false;
 	public var forceNoteSkins:Bool = false;

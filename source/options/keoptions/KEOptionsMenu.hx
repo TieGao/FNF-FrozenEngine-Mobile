@@ -830,7 +830,8 @@ class KEOptionsMenu extends MusicBeatState
 		ClientPrefs.loadPrefs();
 
 		// 分辨率随默认值重新应用（string 标签走 Main 的 Dynamic 入口）
-		Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen, !ClientPrefs.data.useDpiSettings);
+		Main.applyRenderResolution(ClientPrefs.data.renderResolution, ClientPrefs.data.wideScreen,
+			#if !mobile !ClientPrefs.data.useDpiSettings #else true #end);
 
 		// 重建行 + 复位滚动 + 选中刷新（值全变默认了）
 		doSwitchToCat(options[selectedCatIndex], false);
@@ -864,7 +865,9 @@ class KEOptionsMenu extends MusicBeatState
 		}
 		if (opt.type == "confirm")
 		{
-			// 阻塞式确认对话框：菜单输入被 subState 门禁挡住，Yes 才执行
+			// 阻塞式确认对话框：菜单输入被 subState 门禁挡住，Yes 才执行。
+			// 先撤父层触摸层——子状态期间 Controls 读子状态的 touchPad，本层的留着没输入还挡画面
+			removeTouchPad();
 			FlxG.sound.play(Paths.sound('scrollMenu'), 0.6);
 			openSubState(new KEConfirmDialog(opt.getDisplayName(), opt.getWarning(), function() {
 				opt.executeWarningAction();
@@ -1294,7 +1297,10 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Anti-Aliasing", "Smoother visuals", "antialiasing", "bool"),
 			// Resolution：string 选择（与 Win10 页同一套标签），旧 Int 存档由 Main.getRenderResolutionIndex 兼容
 			KEOption.create("Resolution", "Change the game's render resolution.", "renderResolution", "string", GraphicsData.getResolutionLabels()),
+			#if !mobile
+			// DPI Scale 只属于桌面端（mobile 下 applyRenderResolution 整体 no-op，字段也不编译）
 			KEOption.create("DPI Scale", "Scale the game based on your screen's DPI", "useDpiSettings", "bool"),
+			#end
 			KEOption.create("Shaders", "Enable shader effects", "shaders", "bool"),
 			KEOption.create("Wide Screen", "Enable 21:9 widescreen mode", "wideScreen", "bool"),
 			KEOption.createStringOption("GPU Caching", "Texture caching mode: disabled = RAM only; auto = drop the CPU copy after the first draw; full = upload and drop the CPU copy at load (least RAM, risky on low VRAM)", "gpuCaching", ["disabled", "auto", "full"], "disabled"),
@@ -1561,6 +1567,12 @@ class KEOptionsMenu extends MusicBeatState
 			mobileSettings,
 			KEOption.create("Customize Mobile Controls", "Customize mobile controls layout and appearance", "", "action"),
 			KEOption.create("Customize Mobile Extra Controls", "Customize extra keys you required", "", "action"),
+			#if mobile
+			// 边缘安全区：自动检测（刘海/灵动岛/挖孔/Home 条，仅宽屏生效）之外的手动补充量
+			KEOption.create("Edge Safe Offset",
+				"Extra inset (px) added to screen-edge controls (touch buttons / hitbox / toolbar) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.",
+				"edgeSafeOffset", "int", 0, 0, 80, 2),
+			#end
 			KEOption.create("Language", "Change the game's language", "language", "string", ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']),
 			KEOption.create("Color Mode", "Switch between dark and white mode", "colorMode", "string", ['dark', 'white']),
 			KEOption.createResetOption("Reset KeyBinds", "keybinds"),

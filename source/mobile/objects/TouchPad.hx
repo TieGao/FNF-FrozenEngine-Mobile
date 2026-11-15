@@ -127,9 +127,42 @@ class TouchPad extends MobileInputManager implements IMobileControls
 
 		alpha = ClientPrefs.data.controlsAlpha;
 		scrollFactor.set();
+		applySafeInsets();
 		updateTrackedButtons();
 
 		instance = this;
+	}
+
+	/**
+	 * 边缘安全区内缩：把贴着屏幕边缘的按钮往里挪，避开刘海 / 灵动岛 / 挖孔 / 圆角 / Home 条。
+	 * 量来自 mobile.backend.SafeArea（wideScreen 才非零；16:9 画布够不到刘海），含手动 edgeSafeOffset。
+	 * 判定靠"贴边"：只挪按在边缘上的按钮，角落按钮两条边各吃一份。
+	 * 按钮本体和命中 bounds（独立的隐形精灵）必须一起挪，否则挪完按不到。
+	 */
+	function applySafeInsets():Void
+	{
+		var ins = mobile.backend.SafeArea.get();
+		if (!ins.hasAny()) return;
+
+		for (btn in members)
+		{
+			if (btn == null) continue;
+			var dx:Float = 0;
+			var dy:Float = 0;
+			if (btn.x <= 1) dx = ins.left;
+			else if (btn.x + btn.width >= FlxG.width - 1) dx = -ins.right;
+			if (btn.y <= 1) dy = ins.top;
+			else if (btn.y + btn.height >= FlxG.height - 1) dy = -ins.bottom;
+			if (dx == 0 && dy == 0) continue;
+
+			btn.x += dx;
+			btn.y += dy;
+			if (btn.bounds != null)
+			{
+				btn.bounds.x += dx;
+				btn.bounds.y += dy;
+			}
+		}
 	}
 
 	override public function destroy()

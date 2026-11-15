@@ -818,7 +818,8 @@ class FreeplayState extends MusicBeatState
 
         if (ClientPrefs.data.toolBar)
         {
-            toolBar = new ToolBar(this, FlxG.width + 200, 50);
+            // 移动端栏高用移动版常量（75），并内置触摸簇 + 安全区让位（见 ToolBar.bottomClearance）
+            toolBar = new ToolBar(this, FlxG.width + 200, #if mobile ToolBar.BAR_HEIGHT_NORMAL #else 50 #end);
             add(toolBar);
 
             bottomBG = new FlxFilteredSprite(0, FlxG.height - 26);
