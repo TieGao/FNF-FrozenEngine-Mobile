@@ -207,6 +207,9 @@ class PreloadListSubState extends MusicBeatSubstate implements PsychUIEvent
 
 	override function update(elapsed:Float)
 	{
+		#if mobile
+		FileDialogHandler.flushAll();
+		#end
 		super.update(elapsed);
 
 		outputTime = Math.max(0, outputTime - elapsed);

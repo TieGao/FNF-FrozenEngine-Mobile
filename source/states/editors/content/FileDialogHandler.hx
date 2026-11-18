@@ -92,6 +92,15 @@ class FileDialogHandler extends FlxBasic
 	public var data:String;
 	public var path:String;
 	public var completed:Bool = true;
+
+	#if mobile
+	/** 宿主在 GL 线程的 update() 里调用，把 JNI 回调攒下的结果派发掉。 */
+	public static inline function flushAll():Void
+	{
+		FileReferenceCustom.flushAll();
+	}
+	#end
+
 	function onSaveComplete(_)
 	{
 		@:privateAccess
@@ -154,6 +163,9 @@ class FileDialogHandler extends FlxBasic
 
 		this.data = null;
 		this.path = null;
+		#if mobile
+		_fileRef.clearPending();
+		#end
 	}
 
 	function removeEvents()
@@ -167,6 +179,10 @@ class FileDialogHandler extends FlxBasic
 	override function destroy()
 	{
 		removeEvents();
+		#if mobile
+		_fileRef.clearPending();
+		_fileRef.disposePending();
+		#end
 		_fileRef = null;
 		_currentEvent = null;
 		onComplete = null;
@@ -184,6 +200,54 @@ class FileReferenceCustom extends FileReference
 {
 	@:allow(backend.FileDialogHandler)
 	var _trackSavedPath:String;
+
+	#if mobile
+	// DocumentPicker 回调在 JNI 线程（见 BootDataState.startZipImport）：
+	// 这里只写标记，宿主 update() 在 GL 线程调 flushAll() 再派发事件。
+	static var _pendingRefs:Array<FileReferenceCustom> = [];
+	var _pendingKind:Int = 0; // 0=无 1=选中 2=取消
+	var _pendingPath:String = null;
+
+	public function new()
+	{
+		super();
+		_pendingRefs.push(this);
+	}
+
+	public static function flushAll():Void
+	{
+		for (r in _pendingRefs.copy()) r.flushPending();
+	}
+
+	public function clearPending():Void
+	{
+		_pendingKind = 0;
+		_pendingPath = null;
+	}
+
+	public function disposePending():Void
+	{
+		clearPending();
+		_pendingRefs.remove(this);
+	}
+
+	function flushPending():Void
+	{
+		if (_pendingKind == 0) return;
+		var kind:Int = _pendingKind;
+		var p:String = _pendingPath;
+		clearPending();
+
+		if (kind == 2)
+		{
+			dispatchEvent(new Event(Event.CANCEL));
+			return;
+		}
+		__path = p;
+		dispatchEvent(new Event(Event.COMPLETE));
+	}
+	#end
+
 	override function saveFileDialog_onSelect(path:String):Void
 	{
 		_trackSavedPath = path;
@@ -250,23 +314,9 @@ class FileReferenceCustom extends FileReference
 		// 拷进 App 可控目录后回调一个普通文件路径；用户取消时回调 null。
 		DocumentPicker.pick(utisFromFilter(typeFilter), function(p:String)
 		{
-			if(p == null)
-			{
-				dispatchEvent(new Event(Event.CANCEL));
-				return;
-			}
-
-			__path = p;
-			name = Path.withoutDirectory(p);
-			type = '.' + Path.extension(p);
-
-			var stat = FileSystem.stat(p);
-			size = stat.size;
-			modificationDate = stat.mtime;
-			creationDate = stat.ctime;
-
-			// 移动端注册的监听是 Event.COMPLETE（见 FileDialogHandler 里的 addEventListener）
-			dispatchEvent(new Event(Event.COMPLETE));
+			// JNI 线程：只写标记，真正的派发/文件读取放到 GL 线程的 flushAll()。
+			_pendingPath = p;
+			_pendingKind = (p == null) ? 2 : 1;
 		});
 		return true;
 		#end
