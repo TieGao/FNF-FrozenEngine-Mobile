@@ -1251,7 +1251,19 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		
 				if(isMovingNotes && touch.justReleased)
 					stopMovingNotes();
-		
+
+				// 点在虚拟按键上的触摸不参与谱面编辑（同 mainBox/infoBox 的点击屏蔽）：
+				// 否则按 ↑2/↓2 拉 sustain 时，触摸落在网格左侧空当，先走"点空白处取消选中"
+				// 把选中清掉，后面的 sustain 处理看到 selectedNotes 为空就永远加不上
+				var touchOnButton:Bool = false;
+				touchPad.forEachAlive(function(btn:TouchButton)
+				{
+					if(btn.visible && touch.overlaps(btn))
+						touchOnButton = true;
+				});
+				if(touchOnButton)
+					continue;
+
 				if(touch.x >= minX && touch.x < gridBg.x + gridBg.width)
 				{
 					var diffX:Float = touch.x - gridBg.x;

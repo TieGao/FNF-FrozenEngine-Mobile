@@ -1462,12 +1462,12 @@ class ModItem extends FlxSpriteGroup
 		}
 		
 		var bmp:BitmapData = null;
-		if (FileSystem.exists(file)) bmp = BitmapData.fromFile(file);
+		if (FileSystem.exists(file)) bmp = Paths.bitmapFromFile(file);
 		else isPixel = false;
 
 		if(FileSystem.exists(file))
 		{
-			icon.loadGraphic(Paths.cacheBitmap(file, bmp), true, 150, 150);
+			icon.loadGraphic(Paths.cacheBitmap(file, null, bmp), true, 150, 150);
 			if(isPixel) icon.antialiasing = false;
 		}
 		else icon.loadGraphic(Paths.image('unknownMod'), true, 150, 150);

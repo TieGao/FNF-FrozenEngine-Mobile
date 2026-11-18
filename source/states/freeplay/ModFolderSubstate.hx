@@ -721,13 +721,13 @@ class ModFolderSubstate extends MusicBeatSubstate
 
 				var bmp:BitmapData = null;
 				if (FileSystem.exists(file))
-					bmp = BitmapData.fromFile(file);
+					bmp = Paths.bitmapFromFile(file);
 				else
 					isPixel = false;
 
 				if (FileSystem.exists(file))
 				{
-					selectedModIcon.loadGraphic(Paths.cacheBitmap(file, bmp), true, 150, 150);
+					selectedModIcon.loadGraphic(Paths.cacheBitmap(file, null, bmp), true, 150, 150);
 					if (isPixel) selectedModIcon.antialiasing = false;
 					selectedModIcon.scale.set(1.5, 1.5);
 				}
@@ -981,13 +981,13 @@ class ModFolderItem extends FreeplayListItem
 
 			var bmp:BitmapData = null;
 			if (FileSystem.exists(file))
-				bmp = BitmapData.fromFile(file);
+				bmp = Paths.bitmapFromFile(file);
 			else
 				isPixel = false;
 
 			if (FileSystem.exists(file))
 			{
-				icon.loadGraphic(Paths.cacheBitmap(file, bmp), true, 150, 150);
+				icon.loadGraphic(Paths.cacheBitmap(file, null, bmp), true, 150, 150);
 				if (isPixel) icon.antialiasing = false;
 			}
 			else

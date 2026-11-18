@@ -573,11 +573,17 @@ class Note extends FlxSprite
 		if(PlayState.isPixelStage) {
 			if(isSustainNote) {
 				var graphic = Paths.image('pixelUI/' + skinPixel + 'ENDS' + skinPostfix);
-				loadGraphic(graphic, true, Math.floor(graphic.width / 4), Math.floor(graphic.height / 2));
-				originalHeight = graphic.height / 2;
+				if (graphic != null)
+				{
+					loadGraphic(graphic, true, Math.floor(graphic.width / 4), Math.floor(graphic.height / 2));
+					originalHeight = graphic.height / 2;
+				}
+				else FlxG.log.error('Pixel sustain skin not found: pixelUI/${skinPixel}ENDS$skinPostfix');
 			} else {
 				var graphic = Paths.image('pixelUI/' + skinPixel + skinPostfix);
-				loadGraphic(graphic, true, Math.floor(graphic.width / 4), Math.floor(graphic.height / 5));
+				if (graphic != null)
+					loadGraphic(graphic, true, Math.floor(graphic.width / 4), Math.floor(graphic.height / 5));
+				else FlxG.log.error('Pixel note skin not found: pixelUI/$skinPixel$skinPostfix');
 			}
 			var keys = getColumnsPerPlayer();
 			var scale = getPixelNoteScaleForKeys(keys);
@@ -593,7 +599,8 @@ class Note extends FlxSprite
 			}
 		} else {
 			frames = Paths.getSparrowAtlas(skin);
-			loadNoteAnims();
+			if (frames != null) loadNoteAnims();
+			else FlxG.log.error('Note atlas not found: $skin');
 			if(!isSustainNote)
 			{
 				centerOffsets();

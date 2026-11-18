@@ -24,6 +24,13 @@ class OptionsPageState extends MusicBeatState
     static inline var ROW_GAP:Float     = 6;
     static inline var SEARCH_H:Float    = 36;
 
+    /** 左栏整体右移的安全区内缩量；底部贴边控件上抬量 */
+    var safeL:Float = 0;
+    var safeB:Float = 0;
+    /** 左栏平移后的左右边界；右侧内容一律从 navRight 开始排 */
+    var navX:Float = 0;
+    var navRight:Float = NAV_W;
+
     var ROW_W:Float = 0;
 
     // ---------- 数据 ----------
@@ -205,7 +212,15 @@ class OptionsPageState extends MusicBeatState
         downBG.visible = false;
         add(downBG);
 
-        ROW_W = FlxG.width - NAV_W - NAV_PAD;
+        // 安全区作用于整个左栏：搜索框、导航项、返回钮一起内移，分界线跟着右移，
+        // 左栏宽度不变；只缩返回钮会让它和同栏其它内容错开。
+        var edge = mobile.backend.SafeArea.get();
+        safeL = edge.left;
+        safeB = edge.bottom;
+        navX = safeL;
+        navRight = navX + NAV_W;
+
+        ROW_W = FlxG.width - navRight - NAV_PAD;
 
         // 用白色图形 + color 着色，切主题时只要改 color
         bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.WHITE);
@@ -213,26 +228,26 @@ class OptionsPageState extends MusicBeatState
         bg.scrollFactor.set();
         add(bg);
 
-        navBG = new Rect(0, HEADER_H, NAV_W, FlxG.height - HEADER_H,
+        navBG = new Rect(navX, HEADER_H, NAV_W, FlxG.height - HEADER_H - safeB,
                         0, 0, UITheme.sidebar, 1);
         navBG.scrollFactor.set();
         add(navBG);
 
-        navDivider = new Rect(NAV_W, HEADER_H, 1, FlxG.height - HEADER_H,
+        navDivider = new Rect(navRight, HEADER_H, 1, FlxG.height - HEADER_H - safeB,
                             0, 0, UITheme.divider, 1);
         navDivider.scrollFactor.set();
         add(navDivider);
 
-        headerLeft = new Rect(0, 0, NAV_W, HEADER_H, 0, 0, UITheme.sidebar, 1);
+        headerLeft = new Rect(navX, 0, NAV_W, HEADER_H, 0, 0, UITheme.sidebar, 1);
         headerLeft.scrollFactor.set();
         add(headerLeft);
 
-        headerRight = new Rect(NAV_W, 0, FlxG.width - NAV_W, HEADER_H,
+        headerRight = new Rect(navRight, 0, FlxG.width - navRight, HEADER_H,
                                 0, 0, UITheme.windowBG, 1);
         headerRight.scrollFactor.set();
         add(headerRight);
 
-        var leftX = NAV_W + NAV_PAD;
+        var leftX = navRight + NAV_PAD;
         var leftW = (FlxG.width - leftX - NAV_PAD) * 0.5;
 
         buildSearchBar();
@@ -243,8 +258,8 @@ class OptionsPageState extends MusicBeatState
         contentContainer = new FlxSpriteGroup();
         add(contentContainer);
 
-        var maskX = NAV_W;
-        var maskW = Std.int(FlxG.width - NAV_W);
+        var maskX = navRight;
+        var maskW = Std.int(FlxG.width - navRight);
 
         // 顶部遮罩：从 HEADER_H 往下 24px（可调）
         var topMaskH = 150;
@@ -274,7 +289,7 @@ class OptionsPageState extends MusicBeatState
         var kbPanelY:Float = HEADER_H + 40 + 104 + 16;
         var kbPanelH:Float = Math.min(420, FlxG.height - 24 - kbPanelY);
         var kbPanelX:Float = FlxMath.bound(FlxG.width * 0.72 - kbPanelW / 2,
-                                           NAV_W + 24, FlxG.width - kbPanelW - 16);
+                                           navRight + 24, FlxG.width - kbPanelW - 16);
 
         kbPanel = new KeyboardColorPanel(kbPanelX, kbPanelY, kbPanelW, kbPanelH);
         kbPanel.visible = false;
@@ -325,7 +340,7 @@ class OptionsPageState extends MusicBeatState
 
     function buildSearchBar()
     {
-        var searchX = NAV_PAD / 2;
+        var searchX = navX + NAV_PAD / 2;
         var searchY = HEADER_H + NAV_PAD;
         var searchW = NAV_W * 0.9;
 
@@ -367,8 +382,8 @@ class OptionsPageState extends MusicBeatState
             navScrollHolder, 'value',
             [0, 0],
             [
-                [0, NAV_W + 1],
-                [HEADER_H + NAV_PAD, FlxG.height]
+                [navX, navRight + 1],
+                [HEADER_H + NAV_PAD, FlxG.height - safeB]
             ],
             function()
             {
@@ -389,7 +404,7 @@ class OptionsPageState extends MusicBeatState
             scrollHolder, 'value',
             [0, 0],
             [
-                [NAV_W, FlxG.width + 1],
+                [navRight, FlxG.width + 1],
                 [HEADER_H, FlxG.height - 60]
             ],
             function()
@@ -412,10 +427,8 @@ class OptionsPageState extends MusicBeatState
     {
         var btnW = NAV_W - NAV_PAD * 2;
         var btnH = 44;
-        // 左下角贴边钮缩回边缘安全区：宽屏下刘海/圆角/Home 条会盖住或压住它（16:9 恒 0 不动）
-        var cornerIns = mobile.backend.SafeArea.get();
-        var btnX = NAV_PAD + cornerIns.left;
-        var btnY = FlxG.height - btnH - NAV_PAD - cornerIns.bottom;
+        var btnX = navX + NAV_PAD;
+        var btnY = FlxG.height - btnH - NAV_PAD - safeB;
 
         backButton = new Win10BackButton(
             btnX, btnY, btnW, btnH,
@@ -449,7 +462,7 @@ class OptionsPageState extends MusicBeatState
         navScroll = 0;
 
         navViewTop = HEADER_H + NAV_PAD + SEARCH_H + NAV_PAD;
-        navViewBottom = FlxG.height - NAV_PAD;
+        navViewBottom = FlxG.height - NAV_PAD - safeB;
 
         // 主分类自己的选项也算一页，见 OptionCategory.navPages()
         var subs = selectedCat.navPages();
@@ -459,7 +472,7 @@ class OptionsPageState extends MusicBeatState
         for (i in 0...subs.length)
         {
             var sub = subs[i];
-            var item = new Win10NaviItem(0,
+            var item = new Win10NaviItem(navX,
                 startY + i * (NAV_ITEM_H + NAV_ITEM_GAP),
                 NAV_W, NAV_ITEM_H,
                 sub,
@@ -676,7 +689,7 @@ class OptionsPageState extends MusicBeatState
             optionsToShow = currentSub.visibleOptions();
         }
 
-        var startX = NAV_W + NAV_PAD * 2;
+        var startX = navRight + NAV_PAD * 2;
         var curY:Float = HEADER_H + NAV_PAD;
 
         for (i in 0...optionsToShow.length)
@@ -1085,7 +1098,7 @@ class OptionsPageState extends MusicBeatState
         var mx:Float = FlxG.mouse.x;
         var my:Float = FlxG.mouse.y;
 
-        if (mx <= NAV_W && my > HEADER_H)
+        if (mx >= navX && mx <= navRight && my > HEADER_H)
         {
             for (i in 0...navItems.length)
             {
@@ -1199,7 +1212,7 @@ class OptionsPageState extends MusicBeatState
         var mx = FlxG.mouse.x;
         var my = FlxG.mouse.y;
 
-        if (mx > NAV_W && my > HEADER_H && my < FlxG.height - 60)
+        if (mx > navRight && my > HEADER_H && my < FlxG.height - 60)
         {
             for (i in 0...rows.length)
             {

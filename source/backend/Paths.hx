@@ -941,30 +941,73 @@ class Paths
 	inline static public function soundRandom(key:String, min:Int, max:Int, ?modsAllowed:Bool = true)
 		return sound(key + FlxG.random.int(min, max), modsAllowed);
 
+	/** native 加载器失效只提示一次：Android 上走字节解码后每张图都会先失败一遍，逐条打会淹掉日志。 */
+	static var nativeLoaderWarned:Bool = false;
+
+	/**
+	 * 交给 lime/SDL 原生加载器之前，把路径规范成它能真的打开的形态。
+	 *
+	 * **Android 根因**（lime 8.4.0 的 SDL `SDL_RWFromFile`）：
+	 *   - 绝对路径（首字符 `/`）→ 直接 `fopen` —— 能读数据根；
+	 *   - 相对路径 → 先拼 `SDL_AndroidGetInternalStoragePath()`（JNI 拿 `Context.getFilesDir()`，
+	 *     与进程 CWD 无关，`Sys.setCwd` 改不到它）→ 找不到 → 再去 APK 内嵌 assets 里翻。
+	 * 于是外部导入到 `/sdcard/.FrozenEngine/assets/...` 的文件（不在 APK 里）永远返回 null，
+	 * 而 APK 内嵌的那批因为能命中 assets 反而正常 —— 「部分资源好用、部分全瞎」就是这么来的。
+	 * iOS / 桌面没有这段重定向，相对路径直接 `fopen`，所以 iOS 一切正常。
+	 */
+	public static function nativeSearchPath(path:String):String
+	{
+		if (path == null || path.length == 0) return path;
+		#if android
+		if (path.charCodeAt(0) != '/'.code)
+		{
+			// 基准取「数据根」，而不是无条件相信 CWD：Main 里 `Sys.setCwd()` 外面没有 try，
+			// chdir 一旦失败 getCwd() 会停在别处，拼出来的绝对路径会让**所有**资源一起消失，
+			// 现场看起来和「导入失败」一模一样，极难排查。
+			var base:String = StorageUtil.getExternalStorageDirectory();
+			var cwd:String = '';
+			try cwd = Sys.getCwd() catch (e:Dynamic) {}
+			if (cwd.length > 0)
+			{
+				var cwdSlash:String = haxe.io.Path.addTrailingSlash(cwd);
+				if (StringTools.startsWith(cwdSlash, base)) base = cwdSlash;
+			}
+			return base + path;
+		}
+		#end
+		return path;
+	}
+
 	/**
 	 * 从磁盘读图：先走 lime 原生解码（BitmapData.fromFile），拿不到再用 hxcpp 读字节自己解。
-	 * Android 外置存储上 lime 的 native 加载器会**静默返回 null**（不抛异常），
-	 * 原来直接 `catch {}` 吞掉，日志里只剩一句 Bitmap not found，看不出是读不到还是解不开。
+	 * Android 上原生加载器只认绝对路径（见 `nativeSearchPath`），所以先转绝对再试；
+	 * 仍然失败才回落到字节解码 —— 那条路走 POSIX fopen，不受 SDL 的 assets 重定向影响。
 	 */
 	public static function bitmapFromFile(path:String):BitmapData
 	{
 		if (path == null) return null;
 
+		var nativePath:String = nativeSearchPath(path);
+
 		var bitmap:BitmapData = null;
-		try bitmap = BitmapData.fromFile(path)
-		catch (e:Dynamic) trace('[bitmap] fromFile threw: $path ($e)');
+		try bitmap = BitmapData.fromFile(nativePath)
+		catch (e:Dynamic) trace('[bitmap] fromFile threw: $nativePath ($e)');
 		if (bitmap != null) return bitmap;
+
+		if (!nativeLoaderWarned)
+		{
+			nativeLoaderWarned = true;
+			trace('[bitmap] native loader 打不开，改用字节解码（后续同类不再打印）: $nativePath');
+		}
 
 		try
 		{
-			var bytes:haxe.io.Bytes = File.getBytes(path);
-			var len:Int = (bytes == null) ? -1 : bytes.length;
-			trace('[bitmap] native loader null: $path (bytes=$len)');
+			var bytes:haxe.io.Bytes = File.getBytes(nativePath);
 			if (bytes != null && bytes.length > 0)
 				bitmap = BitmapData.fromBytes(bytes);
-			if (bitmap == null) trace('[bitmap] decode failed: $path');
+			if (bitmap == null) trace('[bitmap] decode failed: $nativePath');
 		}
-		catch (e:Dynamic) trace('[bitmap] read failed: $path ($e)');
+		catch (e:Dynamic) trace('[bitmap] read failed: $nativePath ($e)');
 
 		return bitmap;
 	}
@@ -979,14 +1022,16 @@ class Paths
 	{
 		if (path == null) return null;
 
+		var nativePath:String = nativeSearchPath(path);
+
 		var sound:Sound = null;
-		try sound = Sound.fromFile(path)
+		try sound = Sound.fromFile(nativePath)
 		catch (e:Dynamic) {}
 		if (sound != null) return sound;
 
 		try
 		{
-			var bytes:haxe.io.Bytes = File.getBytes(path);
+			var bytes:haxe.io.Bytes = File.getBytes(nativePath);
 			if (bytes != null && bytes.length > 0)
 			{
 				var buffer:AudioBuffer = AudioBuffer.fromBytes(bytes);
@@ -1136,12 +1181,16 @@ class Paths
 		}
 
 		// 加载位图
+		// 必须走 bitmapFromFile：裸 BitmapData.fromFile 在 Android 上读不到数据根
+		// （SDL 只认绝对路径，见 nativeSearchPath），会让外部导入的图标/角色/舞台图集
+		// 全部变成 null —— 小图标空白、FlxAnimate 拿 null 图集后空引用闪退都是这个。
 		var bitmap:BitmapData = null;
 
 		#if sys
 		if (file != null && FileSystem.exists(file))
-			bitmap = BitmapData.fromFile(file);
-		else #end if (file != null && OpenFlAssets.exists(file, IMAGE))
+			bitmap = bitmapFromFile(file);
+		#end
+		if (bitmap == null && file != null && OpenFlAssets.exists(file, IMAGE))
 			bitmap = OpenFlAssets.getBitmapData(file);
 
 		if (bitmap == null)
@@ -1256,6 +1305,9 @@ class Paths
 		var file:String = modFolders(folderKey);
 		if(FileSystem.exists(file)) return file;
 		#end
+		// 这里**不能**返回绝对路径：返回值最终落到 FlxText.getFontHelper → TextFormat.font，
+		// 那是「资产键名」而不是文件路径。改成绝对路径会让 FlxG.assets.exists() 恒 false，
+		// 于是所有文字退回默认字体（反向回归）。字体加载要走 Assets 清单。
 		return 'assets/$folderKey';
 	}
 
@@ -1316,6 +1368,13 @@ class Paths
 	{
 		
 		var parentFrames:FlxAtlasFrames = Paths.getAtlas(keys[0].trim());
+		// 图没解析出来时 getAtlas 返回 null；下面 parentFrames.parent 会直接空引用，
+		// 而 Android 上图片缺失是常态（外部资源没同步全），必须挡住。
+		if (parentFrames == null)
+		{
+			FlxG.log.error('MultiAtlas base not found: ${keys[0]} (parent=$parentFolder)');
+			return null;
+		}
 		if(keys.length > 1)
 		{
 			var original:FlxAtlasFrames = parentFrames;
@@ -1339,6 +1398,11 @@ class Paths
 		if (xmlText == null)
 		{
 			FlxG.log.error('Atlas XML not found: images/$key.xml (parent=$parentFolder)');
+			return null;
+		}
+		if (imageLoaded == null)
+		{
+			FlxG.log.error('Atlas image not found: images/$key.png (parent=$parentFolder)');
 			return null;
 		}
 		var frames:FlxAtlasFrames = FlxAtlasFrames.fromSparrow(imageLoaded, xmlText);
@@ -1743,6 +1807,13 @@ class Paths
 		//trace(folderOrImg);
 		//trace(spriteJson);
 		//trace(animationJson);
+		// 图集 PNG 没解析出来时（Android 上外部资源缺失）绝不能把 null 递进去：
+		// FlxAnimate 会在 draw 里对 curSymbol 空引用，SIGSEGV 抓不住，直接整个游戏闪退。
+		if (folderOrImg == null)
+		{
+			FlxG.log.error('FlxAnimate atlas image not found: $folderOrImg');
+			return;
+		}
 		spr.loadAtlasEx(folderOrImg, spriteJson, animationJson);
 	}
 	#end

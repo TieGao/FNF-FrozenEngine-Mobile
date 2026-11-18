@@ -162,7 +162,8 @@ class NoteSkinStyle
 		{
 			try
 			{
-				bitmap = BitmapData.fromFile(imagePath);
+				// 走 Paths 的统一入口：Android 上裸 BitmapData.fromFile 对相对路径必然返回 null
+				bitmap = Paths.bitmapFromFile(imagePath);
 			}
 			catch (e:Dynamic)
 			{
