@@ -56,13 +56,13 @@ class ContentPacks
 		var root:String = Paths.CONTENT_ROOT;
 		if (FileSystem.exists(root) && FileSystem.isDirectory(root))
 		{
-			for (group in FileSystem.readDirectory(root))
+			for (group in Paths.readDirectory(root))
 			{
 				if (group.startsWith('.')) continue;
 				var groupPath:String = '$root/$group';
 				if (!FileSystem.isDirectory(groupPath)) continue;
 
-				for (name in FileSystem.readDirectory(groupPath))
+				for (name in Paths.readDirectory(groupPath))
 				{
 					if (name.startsWith('.')) continue;
 					var path:String = '$groupPath/$name';

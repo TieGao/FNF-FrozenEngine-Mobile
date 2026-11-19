@@ -98,6 +98,11 @@ class WeekData {
 		}
 
 		this.fileName = fileName;
+
+		// 周 json 缺 songs 字段（或写成 null）时，Reflect 会把 null 原样赋进来。
+		// 下游 FreeplayState.loadSongs 是 for (song in leWeek.songs)，null 直接空引用闪退。
+		// 缺歌就当空周处理，让它安静地不进列表，别把整个 Freeplay 带崩。
+		if (this.songs == null) this.songs = [];
 	}
 
 	public static function reloadWeekFiles(isStoryMode:Null<Bool> = false)
@@ -154,7 +159,7 @@ class WeekData {
 					}
 				}
 
-				for (file in FileSystem.readDirectory(directory))
+				for (file in Paths.readDirectory(directory))
 				{
 					var path = haxe.io.Path.join([directory, file]);
 					if (!FileSystem.isDirectory(path) && file.endsWith('.json'))
@@ -183,7 +188,7 @@ class WeekData {
 		var groupPath:String = '${Paths.CONTENT_ROOT}/VanillaSongs';
 		if (!FileSystem.exists(groupPath)) return;
 
-		for (pack in FileSystem.readDirectory(groupPath))
+		for (pack in Paths.readDirectory(groupPath))
 		{
 			if (pack.startsWith('.')) continue;
 			// MODS 菜单里被禁用的内容包（contentList.txt）不注册它的周
@@ -196,7 +201,7 @@ class WeekData {
 			var weeksDir:String = '$packPath/shared/weeks';
 			if (!FileSystem.exists(weeksDir)) continue;
 
-			for (file in FileSystem.readDirectory(weeksDir))
+			for (file in Paths.readDirectory(weeksDir))
 			{
 				if (!file.endsWith('.json')) continue;
 				var weekName:String = file.substr(0, file.length - 5);

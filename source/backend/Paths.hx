@@ -1838,7 +1838,18 @@ class Paths
 	public static function readDirectory(directory:String):Array<String>
 	{
 		#if MODS_ALLOWED
-		return FileSystem.readDirectory(directory);
+		// Android 的 /sdcard 是 FUSE：目录被同名文件占位、权限/属主不对、挂载异常时
+		// readDirectory 会抛 "Invalid directory"。调用链（Main.setupGame → Mods.updateModList
+		// → 这里）没有任何 try/catch，异常会直接冒到 Main 构造函数导致闪退。读不了就当空目录。
+		try
+		{
+			return FileSystem.readDirectory(directory);
+		}
+		catch (e:Dynamic)
+		{
+			trace('[Paths] readDirectory failed: $directory ($e)');
+			return [];
+		}
 		#else
 		var dirs:Array<String> = [];
 		for(dir in Assets.list().filter(folder -> folder.startsWith(directory)))

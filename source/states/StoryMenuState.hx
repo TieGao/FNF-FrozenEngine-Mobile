@@ -862,9 +862,10 @@ class StoryMenuState extends MusicBeatState
 			// We can't use Dynamic Array .copy() because that crashes HTML5, here's a workaround.
 			var songArray:Array<String> = [];
 			var leWeek:Array<Dynamic> = loadedWeeks[curWeek].songs;
-			for (i in 0...leWeek.length) {
-				songArray.push(leWeek[i][0]);
-			}
+			if (leWeek != null)
+				for (i in 0...leWeek.length) {
+					songArray.push(leWeek[i][0]);
+				}
 
 			// Nevermind that's stupid lmao
 			try
@@ -1110,9 +1111,11 @@ class StoryMenuState extends MusicBeatState
 
 		var leWeek:WeekData = loadedWeeks[curWeek];
 		var stringThing:Array<String> = [];
-		for (i in 0...leWeek.songs.length) {
-			stringThing.push(leWeek.songs[i][0]);
-		}
+		// 周 json 缺 songs 时 WeekData 会兜成空数组，这里再挡一次：没有曲目的周不该让选周界面崩
+		if (leWeek.songs != null)
+			for (i in 0...leWeek.songs.length) {
+				stringThing.push(leWeek.songs[i][0]);
+			}
 
 		txtTracklist.text = '';
 		for (i in 0...stringThing.length)

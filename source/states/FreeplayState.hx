@@ -489,10 +489,14 @@ class FreeplayState extends MusicBeatState
             if (weekIsLocked(WeekData.weeksList[i])) continue;
 
             var leWeek:WeekData = WeekData.weeksLoaded.get(WeekData.weeksList[i]);
+            // weeksList / weeksLoaded 是多轮扫描（原版周 + mod 周 + 内容包周）混着写的，
+            // 缺数据或周里没歌时跳过这一周，别在下面空引用闪退。
+            if (leWeek == null || leWeek.songs == null) continue;
 
             WeekData.setDirectoryFromWeek(leWeek);
             for (song in leWeek.songs)
             {
+                if (song == null || song[0] == null) continue;
                 var colors:Array<Int> = song[2];
                 if (colors == null || colors.length < 3)
                     colors = [146, 113, 253];

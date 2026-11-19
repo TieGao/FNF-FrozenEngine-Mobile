@@ -128,7 +128,7 @@ class CopyState extends MusicBeatState
 					// 改非阻塞 toast；完整失败清单仍落盘 logs/
 					final folder:String = #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'logs/';
 					if (!FileSystem.exists(folder))
-						FileSystem.createDirectory(folder);
+						StorageUtil.mkDirs(folder);
 					final logFile:String = folder + Date.now().toString().replace(' ', '-').replace(':', "'") + '-CopyState' + '.txt';
 					File.saveContent(logFile, failedFilesStack.join('\n'));
 					MessageBox.show('Failed To Copy ${failedFiles.length} File.',
@@ -162,8 +162,10 @@ class CopyState extends MusicBeatState
 		if (forceRecopy || !FileSystem.exists(file))
 		{
 			var directory = Path.directory(file);
+			// 资产是边遍历边建的，父目录不一定已经存在；createDirectory 不递归会抛，
+			// 而这里跑在 ThreadPool 线程上，异常没人接就是整个进程闪退。
 			if (!FileSystem.exists(directory))
-				FileSystem.createDirectory(directory);
+				StorageUtil.mkDirs(directory);
 			try
 			{
 				if (OpenFLAssets.exists(getFile(file)))
@@ -271,7 +273,7 @@ class CopyState extends MusicBeatState
 			if (fileData == null)
 				fileData = '';
 			if (!FileSystem.exists(directory))
-				FileSystem.createDirectory(directory);
+				StorageUtil.mkDirs(directory);
 			// 先删后写：同 copyAsset，保证重装后文件属主回到当前 uid
 			var target:String = Path.join([directory, fileName]);
 			if (FileSystem.exists(target))
