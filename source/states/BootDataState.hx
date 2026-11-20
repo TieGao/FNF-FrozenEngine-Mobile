@@ -13,6 +13,8 @@ import haxe.io.Bytes;
 import haxe.io.Path;
 import haxe.zip.Entry;
 import haxe.zip.Reader;
+import backend.ClientPrefs;
+import backend.Mods;
 import mobile.backend.StorageUtil;
 import mobile.backend.TouchUtil;
 import objects.MessageBox;
@@ -31,7 +33,10 @@ import sys.io.File;
  *  2. assets/replays 始终留在私有目录（回放防篡改，与 Replay.getReplayRootDir 一致）；
  *  3. 原版周数据（base_game，标记 assets/week2）与内容包的 zip 导入 UI（忽略可不再提示）。
  *
- * 数据包 zip 约定：条目顶层只允许 assets/ content/ mods/ 前缀（与数据根同构，解压即安装）。
+ * 数据包 zip 约定：官方包条目顶层只允许 assets/ content/ mods/ 前缀（与数据根同构，解压即安装）。
+ * 结构自适应（解压前预扫全部条目头）：官方前缀包原样落数据根；套外层文件夹、裸 mod 内容、
+ * mod 合集等民间打包自动重映射进 mods/（裸内容用 zip 文件名当 mod 名）；
+ * 垃圾条目（__MACOSX/.DS_Store/Thumbs.db 等）静默跳过。
  */
 class BootDataState extends MusicBeatState
 {
@@ -39,8 +44,12 @@ class BootDataState extends MusicBeatState
 	public static final DATA_MARKER:String = 'assets/week2';
 	/** 标记在 legacy assets 树内部的相对路径（迁移源校验用）。 */
 	public static final MARKER_IN_ASSETS:String = 'week2';
-	/** 数据包 zip 内允许的顶层前缀。 */
+	/** 官方模式 zip 允许的顶层前缀（结构自适应重映射后的 mod 包必落在 mods/ 下，不走这里）。 */
 	public static final ALLOWED_PREFIXES:Array<String> = ['assets/', 'content/', 'mods/'];
+	/** 引擎已知 mod 类别目录（= Mods.ignoreModFolders + Psych 常用的两个），识别 mod 结构用。 */
+	static final CATEGORY_FOLDERS:Array<String> = Mods.ignoreModFolders.concat(['custom_notes', 'custom_songs']);
+	/** 识别为垃圾的用户压缩附带条目（小写文件名）。 */
+	static final JUNK_FILES:Array<String> = ['.ds_store', 'thumbs.db', 'desktop.ini'];
 	/** iOS 文档选择器的 zip UTI（Android 端忽略类型参数）。 */
 	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip', 'application/x-zip-compressed'];
 	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。 */
@@ -55,6 +64,7 @@ class BootDataState extends MusicBeatState
 
 	// ---- UI ----
 	var titleText:FlxText;
+	var rootText:FlxText; // 数据根路径独立行（任何相位常驻，手动解压的用户照着抄）
 	var infoText:FlxText;
 	var progressBar:FlxBar;
 	var statusText:FlxText;
@@ -74,6 +84,12 @@ class BootDataState extends MusicBeatState
 	var zipEntries:Int = 0;
 	var importedAssetsEntries:Bool = false;
 
+	// ---- zip 结构自适应（预扫头解析出的重映射规则，解压阶段逐条套用）----
+	var zipStrip:Int = 0; // 每条路径先剥掉的公共外层段数
+	var zipOfficialMode:Bool = true; // true=官方前缀白名单（原行为）；false=重映射进 mods/
+	var zipPrefixMap:Map<String, String> = new Map(); // mods 合集模式：剥后首段（mod 名）-> mods/<改名>/
+	var zipBarePrefix:String = ''; // mods 裸内容模式：统一前缀 mods/<zip名>/
+
 	// ---- zip 导入计时取证（慢导入排查：时间在解压 CPU / 写盘 I/O / 头解析，汇总落盘 logs/）----
 	var tHeader:Float = 0;
 	var tInflate:Float = 0;
@@ -90,6 +106,7 @@ class BootDataState extends MusicBeatState
 		FlxG.camera.bgColor = FlxColor.BLACK;
 		buildUI();
 		runCheck();
+		addTouchPad('NONE', 'B');
 		super.create();
 	}
 
@@ -101,6 +118,12 @@ class BootDataState extends MusicBeatState
 		{
 			case CheckWork | Missing | Ready:
 				handleButtons();
+				// B 键/ESC 返回：只在静止相位放行（迁移/解压中不允许中断）
+				if ((phase == Missing || phase == Ready) && controls.BACK)
+				{
+					FlxG.sound.play(Paths.sound('cancelMenu'));
+					exitBootData();
+				}
 
 			case Working:
 				processWorkSlice();
@@ -339,6 +362,17 @@ class BootDataState extends MusicBeatState
 
 	function openZip(zipPath:String):Void
 	{
+		// 预扫定结构：官方包原样落数据根；套层/裸 mod 包重映射进 mods/；识别不出=拒收
+		switch (scanZipRule(zipPath))
+		{
+			case ScanReject:
+				MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+					Language.getPhrase('data.boot.zip.notmod', 'Cannot recognize a mod or data pack structure in this zip.\nPlease check the zip contents.'),
+					MessageBoxType.MESSAGE, null, 8.0);
+				phase = Missing;
+				return;
+			default: // ScanOk 用规则；ScanStrict 保持旧行为
+		}
 		try
 		{
 			zipInput = File.read(zipPath, true);
@@ -404,34 +438,38 @@ class BootDataState extends MusicBeatState
 			progressBar.percent = (Sys.time() * 40) % 100; // 拿不到大小时退回脉冲
 	}
 
-	/** 校验并落盘一个条目（直接流式写盘，不整块驻留内存）。 */
+	/** 校验并落盘一个条目（直接流式写盘，不整块驻留内存）。路径先经预扫规则重映射。 */
 	function processEntry(entry:Entry):Bool
 	{
-		var name:String = StringTools.replace(entry.fileName, '\\', '/');
-		if (name.length == 0 || StringTools.endsWith(name, '/'))
+		var raw:String = entry.fileName;
+		if (raw.length == 0 || StringTools.endsWith(raw, '/'))
 			return true; // 目录条目
-		// 安全校验：拒绝绝对路径与上级目录跳转
-		if (StringTools.startsWith(name, '/') || name.indexOf('../') >= 0)
+		var name:String = normalizeEntryName(raw);
+		if (name.length == 0 || isJunkPath(name))
+			return true; // 规范化后为空 / macOS·Windows 垃圾条目：静默跳过
+		// 安全校验：拒绝绝对路径与 '..' 段（重映射在原始名上做，剥前缀不可能造出逃逸）
+		if (!safeRelativePath(name))
 			return false;
-		var ok:Bool = false;
-		for (prefix in ALLOWED_PREFIXES)
-			if (StringTools.startsWith(name, prefix))
-			{
-				ok = true;
-				break;
-			}
-		if (!ok)
-			return false;
-		if (StringTools.startsWith(name, 'assets/'))
-			importedAssetsEntries = true;
+		var mapped:String = remapEntryPath(name);
+		if (zipOfficialMode)
+		{
+			if (!startsWithOfficialPrefix(mapped))
+				return false;
+			if (StringTools.startsWith(mapped, 'assets/'))
+				importedAssetsEntries = true;
+		}
 
 		var te:Float = Sys.time();
 		try
 		{
 			var t0:Float = Sys.time();
-			ensureParentDirs(name);
+			ensureParentDirs(mapped);
 			tPrep += Sys.time() - t0;
-			writeEntryData(entry, name);
+			#if android
+			writeEntryData(entry, StorageUtil.getStorageDirectory() + mapped);
+			#else
+			writeEntryData(entry, mapped);
+			#end
 		}
 		catch (e:Dynamic)
 		{
@@ -612,13 +650,299 @@ class BootDataState extends MusicBeatState
 		zipStream = null;
 	}
 
+	// ================= zip 预扫（结构自适应） =================
+
+	/** 预扫：只解析全部条目头并跳过数据，识别 zip 结构定重映射规则。
+	 *  支持民间打包：套外层文件夹（下载目录/版本号包一层）、裸 mod 内容（zip 的是文件夹里面的东西）、
+	 *  mod 合集（多个 mod 文件夹平铺）。ScanReject=识别不出任何 mod/数据包结构；ScanStrict=退回旧行为。 */
+	function scanZipRule(zipPath:String):ZipScanOutcome
+	{
+		// 保守默认：任何提前 return 的路径都保持旧行为
+		zipStrip = 0;
+		zipOfficialMode = true;
+		zipBarePrefix = '';
+		zipPrefixMap = new Map();
+
+		var names:Array<String> = [];
+		var inp:FileInput = null;
+		try
+			inp = File.read(zipPath, true)
+		catch (e:Dynamic)
+			return ScanStrict; // 打不开：openZip 会给出更明确的报错
+		try
+		{
+			var r = new Reader(inp);
+			var st:haxe.io.Input = null;
+			@:privateAccess st = r.i;
+			if (tmpBuf == null)
+				tmpBuf = Bytes.alloc(65536);
+			while (true)
+			{
+				var e:Entry = r.readEntryHeader();
+				if (e == null)
+					break;
+				var isDir:Bool = StringTools.endsWith(e.fileName, '/');
+				var name:String = normalizeEntryName(e.fileName);
+				skipEntryData(e, st);
+				if (isDir || name.length == 0 || isJunkPath(name))
+					continue;
+				if (!safeRelativePath(name))
+					continue; // 危险条目不参与分类；解压阶段仍会原样拒绝（保持旧报错）
+				names.push(name);
+			}
+		}
+		catch (e:Dynamic)
+		{
+			// 预扫中断（损坏/怪 zip）：退回旧严格模式，让解压阶段给出与从前一致的报错
+			trace('[BootData] zip 预扫失败，退回严格官方模式: ' + e.message);
+			try
+				inp.close()
+			catch (e2:Dynamic) {}
+			return ScanStrict;
+		}
+		try
+			inp.close()
+		catch (e:Dynamic) {}
+		return classifyZip(names, zipPath);
+	}
+
+	/** 预扫跳过当前条目的数据，让流对齐到下一个条目头。描述符条目长度未知，流式解压丢弃。 */
+	function skipEntryData(e:Entry, st:haxe.io.Input):Void
+	{
+		if (e.crc32 == null)
+		{
+			// 数据描述符条目：边解压边丢 + 跳过描述符尾（crc+csize+usize，可带 0x08074b50 标记）
+			var z = new haxe.zip.InflateImpl(st, false, false);
+			while (true)
+			{
+				var n = z.readBytes(tmpBuf, 0, tmpBuf.length);
+				if (n < tmpBuf.length)
+					break;
+			}
+			var crc = st.readInt32();
+			if (crc == 0x08074b50)
+				st.readInt32();
+			st.readInt32();
+			st.readInt32();
+		}
+		else if (e.dataSize > 0)
+		{
+			var fi:FileInput = cast(st, FileInput);
+			fi.seek(e.dataSize, sys.io.FileSeek.SeekCur);
+		}
+	}
+
+	/** 从预扫收集的路径定规则（names 已去掉垃圾条目与危险条目）。 */
+	function classifyZip(names:Array<String>, zipPath:String):ZipScanOutcome
+	{
+		if (names.length == 0)
+			return ScanReject; // 空包/全垃圾条目
+
+		// 1) 公共外层前缀深度：所有条目共有的前 N 段目录（N 不吃掉任何条目的文件名）
+		var segLists:Array<Array<String>> = [for (n in names) n.split('/')];
+		var minDepth:Int = 2147483647;
+		for (s in segLists)
+			if (s.length < minDepth)
+				minDepth = s.length;
+		var common:Int = 0;
+		while (common < minDepth - 1)
+		{
+			var seg:String = segLists[0][common];
+			var same:Bool = true;
+			for (s in segLists)
+				if (s[common] != seg)
+				{
+					same = false;
+					break;
+				}
+			if (!same)
+				break;
+			common++;
+		}
+
+		// 2) 官方前缀判定：从浅到深试剥。全部命中=干净官方包（含套层的）；部分命中=坏条目在
+		//    解压阶段原样报"Unexpected file in data pack"（旧严格语义）。
+		for (s in 0...(common + 1))
+		{
+			var hit:Bool = false;
+			for (n in names)
+			{
+				if (startsWithOfficialPrefix(stripSegments(n, s)))
+				{
+					hit = true;
+					break;
+				}
+			}
+			if (hit)
+			{
+				zipStrip = s;
+				zipOfficialMode = true;
+				trace('[BootData] zip 预扫: 官方结构，剥 $s 层外层前缀');
+				return ScanOk;
+			}
+		}
+
+		// 3) mod 分类：剥满公共前缀后，裸内容（根级文件或类别目录开头）→mods/<zip名>/；
+		//    mod 文件夹/合集→mods/<名>/
+		var stripped:Array<String> = [for (n in names) stripSegments(n, common)];
+		if (!looksLikeModContent(stripped))
+			return ScanReject;
+
+		var bare:Bool = false;
+		for (n in stripped)
+		{
+			if (n.indexOf('/') < 0 || isCategoryFolder(n.substr(0, n.indexOf('/'))))
+			{
+				bare = true;
+				break;
+			}
+		}
+		zipOfficialMode = false;
+		zipStrip = common;
+		if (bare)
+		{
+			zipBarePrefix = 'mods/' + sanitizeModFolderName(zipDisplayName(zipPath)) + '/';
+			trace('[BootData] zip 预扫: 裸 mod 内容，整体映射到 ' + zipBarePrefix);
+		}
+		else
+		{
+			zipBarePrefix = '';
+			for (n in stripped)
+			{
+				var first:String = n.substr(0, n.indexOf('/'));
+				if (!zipPrefixMap.exists(first))
+					zipPrefixMap.set(first, 'mods/' + sanitizeModFolderName(first) + '/');
+			}
+			trace('[BootData] zip 预扫: mod 包/合集，剥 $common 层，${Lambda.count(zipPrefixMap)} 个 mod 文件夹');
+		}
+		return ScanOk;
+	}
+
+	/** 解压阶段把 zip 内路径映射到数据根相对路径（规则来自预扫）。 */
+	function remapEntryPath(name:String):String
+	{
+		if (zipOfficialMode)
+			return stripSegments(name, zipStrip);
+		var stripped:String = stripSegments(name, zipStrip);
+		if (zipBarePrefix.length > 0)
+			return zipBarePrefix + stripped;
+		var segs:Array<String> = stripped.split('/');
+		var first:String = segs.shift();
+		var prefix:String = zipPrefixMap.get(first);
+		if (prefix == null)
+			prefix = 'mods/' + sanitizeModFolderName(first) + '/'; // 预扫漏网段兜底
+		return prefix + segs.join('/');
+	}
+
+	static function startsWithOfficialPrefix(name:String):Bool
+	{
+		for (prefix in ALLOWED_PREFIXES)
+			if (StringTools.startsWith(name, prefix))
+				return true;
+		return false;
+	}
+
+	static function isCategoryFolder(seg:String):Bool
+	{
+		return CATEGORY_FOLDERS.indexOf(seg.toLowerCase()) >= 0;
+	}
+
+	/** mod 结构守卫：至少有一处引擎已知类别目录或 data.json，防任意 zip 被静默装成野 mod。 */
+	static function looksLikeModContent(paths:Array<String>):Bool
+	{
+		for (n in paths)
+		{
+			var segs:Array<String> = n.toLowerCase().split('/');
+			if (segs[segs.length - 1] == 'data.json')
+				return true;
+			for (s in segs)
+				if (isCategoryFolder(s))
+					return true;
+		}
+		return false;
+	}
+
+	/** zip 条目名规范化：反斜杠转斜杠、去空段与当前目录段（'a//b'、'a/./b' 噪声）。 */
+	static function normalizeEntryName(raw:String):String
+	{
+		var parts:Array<String> = StringTools.replace(raw, '\\', '/').split('/');
+		var out:Array<String> = [];
+		for (p in parts)
+			if (p.length > 0 && p != '.')
+				out.push(p);
+		return out.join('/');
+	}
+
+	/** 用户压缩常见的垃圾条目（macOS/Windows 附带物），静默跳过不落盘。 */
+	static function isJunkPath(name:String):Bool
+	{
+		var lower:String = name.toLowerCase();
+		if (lower.indexOf('__macosx/') == 0 || lower.indexOf('/__macosx/') >= 0)
+			return true;
+		var base:String = lower.substr(lower.lastIndexOf('/') + 1);
+		if (JUNK_FILES.indexOf(base) >= 0)
+			return true;
+		return StringTools.startsWith(base, '._'); // AppleDouble 资源分叉
+	}
+
+	/** 相对路径安全校验：拒绝绝对路径与 '..' 段（比逐字符串查 '../' 更严，堵住 'mods/a/..' 尾段）。 */
+	static function safeRelativePath(name:String):Bool
+	{
+		if (StringTools.startsWith(name, '/'))
+			return false;
+		for (seg in name.split('/'))
+			if (seg == '..')
+				return false;
+		return true;
+	}
+
+	static function stripSegments(name:String, n:Int):String
+	{
+		if (n <= 0)
+			return name;
+		var segs:Array<String> = name.split('/');
+		if (n >= segs.length)
+			return name;
+		return segs.slice(n).join('/');
+	}
+
+	static function zipDisplayName(zipPath:String):String
+	{
+		return Path.withoutExtension(Path.withoutDirectory(zipPath));
+	}
+
+	/** mod 文件夹名清洗：modsList.txt 用 '|' 分列、换行会断行，路径分隔符也不能混进来。 */
+	static function sanitizeModFolderName(s:String):String
+	{
+		var buf:StringBuf = new StringBuf();
+		for (i in 0...s.length)
+		{
+			var c:Int = s.charCodeAt(i);
+			if (c == 0x7C /*|*/ || c == 0x2F /*/*/ || c == 0x5C /*\*/ || c < 0x20)
+				c = 0x5F; // '_'
+			buf.addChar(c);
+		}
+		var r:String = StringTools.trim(buf.toString());
+		if (r.length == 0 || r == '.' || r == '..')
+			r = 'ImportedMod';
+		if (r.length > 64)
+			r = r.substr(0, 64);
+		return r;
+	}
+
 	// ================= 文件工具 =================
 
 	function ensureParentDirs(relPath:String):Void
 	{
 		var parts:Array<String> = relPath.split('/');
 		parts.pop(); // 最后一段是文件名
+		// 从数据根拼绝对路径，和 CopyState 一致：不依赖进程 CWD，chdir 没生效也不会写错位置
+		#if android
+		var cur:String = StorageUtil.getStorageDirectory();
+		if (cur.endsWith('/')) cur = cur.substr(0, cur.length - 1);
+		#else
 		var cur:String = '';
+		#end
 		for (p in parts)
 		{
 			cur += (cur.length == 0 ? '' : '/') + p;
@@ -653,25 +977,49 @@ class BootDataState extends MusicBeatState
 
 	function buildUI():Void
 	{
-		titleText = makeText(40, 90, FlxG.width - 80, '', 34, FlxColor.WHITE, CENTER);
+		// 菜单背景：与主菜单同源 menuBG，覆盖式缩放防露黑边（算法照抄 ModsMenuState）；
+		// 导入页文字密度高，加暗化遮罩保证可读
+		var menuBg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuBG'));
+		menuBg.antialiasing = ClientPrefs.data.antialiasing;
+		var coverScale:Float = Math.max(FlxG.width / menuBg.width, FlxG.height / menuBg.height);
+		menuBg.setGraphicSize(Std.int(menuBg.width * coverScale), Std.int(menuBg.height * coverScale));
+		menuBg.updateHitbox();
+		menuBg.screenCenter();
+		add(menuBg);
+
+		var dim:FlxSprite = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
+		dim.alpha = 0.45;
+		dim.scrollFactor.set();
+		add(dim);
+
+		titleText = makeText(40, 64, FlxG.width - 80, '', 34, FlxColor.WHITE, CENTER, true);
 		add(titleText);
 
-		infoText = makeText(40, 190, FlxG.width - 80, '', 20, 0xFFC8C8D8, CENTER);
+		rootText = makeText(40, 134, FlxG.width - 80, '', 18, 0xFFC8C8D8, CENTER, true);
+		add(rootText);
+
+		infoText = makeText(40, 178, FlxG.width - 80, '', 20, FlxColor.WHITE, CENTER, true);
 		add(infoText);
 
 		progressBar = new FlxBar(0, FlxG.height - 26, FlxBarFillDirection.LEFT_TO_RIGHT, FlxG.width, 26);
 		progressBar.visible = false;
 		add(progressBar);
 
-		statusText = makeText(0, FlxG.height - 60, FlxG.width, '', 20, FlxColor.WHITE, CENTER);
+		statusText = makeText(0, FlxG.height - 60, FlxG.width, '', 20, FlxColor.WHITE, CENTER, true);
 		statusText.visible = false;
 		add(statusText);
 	}
 
-	function makeText(x:Float, y:Float, width:Float, text:String, size:Int, color:FlxColor, align:FlxTextAlign):FlxText
+	function makeText(x:Float, y:Float, width:Float, text:String, size:Int, color:FlxColor, align:FlxTextAlign, ?border:Bool = false):FlxText
 	{
 		var t = new FlxText(x, y, width, text, size);
-		t.setFormat(Paths.font('vcr.ttf'), size, color, align);
+		if (border)
+		{
+			t.setFormat(Paths.font('vcr.ttf'), size, color, align, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			t.borderSize = 2;
+		}
+		else
+			t.setFormat(Paths.font('vcr.ttf'), size, color, align);
 		t.scrollFactor.set();
 		return t;
 	}
@@ -703,6 +1051,7 @@ class BootDataState extends MusicBeatState
 	{
 		clearAllButtons();
 		titleText.text = Language.getPhrase('data.boot.preparing', 'Preparing data');
+		rootText.text = '';
 		infoText.text = '';
 		statusText.text = '';
 		progressBar.percent = 0;
@@ -716,10 +1065,11 @@ class BootDataState extends MusicBeatState
 		phase = Ready;
 		clearAllButtons();
 		titleText.text = Language.getPhrase('data.boot.ready.title', 'Data is ready');
-		infoText.text = Language.getPhrase('data.boot.ready.body', 'Base game data and content packs are available.');
+		rootText.text = Language.getPhrase('data.boot.root', 'Data root: {1}', [StorageUtil.getStorageDirectory()]);
+		infoText.text = Language.getPhrase('data.boot.ready.body', 'Base game data and content packs are available.\nYou can import more content or mod packs anytime.');
 		progressBar.visible = false;
 		statusText.visible = false;
-		addBtn(Language.getPhrase('data.boot.btn.importmore', 'Import more data packs'), FlxG.height - 310);
+		addBtn(Language.getPhrase('data.boot.btn.importmore', 'Import more data / mod packs'), FlxG.height - 310);
 		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 190);
 	}
 
@@ -730,10 +1080,13 @@ class BootDataState extends MusicBeatState
 		statusText.visible = false;
 
 		titleText.text = Language.getPhrase('data.notice.title', 'Base game data not installed');
-		infoText.text = Language.getPhrase('data.boot.missing.body', 'Data root: {1}\nTap the button below to import the data pack zip, or\nextract it to the path above with a file manager.', [StorageUtil.getStorageDirectory()]);
+		rootText.text = Language.getPhrase('data.boot.root', 'Data root: {1}', [StorageUtil.getStorageDirectory()]);
+		// 三种导入形态都支持：FE 完整数据包 / 内容包 / mod 压缩包（官方结构或民间套层打包均可）
+		infoText.text = Language.getPhrase('data.boot.missing.body',
+			'Import from here:\n• FE data pack (base game + content)\n• Content packs & mod zips (folder-wrapped OK)\nOr extract the pack to the data root above with a file manager.');
 
 		clearAllButtons();
-		addBtn(Language.getPhrase('data.boot.btn.import', 'Import data pack zip'), FlxG.height - 320);
+		addBtn(Language.getPhrase('data.boot.btn.import', 'Import data / mod pack zip'), FlxG.height - 320);
 		addBtn(Language.getPhrase('data.boot.btn.ignore', 'Ignore and don\'t ask again'), FlxG.height - 200);
 		addBtn(Language.getPhrase('data.boot.btn.back', 'Back'), FlxG.height - 90);
 	}
@@ -807,5 +1160,13 @@ enum BootPhase
 	PickingZip;
 	Extracting;
 	Finish;
+}
+
+/** zip 预扫结果：ScanOk=重映射规则可用；ScanStrict=退回旧行为；ScanReject=识别不出结构，拒收。 */
+enum ZipScanOutcome
+{
+	ScanOk;
+	ScanStrict;
+	ScanReject;
 }
 #end

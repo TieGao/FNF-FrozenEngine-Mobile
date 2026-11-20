@@ -122,21 +122,19 @@ class StorageUtil
 
 	public static function requestPermissions():Void
 {
-    if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU)
+    // 按 Android 版本分流（对齐 NF 的 doPermissionsShit）：
+    //   API 30+  —— 只认「所有文件访问权限」，isExternalStorageManager 在这区间才有意义
+    //   API 29-  —— 只认运行时存储权限；isExternalStorageManager 在这区间恒 true，
+    //              拿它判断会让整段权限检查失效，目录能建出来但写不进去
+    if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.R)
     {
-        // Request each permission individually
-        extension.androidtools.Permissions.requestPermissions(['READ_MEDIA_IMAGES','READ_MEDIA_VISUAL_USER_SELECTED','READ_MEDIA_VIDEO','READ_MEDIA_AUDIO']);
+        if (!extension.androidtools.os.Environment.isExternalStorageManager())
+            extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
     }
     else
     {
-        // Request each permission individually
-        extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']);
+        extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']);
     }
-
-    if (!extension.androidtools.os.Environment.isExternalStorageManager())
-        extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
-
-    // 移除了权限检查的 if 语句块
 
     try
     {
@@ -145,24 +143,47 @@ class StorageUtil
         if (root.endsWith('/')) root = root.substr(0, root.length - 1);
         if (!FileSystem.exists(root))
             FileSystem.createDirectory(root);
+
+        // 写探针：Android 10 及以下 isExternalStorageManager() 恒 true，目录建得出来
+        // 不代表写得进去（scoped storage / 运行时权限被拒）。写不进去时复制和 zip 解压
+        // 都会静默全失败，玩家看到的是「目录是空的」。
+        var probe:String = root + '/.fe_write_probe';
+        File.saveContent(probe, 'ok');
+        FileSystem.deleteFile(probe);
     }
     catch (e:Dynamic)
     {
-        // requestSetting 只是异步跳转到设置页，不会等玩家授权，紧接着的 createDirectory 必然失败。
-        // 这时提示「请手动创建文件夹」是误导 —— 真正缺的是「所有文件访问权限」，必须把人送回设置页。
-        if (!extension.androidtools.os.Environment.isExternalStorageManager())
+        // 区分「权限没给」和「真的建不出来」：提示必须把人送去能解决问题的那一页，
+        // 否则玩家看到的是「请手动创建文件夹」，而真正缺的是权限。
+        #if android
+        if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.R)
         {
-            extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
-            CoolUtil.showPopUp(
-                Language.getPhrase('storage_permission_required',
-                    'Frozen Engine needs "All files access" to create\n{1}\n\nTurn it on in the settings page that just opened, then reopen the game.',
-                    [StorageUtil.getStorageDirectory()]),
-                Language.getPhrase('mobile_error', "Error!"));
+            if (!extension.androidtools.os.Environment.isExternalStorageManager())
+            {
+                extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
+                CoolUtil.showPopUp(
+                    Language.getPhrase('storage_permission_required',
+                        'Frozen Engine needs "All files access" to create\n{1}\n\nTurn it on in the settings page that just opened, then reopen the game.',
+                        [StorageUtil.getStorageDirectory()]),
+                    Language.getPhrase('mobile_error', "Error!"));
+            }
+            else
+            {
+                CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+            }
         }
         else
         {
-            CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+            // Android 10 及以下没有「所有文件访问权限」开关，缺的是运行时存储权限
+            extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']);
+            extension.androidtools.Settings.requestSetting('APPLICATION_DETAILS_SETTINGS');
+            CoolUtil.showPopUp(
+                Language.getPhrase('storage_permission_required_legacy',
+                    'Frozen Engine needs storage permission to write\n{1}\n\nAllow "Storage" for this app in the settings page that just opened, then reopen the game.',
+                    [StorageUtil.getStorageDirectory()]),
+                Language.getPhrase('mobile_error', "Error!"));
         }
+        #end
         lime.system.System.exit(1);
     }
 

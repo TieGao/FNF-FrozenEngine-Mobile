@@ -464,7 +464,14 @@ class FreeplayState extends MusicBeatState
             updateEmptyState();
         }
 
+        // 触屏控件必须无条件建：update() 每帧都会读 touchPad.buttonZ，
+        // 只在 initializeSelection 里建会让「一首歌都没有」直接空引用闪退；
+        // 顺带保证空列表时也能用触屏返回主菜单。
         FlxG.mouse.visible = true;
+        if (ClientPrefs.data.toolBar)
+            addTouchPad('NONE', 'A_B');
+        else
+            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
 
         startRankAnimIfPending();
 
@@ -895,17 +902,6 @@ class FreeplayState extends MusicBeatState
         updateCardsPosition();
         updateCardsRating();
         updateSongInfoTexts();
-        
-        FlxG.mouse.visible = true;
-        if (ClientPrefs.data.toolBar)
-        {
-            addTouchPad('NONE', 'A_B');
-        }
-        else
-        {
-            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
-        }
-        
     }
 
 
@@ -3123,7 +3119,7 @@ class FreeplayState extends MusicBeatState
     private function handleKeyboardInput(elapsed:Float):Void
     {
         var shiftMult:Int = 1;
-        if((FlxG.keys.pressed.SHIFT || touchPad.buttonZ.pressed) && !musicPlayer.playingMusic) shiftMult = 3;
+        if((FlxG.keys.pressed.SHIFT || (touchPad != null && touchPad.buttonZ.pressed)) && !musicPlayer.playingMusic) shiftMult = 3;
 
         if (!musicPlayer.playingMusic && PsychUIInputText.focusOn == null && !inModFolderSelector)
         {
@@ -3214,23 +3210,23 @@ class FreeplayState extends MusicBeatState
         }
         else if (!inModFolderSelector && PsychUIInputText.focusOn == null)
         {
-            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
+            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || (touchPad != null && touchPad.buttonC.justPressed)) && !musicPlayer.playingMusic)
             {
                 persistentUpdate = false;
                 if (!ClientPrefs.data.toolBar) removeTouchPad();
                 openSubState(new GameplayChangersSubstate());
             }
-            else if ((FlxG.keys.justPressed.ENTER || touchPad.buttonA.justPressed) && !musicPlayer.playingMusic && searchKeyGuard <= 0)
+            else if ((FlxG.keys.justPressed.ENTER || (touchPad != null && touchPad.buttonA.justPressed)) && !musicPlayer.playingMusic && searchKeyGuard <= 0)
             {
                 selectSong();
             }
-            else if ((FlxG.keys.justPressed.SPACE || touchPad.buttonX.justPressed) && searchKeyGuard <= 0)
+            else if ((FlxG.keys.justPressed.SPACE || (touchPad != null && touchPad.buttonX.justPressed)) && searchKeyGuard <= 0)
             {
                 togglePlaySong();
             }
         }
 
-        if (!inModFolderSelector && PsychUIInputText.focusOn == null && (controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
+        if (!inModFolderSelector && PsychUIInputText.focusOn == null && (controls.RESET || (touchPad != null && touchPad.buttonY.justPressed)) && !musicPlayer.playingMusic)
         {
             if (curSelected < 0 || curSelected >= songs.length)
             {

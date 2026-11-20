@@ -50,6 +50,8 @@ class ModsMenuState extends MusicBeatState
 
 	var bgList:FlxSprite;
 	var buttonReload:MenuButton;
+	// 无条件声明：桌面构建（无 BOOT_DATA_ALLOWED）保持 null，row2 布局按 null 回退三按钮
+	var buttonImportData:MenuButton;
 	//var buttonModFolder:MenuButton;
 	var buttonEnableAll:MenuButton;
 	var buttonDisableAll:MenuButton;
@@ -256,18 +258,30 @@ class ModsMenuState extends MusicBeatState
 		var row2Y:Float = bgButtons.y + 100;
 		var row2X:Float = bgButtons.x + 40;
 		var row2Gap:Float = 20 + Math.max(0, (panelW - 840) / 2);
-		buttonSwitchList = new MenuButton(row2X, row2Y, 240, 80, listSwitchLabel(), null, function() switchList(!usingContent), 0, 0, 28);
+		// 第二行挤四个按钮（页签 / 导入数据 / Reload / 全开全关）：840 宽面板下
+		// 宽度 185/175/205/155 + 3×20 间距 + 左 40 右 20 边距恰好铺满；更宽时富余照旧进间距。
+		// 标签超宽由 MenuButton.fitTextSprite 自动降字号，翻译再长也出不了按钮。
+		buttonSwitchList = new MenuButton(row2X, row2Y, 185, 80, listSwitchLabel(), null, function() switchList(!usingContent), 0, 0, 28);
 		add(buttonSwitchList);
 
-		buttonReload = new MenuButton(row2X + 240 + row2Gap, row2Y, 260, 80, Language.getPhrase('reload_button', 'RELOAD'), null, reload, 0, 0, 32);
+		#if BOOT_DATA_ALLOWED
+		// 一键进数据导入/迁移界面（FE 数据包 / 内容包 / mod 压缩包），完成后回本菜单
+		buttonImportData = new MenuButton(row2X + 185 + row2Gap, row2Y, 175, 80, Language.getPhrase('import_data_button', 'IMPORT DATA'), null, openBootData, 0, 0, 30);
+		add(buttonImportData);
+		#end
+
+		// 无导入按钮的构建（桌面）退回三按钮布局，富余留在右侧
+		var reloadX:Float = row2X + 185 + row2Gap + ((buttonImportData != null) ? 175 + row2Gap : 0);
+		buttonReload = new MenuButton(reloadX, row2Y, 205, 80, Language.getPhrase('reload_button', 'RELOAD'), null, reload, 0, 0, 32);
 		add(buttonReload);
 
-		buttonEnableAll = new MenuButton(row2X + 500 + row2Gap * 2, row2Y, 240, 80, Language.getPhrase('enable_all_button', 'ENABLE ALL'), null, function() setAllDisabled(false), 0, 0, 30);
+		var allX:Float = reloadX + 205 + row2Gap;
+		buttonEnableAll = new MenuButton(allX, row2Y, 155, 80, Language.getPhrase('enable_all_button', 'ENABLE ALL'), null, function() setAllDisabled(false), 0, 0, 30);
 		buttonEnableAll.bg.color = FlxColor.GREEN;
 		buttonEnableAll.focusChangeCallback = function(focus:Bool) if(!focus) buttonEnableAll.bg.color = FlxColor.GREEN;
 		add(buttonEnableAll);
 
-		buttonDisableAll = new MenuButton(row2X + 500 + row2Gap * 2, row2Y, 240, 80, Language.getPhrase('disable_all_button', 'DISABLE ALL'), null, function() setAllDisabled(true), 0, 0, 30);
+		buttonDisableAll = new MenuButton(allX, row2Y, 155, 80, Language.getPhrase('disable_all_button', 'DISABLE ALL'), null, function() setAllDisabled(true), 0, 0, 30);
 		buttonDisableAll.bg.color = 0xFFFF6666;
 		buttonDisableAll.focusChangeCallback = function(focus:Bool) if(!focus) buttonDisableAll.bg.color = 0xFFFF6666;
 		add(buttonDisableAll);
@@ -315,6 +329,9 @@ class ModsMenuState extends MusicBeatState
 		buttons.push(button);
 		// 页签按钮也进 buttons：键盘 / 手柄左右切换才够得到它（放在队尾，不影响原导航顺序）
 		buttons.push(buttonSwitchList);
+		#if BOOT_DATA_ALLOWED
+		buttons.push(buttonImportData);
+		#end
 		button.focusChangeCallback = function(focus:Bool) {
 			if(!focus)
 				button.bg.color = curList().enabled.contains(curSelectedItemKey()) ? FlxColor.GREEN : 0xFFFF6666;
@@ -1340,6 +1357,19 @@ class ModsMenuState extends MusicBeatState
 		MusicBeatState.switchState(new ModsMenuState(startKey));
 	}
 	
+	#if BOOT_DATA_ALLOWED
+	/** 一键进数据导入/迁移界面（FE 数据包 / 内容包 / mod 压缩包，见 BootDataState），完成后回本菜单。 */
+	function openBootData()
+	{
+		saveTxt();
+		BootDataState.onExit = function()
+		{
+			MusicBeatState.switchState(new ModsMenuState());
+		};
+		MusicBeatState.switchState(new BootDataState());
+	}
+	#end
+
 	function saveTxt()
 	{
 		var fileStr:String = '';
