@@ -301,6 +301,10 @@
 <!-- Android 权限配置 -->
 <config:android if="android">
     <gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
+    <!-- Android 10 及以下必须声明 legacy 外部存储，否则 scoped storage 只允许写 app 专属目录：
+         数据根 /storage/emulated/0/.FrozenEngine/ 能建出来但写不进去，复制和 zip 解压会全量失败。
+         Android 11+ 会忽略这个属性，权限走 MANAGE_EXTERNAL_STORAGE。 -->
+    <application android:requestLegacyExternalStorage="true" />
 </config:android>
 
 	<architecture name="arm64" exclude="armv7" if="android" />
