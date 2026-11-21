@@ -1,7 +1,12 @@
 package states;
 
 #if BOOT_DATA_ALLOWED
+#if mobile
 import extension.documentpicker.DocumentPicker;
+#else
+import lime.ui.FileDialog;
+import lime.ui.FileDialogType;
+#end
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.text.FlxText;
@@ -52,10 +57,14 @@ class BootDataState extends MusicBeatState
 	static final JUNK_FILES:Array<String> = ['.ds_store', 'thumbs.db', 'desktop.ini'];
 	/** iOS 文档选择器的 zip UTI（Android 端忽略类型参数）。 */
 	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip', 'application/x-zip-compressed'];
-	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。 */
-	static inline final FRAME_BUDGET:Float = 0.012;
-	/** DEFLATE 条目整条读入走原生 inflate 的 compressed 尺寸上限。超限/描述符条目（dataSize 未知）退回流式 InflateImpl。 */
-	static inline final NATIVE_INFLATE_MAX:Int = 33554432; // 32MB
+	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。移动端保持小片（MIUI 内存墙+发热）；桌面端解压已是原生
+	 *  zlib，放宽到 30ms 换吞吐（导入期间 UI 掉到 ~30fps，全程仅几秒）。 */
+	static inline final FRAME_BUDGET:Float = #if mobile 0.012 #else 0.030 #end;
+	/** DEFLATE 条目整条读入走一次性原生 inflate 的 compressed 尺寸上限（整条驻留内存）。
+	 *  超限/描述符条目（dataSize 未知）退回流式解压。移动端维持 32MB（MIUI 内存墙），桌面放宽到 256MB。 */
+	static inline final NATIVE_INFLATE_MAX:Int = #if mobile 33554432 #else 268435456 #end;
+	/** 一次性解压的解压后尺寸上限（防 zip 炸弹把整块输出吃进内存）。超出走流式。 */
+	static inline final ONESHOT_OUT_MAX:Int = #if mobile 67108864 #else 536870912 #end; // 64MB / 512MB
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
@@ -77,6 +86,8 @@ class BootDataState extends MusicBeatState
 
 	// ---- zip 导入（流式）----
 	var tmpBuf:Bytes; // 64KB 分块缓冲，全流程复用（native 内存曲线恒定，防 GC 峰值撞 MIUI 内存墙）
+	var inflateOutBuf:Bytes; // 流式原生解压的 256KB 输出块（全流程复用）
+	var ensuredDirs:Map<String, Bool> = new Map(); // 已确保存在的父目录缓存（免逐段 exists 的 stat 风暴）
 	var pendingZipPath:String; // DocumentPicker 回调跑在 JNI 线程：只写这个标记，update() 在 GL 线程消费
 	var zipInput:FileInput;
 	var zipReader:Reader;
@@ -275,9 +286,11 @@ class BootDataState extends MusicBeatState
 			try
 			{
 				ensureParentDirs(job.dst);
-				// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+				// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主（FUSE 语义，仅移动端）
+				#if android
 				if (FileSystem.exists(job.dst))
 					try FileSystem.deleteFile(job.dst) catch (e:Dynamic) {}
+				#end
 				if (job.fromEmbedded)
 					File.saveBytes(job.dst, OpenFLAssets.getBytes(job.src));
 				else
@@ -351,13 +364,27 @@ class BootDataState extends MusicBeatState
 	function startZipImport():Void
 	{
 		phase = PickingZip;
-		// ⚠️ DocumentPicker 回调在 JNI 线程：直接碰显示列表会偶发 native 崩溃（SIGTRAP/SIGSEGV），
-		// 这里只落标记，update() 的 GL 线程相位里消费。
+		// 回调可能不在 GL 线程（移动端 JNI / 桌面 lime 线程池）：直接碰显示列表会偶发
+		// native 崩溃（SIGTRAP/SIGSEGV），这里只落标记，update() 的 PickingZip 相位里消费。
+		#if mobile
 		DocumentPicker.pick(ZIP_UTIS, function(p:String)
 		{
 			// 取消时上层回调 null：转空串 sentinel，与"还没返回"区分
 			pendingZipPath = (p == null) ? '' : p;
 		});
+		#else
+		var dialog = new FileDialog();
+		dialog.onSelect.add(function(path:String)
+		{
+			pendingZipPath = path;
+		});
+		dialog.onCancel.add(function()
+		{
+			pendingZipPath = ''; // 取消：空串 sentinel
+		});
+		dialog.browse(FileDialogType.OPEN, 'zip', null,
+			Language.getPhrase('data.boot.zip.pick.title', 'Select a data pack or mod zip'));
+		#end
 	}
 
 	function openZip(zipPath:String):Void
@@ -481,16 +508,19 @@ class BootDataState extends MusicBeatState
 		return true;
 	}
 
-	/** 从 zip 流读取一个条目的数据写入目标文件。全程流式：单条目内存恒为 64KB 缓冲，
-	 *  DEFLATE 用 InflateImpl 边解压边写（不整条目驻留 raw+data），防 native 内存峰值崩溃。 */
+	/** 从 zip 流读取一个条目的数据写入目标文件。
+	 *  cpp：DEFLATE 已知尺寸整条读入一次性原生 zlib 解压（≤NATIVE_INFLATE_MAX/ONESHOT_OUT_MAX），
+	 *  超限/描述符走流式原生（64KB 窗口 + 256KB 输出块常驻复用）；移动端整条路径维持小上限防内存峰值。 */
 	function writeEntryData(entry:Entry, dstPath:String):Void
 	{
 		if (tmpBuf == null)
 			tmpBuf = Bytes.alloc(65536);
-		// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
+		// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主（FUSE 语义，仅移动端）
 		var t0:Float = Sys.time();
+		#if android
 		if (FileSystem.exists(dstPath))
 			try FileSystem.deleteFile(dstPath) catch (e:Dynamic) {}
+		#end
 		var out:FileOutput = File.write(dstPath, true);
 		tPrep += Sys.time() - t0;
 		try
@@ -500,6 +530,13 @@ class BootDataState extends MusicBeatState
 				// 数据描述符条目（流式写出的 zip）：长度未知，边解压边写，读完跳过描述符
 				if (!entry.compressed)
 					throw Language.getPhrase('data.boot.zip.baddescriptor', 'Unsupported zip entry (data descriptor + stored)');
+				// cpp 原生 zlib 流式（结束后自动回卷到描述符起点）；非 cpp 兜底 InflateImpl
+				#if cpp
+				t0 = Sys.time();
+				var n:Int = nativeInflateStream(zipStream, out, false);
+				tInflate += Sys.time() - t0;
+				bytesOut += n;
+				#else
 				var z = new haxe.zip.InflateImpl(zipStream, false, false);
 				while (true)
 				{
@@ -513,6 +550,7 @@ class BootDataState extends MusicBeatState
 					if (n < tmpBuf.length)
 						break;
 				}
+				#end
 				// 描述符：crc + csize + usize（可能带 0x08074b50 标记）
 				var crc = zipStream.readInt32();
 				if (crc == 0x08074b50)
@@ -540,9 +578,45 @@ class BootDataState extends MusicBeatState
 			{
 				// DEFLATE。非描述符条目的 crc/csize/usize 都在 local header 里，deflate 数据后
 				// 直接是下一个条目——绝不能多读，否则 header 错位全包报废。
-				// 纯 Haxe InflateImpl 实测 ~2.6MB/s（iOS 导入日志：468MB 用 179s，97.7% 时间在解压）——
-				// 中小条目整条读入走 lime 原生 raw inflate（CFFI zlib，快 1-2 个数量级）；
-				// 超限条目退回流式 InflateImpl（内存恒定，防单条目内存峰值）。
+				// cpp（桌面+移动）：hxcpp 内置原生 zlib——已知尺寸整条读入一次性解压（实测 ~210MB/s 出）；
+				// 超限/描述符/尺寸异常条目退流式原生（86MB/s，内存恒定）。
+				// 弃用 lime CFFI deflate：Windows 实测仅 ~15MB/s（90MB 包 inflate 占 14.8s/16.4s）。
+				// 非 cpp 兜底保留纯 Haxe InflateImpl（~20MB/s）。
+				#if cpp
+				if (entry.dataSize > 0 && entry.dataSize <= NATIVE_INFLATE_MAX && entry.fileSize > 0 && entry.fileSize <= ONESHOT_OUT_MAX)
+				{
+					t0 = Sys.time();
+					var raw:Bytes = zipStream.read(entry.dataSize);
+					tCopy += Sys.time() - t0;
+					t0 = Sys.time();
+					var data:Bytes = nativeDecompressOneShot(raw, entry.fileSize, out);
+					if (data == null)
+					{
+						// 声明尺寸装不下整个流（尺寸不可信）：前 entry.fileSize 字节已由 one-shot 落盘，流式续解余量
+						t0 = Sys.time();
+						var n:Int = nativeInflateStream(zipStream, out, false);
+						tInflate += Sys.time() - t0;
+						bytesOut += entry.fileSize + n;
+					}
+					else
+					{
+						tInflate += Sys.time() - t0;
+						if (data.length != entry.fileSize)
+							trace('[BootData] 解压长度异常: $dstPath 期待 ${entry.fileSize} 实得 ${data.length}');
+						t0 = Sys.time();
+						out.writeBytes(data, 0, data.length);
+						tWrite += Sys.time() - t0;
+						bytesOut += data.length;
+					}
+				}
+				else
+				{
+					t0 = Sys.time();
+					var n:Int = nativeInflateStream(zipStream, out, false);
+					tInflate += Sys.time() - t0;
+					bytesOut += n;
+				}
+				#else
 				if (entry.dataSize > 0 && entry.dataSize <= NATIVE_INFLATE_MAX)
 				{
 					t0 = Sys.time();
@@ -576,6 +650,7 @@ class BootDataState extends MusicBeatState
 							break;
 					}
 				}
+				#end
 			}
 			t0 = Sys.time();
 			out.close();
@@ -590,6 +665,109 @@ class BootDataState extends MusicBeatState
 			throw e;
 		}
 	}
+
+	#if cpp
+	/** 原生 zlib 一次性解压（hxcpp 内置 zlib，预分配 expectSize 输出，实测 ~210MB/s）。
+	 *  ★fresh stream 的 execute 返回值累计==单次，官方 hxcpp 与 TieGao fork 语义一致。
+	 *  返回 null = 声明尺寸装不下整个流（尺寸不可信）：前 expectSize 字节已写入 out、流已回卷到未消费处，
+	 *  调用方退 nativeInflateStream 续解余量（bytesOut 记 expectSize）。 */
+	function nativeDecompressOneShot(raw:Bytes, expectSize:Int, out:FileOutput):Bytes
+	{
+		var z = new haxe.zip.Uncompress(-15); // 负 windowBits = raw deflate（zip 条目无 zlib 头）
+		var outBuf = Bytes.alloc(expectSize);
+		var r = z.execute(raw, 0, outBuf, 0);
+		z.close();
+		// deflate 流比 header csize 短的"撒谎" zip：把多读的字节回卷，防下一头错位
+		var over:Int = raw.length - r.read;
+		if (over > 0)
+			(cast zipStream:FileInput).seek(-over, sys.io.FileSeek.SeekCur);
+		if (!r.done)
+		{
+			// 输出缓冲写满仍未到流尾：已解出的部分先落盘，避免流式续解漏掉开头
+			if (r.write > 0)
+				out.writeBytes(outBuf, 0, r.write);
+			return null;
+		}
+		return (r.write == expectSize) ? outBuf : outBuf.sub(0, r.write);
+	}
+
+	/** 原生 zlib 流式解压：边喂边解（窗口 64KB/输出块 256KB 常驻复用，内存恒定）。
+	 *  out=null 时纯丢弃（预扫跳数据用）。结束后把 st 回卷到 deflate 流末尾，
+	 *  描述符/下一头紧随其后可直接读。
+	 *  ★TieGao hxcpp fork 的 _hx_inflate_buffer 返回累计 total_in/total_out（官方 hxcpp 4.3.2 是单次增量），
+	 *  本方法按累计换算增量——换库/升级 hxcpp 时需同步核对语义。 */
+	function nativeInflateStream(st:haxe.io.Input, out:FileOutput, discard:Bool):Int
+	{
+		if (tmpBuf == null)
+			tmpBuf = Bytes.alloc(65536);
+		if (inflateOutBuf == null)
+			inflateOutBuf = Bytes.alloc(262144);
+		var inBuf:Bytes = tmpBuf;
+		var outBuf:Bytes = inflateOutBuf;
+		var z = new haxe.zip.Uncompress(-15);
+		var baseIn:Int = 0;
+		var baseOut:Int = 0;
+		var pending:Int = 0; // inBuf[0..pending) = 待消费压缩字节
+		var fed:Int = 0; // 本条目从 st 累计读入的字节
+		var eof:Bool = false;
+		var wrote:Int = 0;
+		var done:Bool = false;
+		while (!done)
+		{
+			// 补料到窗口满（FileInput.readBytes 单次 fread 可能短读，循环补满；流尾 Eof 收尾）
+			while (!eof && pending < inBuf.length)
+			{
+				var n:Int = 0;
+				try
+					n = st.readBytes(inBuf, pending, inBuf.length - pending)
+				catch (e:haxe.io.Eof)
+					eof = true;
+				if (!eof && n > 0)
+				{
+					pending += n;
+					fed += n;
+				}
+			}
+			// execute 输入必须右尺寸（CFFI 原语无长度参，见整个缓冲）：窗口满用 inBuf 本体，流尾用右尺寸副本
+			var src:Bytes;
+			if (pending == inBuf.length)
+				src = inBuf;
+			else
+			{
+				if (pending == 0)
+					throw 'truncated deflate stream';
+				src = Bytes.alloc(pending);
+				src.blit(0, inBuf, 0, pending);
+			}
+			var r = z.execute(src, 0, outBuf, 0);
+			var dIn:Int = r.read - baseIn;
+			var dOut:Int = r.write - baseOut;
+			baseIn = r.read;
+			baseOut = r.write;
+			if (dOut > 0 && !discard)
+				out.writeBytes(outBuf, 0, dOut);
+			wrote += dOut;
+			if (r.done)
+				done = true;
+			else if (dIn == 0 && dOut == 0)
+				throw 'deflate stream stalled';
+			else
+			{
+				// 未消费部分压回窗口前部
+				var left:Int = pending - dIn;
+				if (left > 0)
+					inBuf.blit(0, inBuf, pending - left, left);
+				pending = left;
+			}
+		}
+		z.close();
+		// 回卷：已读进缓冲但 deflate 流未消费的字节（描述符/下一头）留在流上
+		var over:Int = fed - baseIn;
+		if (over > 0)
+			(cast st:FileInput).seek(-over, sys.io.FileSeek.SeekCur);
+		return wrote;
+	}
+	#end
 
 	function zipDone():Void
 	{
@@ -712,6 +890,10 @@ class BootDataState extends MusicBeatState
 		if (e.crc32 == null)
 		{
 			// 数据描述符条目：边解压边丢 + 跳过描述符尾（crc+csize+usize，可带 0x08074b50 标记）
+			// cpp 走原生 zlib 流式丢弃（nativeInflateStream 结束时已回卷到描述符起点）
+			#if cpp
+			nativeInflateStream(st, null, true);
+			#else
 			var z = new haxe.zip.InflateImpl(st, false, false);
 			while (true)
 			{
@@ -719,6 +901,7 @@ class BootDataState extends MusicBeatState
 				if (n < tmpBuf.length)
 					break;
 			}
+			#end
 			var crc = st.readInt32();
 			if (crc == 0x08074b50)
 				st.readInt32();
@@ -946,8 +1129,13 @@ class BootDataState extends MusicBeatState
 		for (p in parts)
 		{
 			cur += (cur.length == 0 ? '' : '/') + p;
-			if (!FileSystem.exists(cur))
-				FileSystem.createDirectory(cur);
+			// 目录缓存：万级条目的包每条逐段 exists 是 stat 风暴，首建后直接跳过
+			if (!ensuredDirs.exists(cur))
+			{
+				if (!FileSystem.exists(cur))
+					FileSystem.createDirectory(cur);
+				ensuredDirs.set(cur, true);
+			}
 		}
 	}
 
