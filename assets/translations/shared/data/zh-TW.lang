@@ -1371,3 +1371,18 @@ description_difficulty_blocks: "在自由遊玩右下角顯示可點擊的難度
 // === mobile-only keys (preserved) ===
 note_hsv_tip_mobile: "點按：選中（再點一下：調節）    橫向拖動：調節    上下：選擇軌道    左右：選擇通道    B：返回"
 chart_midi_scroll_hint_touch: "（拖動列表翻頁）"
+
+// === 0.6.12 FINALE 同步补充 ===
+setting_background_transition: "背景過渡"
+description_background_transition: "切換模組資料夾時 Freeplay 主背景的切換特效"
+setting_background_transition-fade: "漸變"
+setting_background_transition-mosaic: "馬賽克"
+freeplay_bpm: "BPM: {1}"
+freeplay_bpm_missing: "BPM: --"
+musicplayer_mode_once: "只放一次"
+musicplayer_mode_all: "清單循環"
+musicplayer_mode_one: "單曲循環"
+musicplayer_mode_shuffle: "隨機播放"
+mod_folder_mods_menu: "模組選單"
+random: "隨機"
+editor: "編輯器"
