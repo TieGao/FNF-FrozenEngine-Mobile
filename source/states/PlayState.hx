@@ -900,6 +900,7 @@ class PlayState extends MusicBeatState
 			cpuControlled = ClientPrefs.getGameplaySetting('botplay');
 			opponentMode = ClientPrefs.getGameplaySetting('opponentplay');
 		}
+		if (Sys.args().indexOf('-probett') >= 0) cpuControlled = true; // TEMP ZOOM PROBE
 		guitarHeroSustains = ClientPrefs.data.guitarHeroSustains;
 
 		// var gameCam:FlxCamera = FlxG.camera;
@@ -1281,6 +1282,7 @@ class PlayState extends MusicBeatState
 		FlxG.camera.follow(camFollow, LOCKON, 0);
 		FlxG.camera.zoom = defaultCamZoom;
 		FlxG.camera.snapToTarget();
+		trace('ZPROBE create canvas=' + FlxG.width + 'x' + FlxG.height + ' camViewport=' + FlxG.camera.width + 'x' + FlxG.camera.height + ' zoomInit=' + FlxG.camera.zoom + ' def=' + defaultCamZoom + ' stageZoom=' + (stageData != null ? stageData.defaultZoom : -1) + ' mod=' + Mods.currentModDirectory + ' wide=' + ClientPrefs.data.wideScreen);
 
 		FlxG.worldBounds.set(0, 0, FlxG.width, FlxG.height);
 		moveCameraSection();
@@ -3741,6 +3743,7 @@ public function reloadCounterColors()
 		var flValue2:Null<Float> = Std.parseFloat(value2);
 		if(Math.isNaN(flValue1)) flValue1 = null;
 		if(Math.isNaN(flValue2)) flValue2 = null;
+		trace('ZPROBE event <' + eventName + '> "' + value1 + '" "' + value2 + '" @' + Std.int(strumTime)); // TEMP ZOOM PROBE
 
 		// NMV 逐事件触发面包屑（torture 全黑排查配对项，见 genNotes 同注释）
 		if (backend.NMVContentData.currentMod != null)
@@ -6478,6 +6481,7 @@ public function reloadCounterColors()
 			//trace('BEAT HIT: ' + curBeat + ', LAST HIT: ' + lastBeatHit);
 			return;
 		}
+		trace('ZPROBE beat=' + curBeat + ' t=' + Std.int(Conductor.songPosition) + ' zoom=' + Math.round(FlxG.camera.zoom * 1000) / 1000 + ' def=' + Math.round(defaultCamZoom * 1000) / 1000 + ' camZooming=' + camZooming); // TEMP ZOOM PROBE
 
 		if (generatedMusic)
 			notes.sort(FlxSort.byY, ClientPrefs.data.downScroll ? FlxSort.ASCENDING : FlxSort.DESCENDING);

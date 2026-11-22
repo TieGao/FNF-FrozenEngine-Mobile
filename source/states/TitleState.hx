@@ -78,6 +78,27 @@ class TitleState extends MusicBeatState
 			debug.LogFile.start();
 		}
 
+		// TEMP ZOOM PROBE（测完删除）：-probett 自动开 TripleTrouble，供双仓 zoom 对比
+		#if sys
+		if (Sys.args().indexOf('-probett') >= 0)
+		{
+			trace('ZPROBE: auto-start Sonic.exe 2.5 / triple-trouble-hard');
+			Mods.currentModDirectory = 'Sonic.exe 2.5';
+			Paths.setChartContext(null, null);
+			PlayState.clearChartContext();
+			backend.Song.loadFromJson('triple-trouble-hard', 'triple-trouble');
+			PlayState.isStoryMode = false;
+			PlayState.storyDifficulty = 0;
+			trace('ZPROBE: SONG stage=' + PlayState.SONG.stage + ' bpm=' + PlayState.SONG.bpm + ' notes=' + PlayState.SONG.notes.length);
+			new FlxTimer().start(1.5, function(_)
+			{
+				FlxTransitionableState.skipNextTransIn = true;
+				FlxTransitionableState.skipNextTransOut = true;
+				LoadingState.loadAndSwitchState(new PlayState());
+			});
+		}
+		#end
+
 		curWacky = FlxG.random.getObject(getIntroTextShit());
 
 		if(!initialized)

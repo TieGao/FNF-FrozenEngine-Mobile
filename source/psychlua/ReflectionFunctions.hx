@@ -23,6 +23,7 @@ class ReflectionFunctions
 			return LuaUtils.getVarInArray(LuaUtils.getTargetInstance(), variable, allowMaps);
 		});
 		Lua_helper.add_callback(lua, "setProperty", function(variable:String, value:Dynamic, ?allowMaps:Bool = false, ?allowInstances:Bool = false) {
+			if (variable == 'defaultCamZoom' || variable == 'camGame.zoom') trace('ZPROBE setProperty <' + variable + '> -> ' + value); // TEMP ZOOM PROBE
 			var split:Array<String> = variable.split('.');
 			if(split.length > 1) {
 				LuaUtils.setVarInArray(LuaUtils.getPropertyLoop(split, true, allowMaps), split[split.length-1], allowInstances ? parseInstances(value) : value, allowMaps);

@@ -574,6 +574,7 @@ class FunkinLua {
 					var cam:FlxCamera = MusicBeatState.getVariables().get(camera);
 					if (cam == null || !Std.isOfType(cam, FlxCamera)) camera = 'camGame';
 			}
+			trace('ZPROBE doTweenZoom tag=' + tag + ' cam=' + camera + ' val=' + value + ' dur=' + duration + ' ease=' + ease); // TEMP ZOOM PROBE
 			return oldTweenFunction(tag, camera, {zoom: value}, duration, ease, 'doTweenZoom');
 		});
 		Lua_helper.add_callback(lua, "doTweenColor", function(tag:String, vars:String, targetColor:String, duration:Float, ?ease:String = 'linear') {
