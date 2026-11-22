@@ -1443,7 +1443,21 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var minX:Float = gridBg.x;
 		if(SHOW_EVENT_COLUMN && lockedEvents) minX += GRID_SIZE;
 
-		if (controls.mobileC)
+		// 网格输入：触摸与鼠标必须**共存** —— Win 平板 / Win on ARM64 一样有触摸屏，
+		// 按编译目标写死会把触摸废掉。判据用「本帧的输入到底来自哪里」：
+		//   移动端：沿用 controls.mobileC（= 移动控件不透明度 >= 0.1），手机行为一点不动；
+		//   桌面端：只看有没有真实触摸。有触摸走触摸分支，没触摸落回下面的鼠标分支。
+		// 为什么桌面端不能只判 controls.mobileC：它只表示「移动控件不透明度 > 0」，
+		// 桌面存档里也可能是 0.7（设置项，或导入了手机存档 —— 本机 funkin.sol 就是 0.7）。
+		// 那样鼠标点击会被触摸分支整个吞掉（FlxG.touches.list 为空 → for 循环一次不跑），
+		// 加不出 note、选中/删除全失效、按住拖 note 也停不下来。
+		var useTouchGrid:Bool;
+		#if mobile
+		useTouchGrid = controls.mobileC;
+		#else
+		useTouchGrid = hasActiveTouch();
+		#end
+		if (useTouchGrid)
 		{
 			for (touch in FlxG.touches.list)
 			{
@@ -2084,6 +2098,21 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			dataCopy[1] = eventGrp;
 		}
 		return dataCopy;
+	}
+
+	/**
+	 * 本帧是否有真实触摸活动（按下 / 按住 / 抬起任一根手指）。
+	 * 桌面端（含 Win 平板、Win on ARM64）只有真的摸到屏幕才为 true，
+	 * 纯鼠标机器上 `FlxG.touches.list` 恒空 → 恒 false，从而回落到鼠标分支。
+	 * 抬起帧也要算进来：`pressed` 在 release 那一帧已经是 false，
+	 * 只判 pressed 会让"拖着 note 松手"落到鼠标分支，`stopMovingNotes()` 就不触发了。
+	 */
+	function hasActiveTouch():Bool
+	{
+		for (touch in FlxG.touches.list)
+			if (touch.pressed || touch.justReleased) return true;
+
+		return false;
 	}
 
 	// 是否指在某个 UI 面板上（面板背景缩到最小化时只剩标签栏高度，所以直接用 bg 的实际矩形）
