@@ -15,7 +15,10 @@ echo This might take a few moments depending on your internet speed.
 haxelib install flixel 6.2.0 --skip-dependencies
 haxelib install flixel-addons 4.0.1 --skip-dependencies
 haxelib install flixel-tools 1.5.1 --skip-dependencies
-haxelib install hscript-iris 1.1.3 --skip-dependencies
+# hscript-iris-nmv = NMV 方言 fork（pisayesiwsi/hscript-iris @ 62d828b，未发布到 haxelib），
+# 官方 1.1.3 解析不了脚本层的 EFor/CString 自定义语法节点，只能 git 别名安装。
+# 这两行只属于 NMV-Features 分支（main 的 Project.xml 用官方 hscript-iris），勿并回 main。
+haxelib git hscript-iris-nmv https://github.com/pisayesiwsi/hscript-iris 62d828b --skip-dependencies --always
 haxelib install tjson 1.4.0 --skip-dependencies
 haxelib install hxdiscord_rpc 1.2.4 --skip-dependencies
 haxelib git hxvlc https://github.com/IceTheAxe/hxvlc --skip-dependencies

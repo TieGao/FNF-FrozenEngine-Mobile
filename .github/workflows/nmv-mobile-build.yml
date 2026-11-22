@@ -1,0 +1,64 @@
+name: NMV Mobile Build
+
+# NMV-Features 分支（Mobile NMV 移植）的专门构建。
+#
+# 本分支与 main 的依赖差异只有一处：hscript-iris-nmv（NMV 方言 fork，官方 1.1.3
+# 解析不了脚本层的 EFor/CString 自定义语法节点）。它没发布到 haxelib，由本分支的
+# setup/unix.sh + setup/windows.bat 以 haxelib git 别名安装：
+#   haxelib git hscript-iris-nmv https://github.com/pisayesiwsi/hscript-iris 62d828b
+# 这两行改动只属于移植分支，别同步回 main（main 的 Project.xml 用的是官方 hscript-iris）。
+#
+# 为什么单独开文件而不是往 mobile-build.yml 的 push 分支列表里加 NMV-Features：
+# schedule 只从默认分支取工作流文件，mobile-build.yml 的 daily 在本分支转正前轮不到；
+# 且单独成文件，将来并回 main 时它自然退化成只剩 workflow_dispatch，不会把分支触发
+# 带进主干工作流。
+#
+# 缓存：复用 cache-build.yml。main 是默认分支，它的缓存本分支 restore 读得到：
+# 命中后 sentinel 会发现缓存里缺 hscript-iris-nmv（库清单从 setup 脚本现抓，本分支
+# setup 装的是 nmv fork），自动回退完整安装。.hxcpp_cache 是内容寻址的，合并层只是
+# 小增量，首跑大面积命中。本分支存下的缓存是分支作用域，不会被 main 读走。
+#
+# 出 release 走 mobile-release.yml（dispatch 选本分支），那条链用 build.yml 干净构建，
+# setup 脚本同样装 nmv fork，无需另改。
+
+on:
+  workflow_dispatch:
+    inputs:
+      dependencies_to_update:
+        description: '填 all = 重装全部 haxelib 且跳过恢复缓存（依赖炸了用这个）；留空（默认）= 直接用缓存里的 .haxelib/'
+        required: false
+        type: string
+        default: ''
+  push:
+    branches:
+      - NMV-Features
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: macos-latest
+            # 对齐 mobile-build.yml / mobile-release.yml 的出包参数
+            buildArgs: "android -final"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvMobileBuild-android
+            artifactPath: "export/release/android/bin/app/build/outputs/apk/release/*.apk"
+          - name: iOS
+            os: macos-latest
+            buildArgs: "ios -final -nosign"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvMobileBuild-ios
+            artifactPath: "export/release/ios/build/Release-iphoneos/*.ipa"
+    uses: ./.github/workflows/cache-build.yml
+    with:
+        name: ${{ matrix.name }}
+        os: ${{ matrix.os }}
+        setupCommand: ${{ matrix.setupCommand }}
+        buildArgs: ${{ matrix.buildArgs }}
+        artifactName: ${{ matrix.artifactName }}
+        artifactPath: ${{ matrix.artifactPath }}
+        dependencies_to_update: ${{ inputs.dependencies_to_update }}
