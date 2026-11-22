@@ -3,7 +3,6 @@ package options.groupData;
 import options.objects.OptionCategory;
 import options.Option;
 import options.Option.OptionType;
-import mobile.backend.MobileScaleMode;
 
 class BasicsData
 {
@@ -73,7 +72,8 @@ class BasicsData
             'If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)',
             'wideScreen', BOOL);
         wideScreen.onChange = function() {
-            FlxG.scaleMode = new MobileScaleMode();
+            // 画布比例 + scaleMode 一起重算，跟图形页那个 Wide Screen 开关同一条路径
+            Main.refreshMobileCanvas();
         };
         mobileCat.add(wideScreen);
 

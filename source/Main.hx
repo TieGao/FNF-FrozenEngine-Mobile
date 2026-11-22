@@ -128,30 +128,31 @@ class Main extends Sprite
 				renderResIdx = getRenderResolutionIndex(FlxG.save.data.renderResolution, wideScreen);
 		}
 
-	// 根据宽屏模式设置游戏舞台尺寸
-	game.width = wideScreen ? Math.round(720 * 21.0 / 9.0) : 1280;
-	game.height = 720;
+		// 根据宽屏模式设置游戏舞台尺寸（与主版一致：宽屏 = 1680x720 / 21:9 逻辑画布）
+		game.width = wideScreen ? Math.round(720 * 21.0 / 9.0) : 1280;
+		game.height = 720;
 
-	if (game.zoom == -1.0)
-	{
-		var ratioX:Float = stageWidth / game.width;
-		var ratioY:Float = stageHeight / game.height;
-		game.zoom = Math.min(ratioX, ratioY);
-
-		#if mobile
-		// 移动端：只有 wideScreen 开启时才反推逻辑画布为屏幕比例（铺满）
-		// wideScreen 关闭时保持 1280x720，交给 MobileScaleMode 留黑边
-		if (wideScreen)
+		if (game.zoom == -1.0)
 		{
-			game.width = Math.ceil(stageWidth / game.zoom);
-			game.height = Math.ceil(stageHeight / game.zoom);
+			var ratioX:Float = stageWidth / game.width;
+			var ratioY:Float = stageHeight / game.height;
+			game.zoom = Math.min(ratioX, ratioY);
+
+			#if mobile
+			// 移动端没有物理窗口可 resize（applyRenderResolution 在 mobile 下直接 return），
+			// 只能让画布比例跟着屏幕走：宽屏开 → 画布 = 屏幕比例，MobileScaleMode 等比铺满；
+			// 宽屏关 → 保持 1280x720，交给 MobileScaleMode 居中留 16:9 黑边。
+			if (wideScreen)
+			{
+				game.width = Math.ceil(stageWidth / game.zoom);
+				game.height = Math.ceil(stageHeight / game.zoom);
+			}
+			#end
+			// 桌面端不要反推画布（此前 #else 分支就是这么写的）：FlxG.initialWidth/Height 会被改成
+			// 屏幕比例（1280x720 窗口 → 1680x945，16:9），而 applyRenderResolution 又把窗口拉成
+			// 1680x720（21:9），RatioScaleMode 只能把 16:9 画布缩进 21:9 窗口 → 两侧各 200px 大黑边。
+			// 主版宽屏是「窗口 + 画布都 21:9」，所以桌面端这里必须原样保留 1680x720。
 		}
-		#else
-		// 非移动端保持原有行为
-		game.width = Math.ceil(stageWidth / game.zoom);
-		game.height = Math.ceil(stageHeight / game.zoom);
-		#end
-	}
 
 		// 从 1.0.4 保留的初始化代码（但移到 setupGame 中）
 		#if VIDEOS_ALLOWED
@@ -428,6 +429,41 @@ class Main extends Sprite
 		return presets[0];
 	}
 
+	#if mobile
+	/**
+	 * 移动端宽屏开关的「实时落地」：按当前屏幕比例重新推导逻辑画布，再重建 scaleMode。
+	 *
+	 * 必须和 setupGame 里 `#if mobile` 那段同源。MobileScaleMode 只负责把 gameSize 铺满屏幕，
+	 * 画布（FlxG.initialWidth/Height）是 FlxGame 构造时定死的 —— 只换 scaleMode 而画布不动，
+	 * 就是拿开机那套比例去拉伸（16:9 画布铺到 20:9 屏幕上 → 非等比变形）。
+	 */
+	public static function refreshMobileCanvas():Void
+	{
+		if (FlxG.game == null) return;
+
+		var sw:Int = Lib.current.stage.stageWidth;
+		var sh:Int = Lib.current.stage.stageHeight;
+
+		var wide:Bool = ClientPrefs.data != null
+			&& Reflect.hasField(ClientPrefs.data, 'wideScreen')
+			&& cast Reflect.field(ClientPrefs.data, 'wideScreen');
+
+		var w:Int = wide ? Math.round(720 * 21.0 / 9.0) : 1280;
+		var h:Int = 720;
+
+		if (wide)
+		{
+			var zoom:Float = Math.min(sw / w, sh / h);
+			w = Math.ceil(sw / zoom);
+			h = Math.ceil(sh / zoom);
+		}
+
+		@:privateAccess FlxG.initialWidth = w;
+		@:privateAccess FlxG.initialHeight = h;
+		FlxG.scaleMode = new MobileScaleMode(); // 赋值即 game.onResize(null)，立刻按新画布测量
+	}
+	#end
+
 	#if (cpp || hl)
 	/**
 	 * 应用渲染分辨率。
@@ -484,6 +520,16 @@ class Main extends Sprite
 		catch (e:Dynamic) {}
 
 		// ---- 3. Flixel 逻辑画布尺寸（这一步失败必须让上层知道）----
+		// 注意 FlxG.resizeGame 只是按当前 scaleMode 重新 measure 一次，真正决定画布大小的是
+		// FlxG.initialWidth/Height（BaseScaleMode.onMeasure 每次都拿它复位 FlxG.width/height）。
+		// 只在启动时由 FlxGame 构造参数设一次，运行中改分辨率 / 切宽屏不跟着改的话，
+		// 画布还是开机那套比例，而窗口已拉成 21:9 → RatioScaleMode 只能两侧留大黑边。
+		try
+		{
+			@:privateAccess FlxG.initialWidth = stageW;
+			@:privateAccess FlxG.initialHeight = stageH;
+		}
+		catch (e:Dynamic) {}
 		FlxG.resizeGame(stageW, stageH);
 
 		// ---- 4. 缩放模式 ----

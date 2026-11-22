@@ -206,7 +206,10 @@ class GraphicsData
     static function _applyIfChanged(force:Bool = false):Void
     {
         #if mobile
-        // 移动端编译目标：更改分辨率不执行任何 resize
+        // 移动端没有物理窗口可 resize（对应 Main.applyRenderResolution 的 mobile 分支直接 return），
+        // 宽屏开关要落地只能重算画布 + 重建 scaleMode —— 只换 scaleMode 会拿旧画布比例拉伸变形。
+        // 走 Main.refreshMobileCanvas() 保证和启动时（setupGame）同一套算法。
+        Main.refreshMobileCanvas();
         return;
         #else
         #if (cpp || hl)
