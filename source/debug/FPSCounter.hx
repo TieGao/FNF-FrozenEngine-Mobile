@@ -242,11 +242,16 @@ class FPSCounter extends TextField
 		lines.push(fpsTpsLine);
 		
 		// 第二行：内存信息
+		// 注意 `memoryMegas` 实际是字节，且来自 Gc.MEM_INFO_USAGE ——「上次 GC 时估算的活对象」，
+		// 不含 native 分配和显存，新分配要等下一次 GC 才会反映。需要真实占用看 showMEMPeak 打开后的 RSS。
 		var memLine = 'Memory: ${flixel.util.FlxStringUtil.formatBytes(memoryMegas)}';
 		if (ClientPrefs.data.showMEMPeak)
 		{
 			updatePeakMemory();
 			memLine += ' (${flixel.util.FlxStringUtil.formatBytes(peakMemoryMegas)} Peak)';
+			var rss:Float = backend.MemoryStats.processRSS();
+			if (rss > 0)
+				memLine += ' | RSS: ${flixel.util.FlxStringUtil.formatBytes(rss)}';
 		}
 		lines.push(memLine);
 		
@@ -287,9 +292,13 @@ class FPSCounter extends TextField
 		// update/draw 帧率和 window.frameRate 改来改去；无限帧率优先，直接跳过。
 		if (ClientPrefs.data.fpsRework && !ClientPrefs.data.unlimitedFPS)
 		{
-			// Flixel keeps reseting this to 60 on focus gained
-			if (FlxG.stage.window.frameRate != ClientPrefs.data.framerate && FlxG.stage.window.frameRate != FlxG.game.focusLostFramerate)
-				FlxG.stage.window.frameRate = ClientPrefs.data.framerate;
+			// 闲置节能接管帧率期间只测量不回写：frameRate 归 IdleFPSManager 管，两边抢会打架
+			if (!IdleFPSManager.active)
+			{
+				// Flixel keeps reseting this to 60 on focus gained
+				if (FlxG.stage.window.frameRate != ClientPrefs.data.framerate && FlxG.stage.window.frameRate != FlxG.game.focusLostFramerate)
+					FlxG.stage.window.frameRate = ClientPrefs.data.framerate;
+			}
 
 			var currentTime = openfl.Lib.getTimer();
 			framesCount++;
@@ -314,8 +323,11 @@ class FPSCounter extends TextField
 				tpsUpdateTime = currentTime + 500;
 			}
 
-			// Set Update and Draw framerate to the current FPS every 1.5 second to prevent "slowness" issue
-			if ((FlxG.updateFramerate >= currentFPS + 5 || FlxG.updateFramerate <= currentFPS - 5)
+			// 每 1.5s 把帧率上限对齐到实测 FPS（fpsRework 的自动降档）。
+			// update 和 draw 始终写同一个值：拆分在本引擎无效（fixedTimestep = false），
+			// 但 set_drawFramerate 在 draw > update 时会 log.warn 并弹调试控制台，两边必须同步。
+			if (!IdleFPSManager.active
+				&& (FlxG.updateFramerate >= currentFPS + 5 || FlxG.updateFramerate <= currentFPS - 5)
 				&& haxe.Timer.stamp() - lastFramerateUpdateTime >= 1.5
 				&& currentFPS >= 30)
 			{
@@ -354,6 +366,13 @@ class FPSCounter extends TextField
 		scaleX = scaleY = #if android (scale > 1 ? scale : 1) #else (scale < 1 ? scale : 1) #end;
 		x = FlxG.game.x + X;
 		y = FlxG.game.y + Y;
+		#if mobile
+		// 边缘安全区缩回：计数器贴左上，宽屏下刘海/灵动岛/圆角会盖住文字（16:9 恒 0 不动）。
+		// 本体是 stage 坐标系的 TextField，用 stage 像素域的 inset（画布域会差一个缩放比）
+		var ins = mobile.backend.SafeArea.getStage();
+		x += ins.left;
+		y += ins.top;
+		#end
 	}
 
 	#if cpp

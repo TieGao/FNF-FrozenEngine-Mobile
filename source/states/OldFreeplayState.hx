@@ -7,7 +7,7 @@ import backend.Song;
 import objects.HealthIcon;
 import objects.MusicPlayer;
 
-import options.psychoptions.GameplayChangersSubstate;
+import options.GameplayChangersSubstate;
 import substates.ResetScoreSubState;
 
 import flixel.math.FlxMath;
@@ -84,6 +84,8 @@ class OldFreeplayState extends MusicBeatState
 			if(weekIsLocked(WeekData.weeksList[i])) continue;
 
 			var leWeek:WeekData = WeekData.weeksLoaded.get(WeekData.weeksList[i]);
+			// 缺数据 / 周里没歌时跳过，别在下面空引用闪退
+			if (leWeek == null || leWeek.songs == null) continue;
 			var leSongs:Array<String> = [];
 			var leChars:Array<String> = [];
 

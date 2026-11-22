@@ -264,10 +264,26 @@ class JudgementCounter
 
 	/**
 	 * 按布局摆放文本。useOffset=false 用于 coop_split（固定分居左右、不吃微调偏移）。
+	 *
+	 * 贴边的布局默认吃边缘安全区缩回（宽屏下刘海/圆角/Home 条会盖住贴边文字，16:9 恒 0 不动）；
+	 * 这是物理遮挡补偿，与 counterOffsetX/Y 的用户微调语义不同，useOffset=false 也不豁免。
 	 */
 	public static function layout(mode:String, items:Array<CounterLayoutItem>, useOffset:Bool = true):Void
 	{
 		if (items.length < 1) return;
+
+		#if mobile
+		var ins = mobile.backend.SafeArea.get();
+		var insL:Float = ins.left;
+		var insT:Float = ins.top;
+		var insR:Float = ins.right;
+		var insB:Float = ins.bottom;
+		#else
+		var insL:Float = 0;
+		var insT:Float = 0;
+		var insR:Float = 0;
+		var insB:Float = 0;
+		#end
 
 		if (mode == POS_SPLIT)
 		{
@@ -279,25 +295,25 @@ class JudgementCounter
 			}
 
 			var topX:Float = FlxG.width / 2 + (useOffset ? ClientPrefs.data.counterSplitTopX : 0);
-			var topY:Float = SPLIT_MARGIN + (useOffset ? ClientPrefs.data.counterSplitTopY : 0);
+			var topY:Float = SPLIT_MARGIN + insT + (useOffset ? ClientPrefs.data.counterSplitTopY : 0);
 			placeRow(top, topX, topY);
 
 			var bottomX:Float = FlxG.width / 2 + (useOffset ? ClientPrefs.data.counterSplitBottomX : 0);
-			var bottomY:Float = FlxG.height - SPLIT_MARGIN - LINE_HEIGHT + (useOffset ? ClientPrefs.data.counterSplitBottomY : 0);
+			var bottomY:Float = FlxG.height - SPLIT_MARGIN - LINE_HEIGHT - insB + (useOffset ? ClientPrefs.data.counterSplitBottomY : 0);
 			placeRow(bottom, bottomX, bottomY);
 			return;
 		}
 
 		var align:FlxTextAlign = LEFT;
-		var baseX:Float = SIDE_MARGIN;
+		var baseX:Float = SIDE_MARGIN + insL;
 		switch (mode)
 		{
 			case POS_CENTER:
 				align = CENTER;
-				baseX = (FlxG.width - TEXT_WIDTH) / 2;
+				baseX = (FlxG.width - TEXT_WIDTH) / 2; // 居中不贴边，不吃缩回
 			case POS_RIGHT:
 				align = RIGHT;
-				baseX = FlxG.width - TEXT_WIDTH - SIDE_MARGIN;
+				baseX = FlxG.width - TEXT_WIDTH - SIDE_MARGIN - insR;
 		}
 		if (useOffset) baseX += ClientPrefs.data.counterOffsetX;
 

@@ -2,7 +2,7 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.6.10" company="IceAxe" />
+	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.6.12" company="IceAxe" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
@@ -14,6 +14,11 @@
 		or you can set the actual size of your file manually at "FlxPreloaderBase-onUpdate-bytesTotal"-->
 	<!-- <app preloader="Preloader" resizable="true" /> -->
 	<app preloader="flixel.system.FlxPreloader" />
+
+	<!-- Win-on-ARM64 构建输出隔离：arm64 产物整树进 export-arm64/，与 x64 的 export/ 互不覆盖。
+	     lime 拷 ndll/dll 是 copyIfNewer（目标比源新就跳过）——同目录时 x64 重编刷不掉 arm64 残留，
+	     exe/ndll 架构混装启动即 0xc000007b（2026-11-08 实锤）。hxcpp 的 obj 目录本来就按架构分目录，只有最终 bin 共享。 -->
+	<app path="export-arm64" if="HXCPP_ARM64" />
 
 	<!--Minimum without FLX_NO_GAMEPAD: 11.8, without FLX_NO_NATIVE_CURSOR: 11.2-->
 	<set name="SWF_VERSION" value="11.8" />
@@ -29,7 +34,7 @@
 	<!-- 首启拷贝（CopyState：内嵌基础资产 → 数据根，真机验证过的老逻辑）+ 数据引导
 	     （BootDataState：旧版私有目录迁移 / 缺数据 zip 导入），均仅移动端 -->
 	<define name="COPYSTATE_ALLOWED" if="MODS_ALLOWED mobile"/>
-	<define name="BOOT_DATA_ALLOWED" if="MODS_ALLOWED mobile"/>
+	<define name="BOOT_DATA_ALLOWED"/>
 	<define name="IRIS_DEBUG"/>
 	
 	<define name="MULTITHREADED_LOADING" if="cpp || desktop" /> <!-- UNCOMMENTING THIS LINE WILL ENABLE MULTITHREADED LOADING, WHICH IMPROVES LOADING TIMES, BUT WITH A LOW CHANCE FOR THE GAME FREEZE ON SONG LOAD -->
@@ -169,7 +174,7 @@
 	<haxelib name="flixel-addons"/>
 	<!-- 强制编进 FlxSkewedSprite（引擎源码没引用它，不 include 的话 hscript 里 resolveClass 拿不到） -->
 	<haxeflag name="--macro" value="include('flixel.addons.effects.FlxSkewedSprite')"/>
-	<haxelib name="tjson" version="1.4.0"/>
+	<!-- tjson 已 vendor 进 source/tjson/（BSD，原库停更，修过时警告见文件头注释），不再走 haxelib -->
 
 	<!--Psych stuff needed-->
 	<haxelib name="linc_luajit" if="LUA_ALLOWED"/>
@@ -279,34 +284,44 @@
 	<icon path="art/icons/icon64.png" size='64'/>
 	<icon path="art/icons/iconOG.png" />
 
-	<android if="android"
-    gradle-version="8.14.5">
-    <!-- Gradle JVM 内存配置 -->
-</android>
-
-<config:android permission="android.permission.ACCESS_FINE_LOCATION" />
-<config:android permission="android.permission.WRITE_EXTERNAL_STORAGE" />
-<config:android permission="android.permission.READ_EXTERNAL_STORAGE" />
-<config:android permission="android.permission.MANAGE_EXTERNAL_STORAGE" />
-<config:android permission="android.permission.MANAGE_MEDIA" />
-<config:android permission="android.permission.READ_MEDIA_IMAGES" />
-<config:android permission="android.permission.READ_MEDIA_VIDEO" />
-<config:android permission="android.permission.READ_MEDIA_AUDIO" />
-
-<!-- Android 权限配置 -->
-<config:android if="android">
-    <gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
-</config:android>
+	<!-- Mobile Android（android 条件项统一收进一个 section 框，子项不再逐行写 if）-->
+	<section if="android">
+		<config:android gradle-version="8.14.5" />
+		<config:android layoutInDisplayCutoutMode="shortEdges" />
+		<!-- Gradle JVM 内存配置 -->
+		<config:android>
+			<gradle-properties org.gradle.jvmargs='-Xmx8192m "-XX:MaxMetaspaceSize=384m"' />
+		</config:android>
+		<!-- Android 10 及以下必须声明 legacy 外部存储，否则 scoped storage 只允许写 app 专属目录：
+		     数据根 /storage/emulated/0/.FrozenEngine/ 能建出来但写不进去，复制和 zip 解压会全量失败。
+		     Android 11+ 会忽略这个属性，权限走 MANAGE_EXTERNAL_STORAGE。 -->
+		<config:android>
+			<application android:requestLegacyExternalStorage="true" />
+		</config:android>
+		<!-- 权限 12 条 = lime 原默认基础 4 + 媒体/存储 8。
+		     注意 getArrayString 是替换语义：声明任意权限会把 lime 默认的基础 4 条挤掉——
+		     2026-11-21 修正：此前 APK 实测缺 INTERNET/WAKE_LOCK/VIBRATE/ACCESS_NETWORK_STATE
+		     （真机联网功能全废），基础 4 条必须一并声明。
+		     权限必须保持每行一条属性形式——<permission name=.../> 子标签会把对象转成垃圾串
+		     （AndroidPlatform 的 getArrayString 调用没传 childField="name"）。 -->
+		<config:android permission="android.permission.INTERNET" />
+		<config:android permission="android.permission.WAKE_LOCK" />
+		<config:android permission="android.permission.VIBRATE" />
+		<config:android permission="android.permission.ACCESS_NETWORK_STATE" />
+		<config:android permission="android.permission.ACCESS_FINE_LOCATION" />
+		<config:android permission="android.permission.WRITE_EXTERNAL_STORAGE" />
+		<config:android permission="android.permission.READ_EXTERNAL_STORAGE" />
+		<config:android permission="android.permission.MANAGE_EXTERNAL_STORAGE" />
+		<config:android permission="android.permission.MANAGE_MEDIA" />
+		<config:android permission="android.permission.READ_MEDIA_IMAGES" />
+		<config:android permission="android.permission.READ_MEDIA_VIDEO" />
+		<config:android permission="android.permission.READ_MEDIA_AUDIO" />
+		<config:android minimum-sdk-version="24" target-sdk-version="36" />
+	</section>
 
 	<architecture name="arm64" exclude="armv7" if="android" />
 	<!-- iOS 只出 arm64：不声明的话 lime 的 ndll 拷贝循环会先撞上 armv6/armv7 的
 	     .iphoneos.a 缺失直接 throw（.iphoneos-64.a 根本轮不到检查）。
 	     2026-11-05 CI：extension-document-picker 的 ndll 命中 arm64 候选后仍炸这里。 -->
 	<architecture name="arm64" if="ios" />
-
-<config>
-	<android minimum-sdk-version="24" />
-	<android target-sdk-version= "36" />
-
-</config>
 </project>

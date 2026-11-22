@@ -1,6 +1,5 @@
 package states;
 
-import backend.DiffRating;
 import backend.WeekData;
 import backend.NMVContentData;
 import backend.Highscore;
@@ -24,7 +23,8 @@ import objects.MessageBox;
 import states.freeplay.*;
 
 import backend.AlbumConfig;
-import options.psychoptions.GameplayChangersSubstate;
+import options.GameplayChangersSubstate;
+import options.objects.win10.Win10SearchBar;
 import substates.ResetScoreSubState;
 
 import flixel.math.FlxMath;
@@ -86,6 +86,14 @@ class FreeplayState extends MusicBeatState
     }
 
     public static var curSelected:Int = 0;
+    /**
+     * 开歌 / 进编辑器前对「选中歌身份 + 搜索关键词」做的快照，回到 Freeplay 时消费一次。
+     * 关键：过滤视图下 songs 只是子集，下标和全量列表**不是一套**。回来时列表按全量重建，
+     * 光靠 static curSelected 就会落到「全量列表的第 N 首」而不是刚玩的那首。
+     */
+    public static var pendingReturnSongKey:String = null;
+    /** 上一次生效的搜索关键词原文（保留大小写），回来时回填搜索框 */
+    public static var pendingReturnFilter:String = '';
     var lerpSelected:Float = 0;
     // 用于鼠标滚动/拖拽的滚动位置（以索引像素为单位，spacing 为每项高度）
     public var cardScrollPos:Float = 0;
@@ -98,8 +106,21 @@ class FreeplayState extends MusicBeatState
     var starsBG:FlxBackdrop;
     var starsFG:FlxBackdrop;
     
-    var menuBg:FlxSprite;
+    /**
+     * Freeplay 主背景。用 FlxFilteredSprite 而不是 FlxSprite：过渡时的旧图快照要能挂
+     * openfl 的 BlurFilter（切文件夹时的失焦淡出），以后想给背景加别的滤镜也是同一个入口。
+     */
+    var menuBg:FlxFilteredSprite;
     var intendedColor:Int;
+
+    /** 渐变过渡期间压在新背景之上的旧图快照；过渡结束（或下一次切换）立刻摘掉销毁。 */
+    var menuBgPrev:FlxFilteredSprite;
+    var bgFadeTween:FlxTween;
+    /**
+     * 待解码的新背景图。`loadGraphic` 是同步解码 + 上传，卡顿就发生在那一下 ——
+     * 渐变模式先让旧图快照铺满一帧，下一帧再换图，这一下就被完全盖住了。
+     */
+    var pendingBgGraphic:Dynamic = null;
 
     var bgEffect:MosaicEffect;
     var bgEffectTween:FlxTween;
@@ -118,7 +139,8 @@ class FreeplayState extends MusicBeatState
     var scoreText:FlxText;
     var diffText:FlxText;
     var noteCountText:FlxText;
-    var difficultyRatingText:FlxText;
+    /** 右上信息区第三行：BPM: 基础 (最低~最高)。原先是 RATING，难度系数已交给下方难度方块。 */
+    var bpmText:FlxText;
     var modFolderText:FlxText;
     // 右下角补充信息（音乐人 / 谱师 / 游玩次数），纯文字，无面板
     var musicanText:FlxText;
@@ -147,6 +169,8 @@ class FreeplayState extends MusicBeatState
     var topBar:FlxFilteredSprite;
     
     var instPlaying:Int = -1;
+    /** 试听播完了（music.onComplete 打的标记），下一帧在 update 里按循环模式处理 */
+    var previewCompletePending:Bool = false;
     public static var vocals:FlxSound = null;
     public static var opponentVocals:FlxSound = null;
     var holdTime:Float = 0;
@@ -279,6 +303,9 @@ class FreeplayState extends MusicBeatState
     // NMV 脚本 API 容器（内容包模式下挂 scripts/states/FreeplayState.hx）
     #if HSCRIPT_ALLOWED public var nmvScripts:nmv.scripts.NMVSciptHolder = null; #end
 
+    /** 已经点了 ModFolder 面板的「模组菜单」、正在切去 ModsMenu：本界面不再处理输入。 */
+    var leavingForModsMenu:Bool = false;
+
     /**
      * 来源 / 文件夹切换后需要整体重建一次卡片。
      * onModFolderChanged 是在选择器还开着的时候调的，那时 inModFolderSelector 还是 true，
@@ -287,8 +314,36 @@ class FreeplayState extends MusicBeatState
      */
     var cardsNeedRefresh:Bool = false;
 
-    var searchHitbox:FlxSprite;
-    var searchLabel:FlxText;
+    /**
+     * 顶部搜索栏（Win10 手感）。
+     * SubState 模式：只读，点击只当入口打开 SearchSubState。
+     * 过滤器模式：直接可输入，边打边过滤 songs 本身。
+     */
+    var searchBar:Win10SearchBar;
+    /** 过滤器模式下的命中计数（"12 / 340"）；SubState 模式下为 null */
+    var searchCountText:FlxText = null;
+    /**
+     * 过滤视图的基准列表（= 应用来源 / 内容包筛选之后的那份）。
+     * 非 null 表示 songs 是它按关键词过滤出来的子集；关键词清空时整份还原。
+     */
+    var filterBaseSongs:Array<NewSongMetaData> = null;
+    /** 已生效的关键词，避免同一串字符反复重建列表 */
+    var filterAppliedQuery:String = '';
+    /** 关键词原文（保留大小写）。只给搜索框回填 / 跨状态还原用，匹配一律走小写版 filterAppliedQuery */
+    var filterRawQuery:String = '';
+    /**
+     * 搜索框 onChange 只把关键词记在这里，真正的列表重建留到下一帧 update 开头。
+     * 输入事件是在帧末（成员 update）派发的，当场重建会先销毁全部卡片、新卡要等下一帧才建，
+     * 连续打字时列表会一直闪空白。放到帧首就紧跟 updateCardScroll，同帧建卡。
+     */
+    var pendingFilterQuery:String = null;
+    /**
+     * 搜索框刚把键盘交回来的那一帧，按键不能同时被当成菜单操作。
+     * PsychUIInputText 是在 ESC / 回车里**自己**清 focusOn 的，等 handleKeyboardInput 跑到时
+     * 那句 `focusOn == null` 已经成立 —— 一次 ESC 会退到主菜单、一次回车会直接开歌。
+     * 这个短窗口把那一帧的 BACK / ENTER / SPACE 统统吞掉（同 OptionsState 的 searchEnterHandled）。
+     */
+    var searchKeyGuard:Float = 0;
 
     /**
      * 是否处于 Content（自定义谱面）浏览模式。
@@ -395,9 +450,11 @@ class FreeplayState extends MusicBeatState
 
     override function create()
     {
-        // 状态边界先清掉上一界面留下的非本地资源，再建立本界面的局部缓存。
-        Paths.clearStoredMemory();
-        Paths.clearUnusedMemory();
+        if (!ClientPrefs.data.keepSongAssetsOnFreeplay)
+        {
+            Paths.clearStoredMemory();
+            Paths.clearUnusedMemory();
+        }
         persistentUpdate = true;
         PlayState.isStoryMode = false;
         freeplaySongCache = loadFreeplaySongCache();
@@ -426,6 +483,10 @@ class FreeplayState extends MusicBeatState
         SongMetaConfig.loadAllConfigs();
         // 艺术图与背景按当前歌曲懒加载，避免歌曲/模组数量把 Freeplay 入口峰值推高。
 
+        // 从 PlayState / 编辑器回来：先按快照还原过滤视图与选中歌，再做下面的下标钳制。
+        // 这一步必须在 buildBackground / initializeSelection 之前 —— 它俩都按 curSelected 取歌。
+        restoreReturnSelection();
+
         if (curSelected >= songs.length || curSelected < 0)
             curSelected = 0;
 
@@ -450,7 +511,14 @@ class FreeplayState extends MusicBeatState
             updateEmptyState();
         }
 
+        // 触屏控件必须无条件建：update() 每帧都会读 touchPad.buttonZ，
+        // 只在 initializeSelection 里建会让「一首歌都没有」直接空引用闪退；
+        // 顺带保证空列表时也能用触屏返回主菜单。
         FlxG.mouse.visible = true;
+        if (ClientPrefs.data.toolBar)
+            addTouchPad('NONE', 'A_B');
+        else
+            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
 
         startRankAnimIfPending();
 
@@ -512,14 +580,16 @@ class FreeplayState extends MusicBeatState
         var folder:String = (curSelected >= 0 && curSelected < songs.length)
             ? songs[curSelected].folder : Mods.currentModDirectory;
         var menuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(folder);
-        menuBg = new FlxSprite().loadGraphic(menuBgGraphic);
+        // loadGraphic 的返回类型是 FlxSprite，链式写法会被推断成父类，这里分两行
+        menuBg = new FlxFilteredSprite();
+        menuBg.loadGraphic(menuBgGraphic);
         menuBg.antialiasing = ClientPrefs.data.antialiasing;
         menuBg.alpha = 1;
         add(menuBg);
         menuBg.screenCenter();
 
         bgEffect = new MosaicEffect();
-        menuBg.shader = bgEffect.shader;
+        applyBackgroundShaderMode();
 
         if (!ClientPrefs.data.freeplayspace) return;
 
@@ -634,11 +704,14 @@ class FreeplayState extends MusicBeatState
         noteCountText.color = 0xFFAAAAAA;
         add(noteCountText);
 
-        difficultyRatingText = new FlxText(scoreText.x, scoreText.y + 90, 0, "", 20);
-        difficultyRatingText.antialiasing = ClientPrefs.data.antialiasing;
-        difficultyRatingText.font = scoreText.font;
-        difficultyRatingText.color = DiffRating.getColorFromRating(0);
-        add(difficultyRatingText);
+        // Note 数下面一行：BPM: 基础 (最低~最高)。
+        // 原来这里是 "RATING: x" —— 难度系数已经由下方难度方块展示，这一行让给 BPM
+        // （卡面上的 BPM 指示器已移除，见 FreeplayCard）。
+        bpmText = new FlxText(scoreText.x, scoreText.y + 90, 0, "", 20);
+        bpmText.antialiasing = ClientPrefs.data.antialiasing;
+        bpmText.font = scoreText.font;
+        bpmText.color = 0xFFAAAAAA;
+        add(bpmText);
 
         // 右下角补充信息：音乐人 / 谱师 / 游玩次数（FE 风格，纯文字，无面板）
         // 往下挪，给难度 carousel 让位（carousel 占 FlxG.height*0.75 上下各 28px）
@@ -675,65 +748,42 @@ class FreeplayState extends MusicBeatState
         }
     }
 
-    /** 顶部搜索入口（图标 / 提示文字 / 下划线 / 高亮线）。 */
+    /** 顶部搜索栏（Win10 风格搜索框）。过滤器模式常驻可输入，SubState 模式只当入口。 */
     private function buildSearchBar():Void
     {
         if (!ClientPrefs.data.freeplaySearch) return;
 
-        // 隐藏背景（增大点击区域）
-        searchHitbox = new FlxSprite(0, 0);
-        searchHitbox.makeGraphic(240, 50, FlxColor.TRANSPARENT);
-        searchHitbox.x = (FlxG.width - searchHitbox.width) / 2;
-        searchHitbox.y = 6;
-        searchHitbox.scrollFactor.set();
-        add(searchHitbox);
+        var barW:Float = 320;
+        var barH:Float = 34;
+        searchBar = new Win10SearchBar((FlxG.width - barW) * 0.5, 8, barW, barH, 15, true, true, Paths.font('vcr.ttf'));
+        searchBar.setPlaceholder(Language.getPhrase('freeplay_search_placeholder', 'Search songs...'));
+        searchBar.readOnly = !ClientPrefs.data.freeplaySearchInline;
+        searchBar.onChange = function(_oldText:String, newText:String) pendingFilterQuery = newText;
+        // 失焦 / 回车都要让 BACK 让位一帧，否则同帧的 controls.BACK 会直接退到主菜单
+        searchBar.onUnfocus = function() searchKeyGuard = 0.1;
+        searchBar.onSubmit = function(_) searchKeyGuard = 0.1;
+        if (searchBar.readOnly)
+            searchBar.onClick = function() openSearchSubstate();
+        add(searchBar);
 
-        // 搜索图标（放大镜）
-        var searchIcon:FlxSprite = new FlxSprite(0, 0);
-        searchIcon.loadGraphic(Paths.image('freeplay/search_icon'));
-        if (searchIcon.graphic == null)
+        // 从 PlayState 回来时把上次的关键词填回搜索框。
+        // setText 不触发 onChange，列表在 create 早期（restoreReturnSelection）就已经还原好了。
+        if (filterRawQuery.length > 0) searchBar.setText(filterRawQuery);
+
+        // 命中计数只服务过滤器模式；SubState 模式下没有"列表被筛掉"这回事
+        if (ClientPrefs.data.freeplaySearchInline)
         {
-            // 没有图标资源时用文本替代
-            var iconText:FlxText = new FlxText(0, 8, 0, "🔍", 20);
-            iconText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER);
-            iconText.x = (FlxG.width - 240) / 2 + 10;
-            iconText.y = 10;
-            iconText.scrollFactor.set();
-            add(iconText);
+            searchCountText = new FlxText(0, 0, 0, '', 14);
+            searchCountText.antialiasing = ClientPrefs.data.antialiasing;
+            searchCountText.setFormat(Paths.font('vcr.ttf'), 14, FlxColor.GRAY, LEFT);
+            searchCountText.x = (FlxG.width + barW) * 0.5 + 12;
+            searchCountText.y = 8 + (barH - 14) * 0.5;
+            searchCountText.scrollFactor.set();
+            searchCountText.visible = false;
+            add(searchCountText);
+            // 还原的过滤视图要一进来就把 "N / 总数" 显示出来
+            updateSearchCount();
         }
-        else
-        {
-            searchIcon.setGraphicSize(20, 20);
-            searchIcon.updateHitbox();
-            searchIcon.x = (FlxG.width - 240) / 2 + 12;
-            searchIcon.y = 14;
-            searchIcon.scrollFactor.set();
-            add(searchIcon);
-        }
-
-        searchLabel = new FlxText(0, 0, 0, "Search songs...", 18);
-        searchLabel.antialiasing = ClientPrefs.data.antialiasing;
-        searchLabel.setFormat(Paths.font("vcr.ttf"), 18, 0xFFAAAAAA, LEFT);
-        searchLabel.x = (FlxG.width - 240) / 2 + 38;
-        searchLabel.y = 13;
-        searchLabel.scrollFactor.set();
-        add(searchLabel);
-
-        var lineBg:FlxSprite = new FlxSprite(0, 0);
-        lineBg.makeGraphic(200, 1, FlxColor.WHITE);
-        lineBg.alpha = 0.25;
-        lineBg.x = (FlxG.width - lineBg.width) / 2;
-        lineBg.y = 42;
-        lineBg.scrollFactor.set();
-        add(lineBg);
-
-        var highlightLine:FlxSprite = new FlxSprite(0, 0);
-        highlightLine.makeGraphic(200, 2, FlxColor.WHITE);
-        highlightLine.alpha = 0;
-        highlightLine.x = (FlxG.width - highlightLine.width) / 2;
-        highlightLine.y = 42;
-        highlightLine.scrollFactor.set();
-        add(highlightLine);
     }
 
     /** 左上角来源标签（谱面加载失败改用 MessageBox 提示，不再铺全屏黑幕）。 */
@@ -782,8 +832,10 @@ class FreeplayState extends MusicBeatState
                     : defaultEmptyReason();
 
                 emptyHint.text = Language.getPhrase('freeplay_empty_title', 'NO SONGS AVAILABLE')
-                    + '\n\n' + reason
-                    + '\n\n' + Language.getPhrase('freeplay_empty_hint',
+                    + '\n\n' + reason;
+                // 搜索把列表筛空时，玩家该改的是关键词而不是模组 —— 别再提示去左上角换包
+                if (filterAppliedQuery.length == 0)
+                    emptyHint.text += '\n\n' + Language.getPhrase('freeplay_empty_hint',
                         'Pick another mod or content pack from the folder name in the top-left corner.');
                 emptyHint.screenCenter(X);
             }
@@ -804,7 +856,8 @@ class FreeplayState extends MusicBeatState
 
         if (ClientPrefs.data.toolBar)
         {
-            toolBar = new ToolBar(this, FlxG.width + 200, 50);
+            // 移动端栏高用移动版常量（75），并内置触摸簇 + 安全区让位（见 ToolBar.bottomClearance）
+            toolBar = new ToolBar(this, FlxG.width + 200, #if mobile ToolBar.BAR_HEIGHT_NORMAL #else 50 #end);
             add(toolBar);
 
             bottomBG = new FlxFilteredSprite(0, FlxG.height - 26);
@@ -876,17 +929,6 @@ class FreeplayState extends MusicBeatState
         updateCardsPosition();
         updateCardsRating();
         updateSongInfoTexts();
-        
-        FlxG.mouse.visible = true;
-        if (ClientPrefs.data.toolBar)
-        {
-            addTouchPad('NONE', 'A_B');
-        }
-        else
-        {
-            addTouchPad('LEFT_FULL', 'A_B_C_X_Y_Z');
-        }
-        
     }
 
 
@@ -1045,7 +1087,7 @@ class FreeplayState extends MusicBeatState
                 return;
         }
 
-        // 当前难度排最前：卡片上显示的正是这一档的 BPM / 时长
+        // 当前难度排最前：卡片上显示的正是这一档的时长 / 键数
         var currentDiff:String = Difficulty.getString(curDifficulty, false);
         if (task.kind == 'chart' && currentDiff != null && task.diffName == currentDiff)
             bucket.unshift(task);
@@ -1100,9 +1142,14 @@ class FreeplayState extends MusicBeatState
             if (weekIsLocked(WeekData.weeksList[i])) continue;
 
             var leWeek:WeekData = WeekData.weeksLoaded.get(WeekData.weeksList[i]);
+            // weeksList / weeksLoaded 是多轮扫描（原版周 + mod 周 + 内容包周）混着写的，
+            // 缺数据或周里没歌时跳过这一周，别在下面空引用闪退。
+            if (leWeek == null || leWeek.songs == null) continue;
+
             WeekData.setDirectoryFromWeek(leWeek);
             for (song in leWeek.songs)
             {
+                if (song == null || song[0] == null) continue;
                 var colors:Array<Int> = song[2];
                 if (colors == null || colors.length < 3)
                     colors = [146, 113, 253];
@@ -1315,7 +1362,7 @@ class FreeplayState extends MusicBeatState
 
     /** 缓存条目必须具备的字段，与 cacheFieldFor 写入的字段一一对应。 */
     static var CACHE_REQUIRED_FIELDS:Array<String> = [
-        'bpm', 'length', 'formattedLength', 'noteCount', 'keyCount',
+        'bpm', 'bpmMin', 'bpmMax', 'length', 'formattedLength', 'noteCount', 'keyCount',
         'playerNoteCount', 'opponentNoteCount', 'difficultyRating',
         'difficultyRatingPlayer', 'difficultyRatingOpponent',
         'difficultyRatingCoop', 'ratingText', 'ratingColor'
@@ -1362,6 +1409,10 @@ class FreeplayState extends MusicBeatState
         if (info == null) return null;
         return {
             bpm: info.bpm,
+            // BPM 变化范围（右上角 "BPM: 基础 (最低~最高)"）。漏写会让缓存条目永远缺键、
+            // 每次都走不到括号；已加进 requiredFields，旧缓存条目会被判无效重算一次。
+            bpmMin: info.bpmMin,
+            bpmMax: info.bpmMax,
             length: info.length,
             formattedLength: info.formattedLength,
             noteCount: info.noteCount,
@@ -1533,12 +1584,6 @@ class FreeplayState extends MusicBeatState
     }
 
     /**
-     * 给一张卡补全当前难度的 BPM / 时长 / 键数 / 评级徽章。
-     * 卡片是懒创建的（只有滑到可视范围才 new），而 updateCardDifficultyInfo / updateCardsRating
-     * 只刷"已经存在的卡" —— 切来源后卡片在下一帧才建出来，就会一直停在占位的
-     * "BPM: -- / LENGTH: 0:00 / KEYS: --" 和没有徽章的状态。所以建卡时自己补一次。
-     */
-    /**
      * 这首歌的谱面/存档键应该带的变体标识。
      * 优先用歌自带的 variant；只拿到内容根时（Content 模式里的内容包谱面）按包反查 ——
      * 与 Paths.setContentRoot 的解析口径保持一致，徽章才不会和存档键脱节。
@@ -1575,9 +1620,9 @@ class FreeplayState extends MusicBeatState
         card.diffNames = getSongDifficultyNames(song);
         var diffInfo:ParsedSongInfo = song.difficultyInfo.get(Difficulty.getString(curDifficulty, false));
         if (diffInfo != null)
-            card.updateDifficultyInfo(diffInfo.bpm, diffInfo.formattedLength, diffInfo.noteCount, getModeDifficultyRating(diffInfo), diffInfo.keyCount);
+            card.updateDifficultyInfo(diffInfo.formattedLength, diffInfo.keyCount);
         else
-            card.updateDifficultyInfo(0, "0:00", 0, 0.0, 0);
+            card.updateDifficultyInfo("0:00", 0);
 
         card.updateRatingSprite();
     }
@@ -1627,11 +1672,11 @@ class FreeplayState extends MusicBeatState
         var songContentRoot:String = songs[index].contentRoot;
         if (songContentRoot != null && songContentRoot.length > 0)
             Paths.currentContentRoot = songContentRoot;
-        card = new FreeplayCard(0, 0, songs[index].songName, songs[index].songCharacter, songs[index].color,
+        card = new FreeplayCard(0, 0, songs[index].songName, songs[index].songCharacter,
             songs[index].displayName, getSongVariant(songs[index]), getSongDifficultyNames(songs[index]));
         card.targetY = index;
         cards[index] = card;
-        // 建完立刻补内容（BPM / 时长 / 键数 / 徽章），别让它停在占位状态
+        // 建完立刻补内容（时长 / 键数 / 徽章），别让它停在占位状态
         applyCardSongInfo(index, card);
         Paths.currentContentRoot = oldContentRoot;
         Mods.currentModDirectory = oldModDir;
@@ -1777,8 +1822,9 @@ class FreeplayState extends MusicBeatState
         FlxTween.tween(rankOverlay, {alpha: 0.9}, 0.5);
 
         // 目标卡居中（官方是直接 setPosition，靠黑幕渐入 + zoom 推近掩盖瞬移）
-        var dx:Float = (FlxG.width * 0.5 - 225) - card.bgSprite.x;
-        var dy:Float = (FlxG.height * 0.5 - 37) - card.bgSprite.y;
+        // 偏移按整卡尺寸算 —— 宽度要把右侧色块算进去（FreeplayCard.CARD_W 是含色块的总宽）
+        var dx:Float = (FlxG.width * 0.5 - FreeplayCard.CARD_W * 0.5) - card.bgSprite.x;
+        var dy:Float = (FlxG.height * 0.5 - FreeplayCard.CARD_H * 0.5) - card.bgSprite.y;
         card.shiftCard(dx, dy);
 
         // 徽章先定格旧 rank（官方用 fakeRanking 承担，这里复用同一张）
@@ -1788,7 +1834,7 @@ class FreeplayState extends MusicBeatState
             card.ratingSprite.color = 0xFFFFFFFF;
             card.ratingSprite.alpha = 1;
             card.ratingSprite.animation.play(pending.oldRank.animName, true, false, 0);
-            card.ratingSprite.animation.finishCallback = null; // 旧徽章定格在最后一帧
+            card.ratingSprite.animation.onFinish.removeAll(); // 旧徽章定格在最后一帧（旧 finishCallback = null 的信号等价写法）
             card.ratingSprite.animation.curAnim.finish();
         }
         else
@@ -1803,10 +1849,11 @@ class FreeplayState extends MusicBeatState
             card.ratingSprite.color = 0xFFFFFFFF;
             card.ratingSprite.alpha = 1;
             card.ratingSprite.animation.play(pending.newRank.animName, true, false, 0);
-            card.ratingSprite.animation.finishCallback = function(name:String)
+            card.ratingSprite.animation.onFinish.removeAll(); // 覆盖语义等价迁移：清残留再挂
+            card.ratingSprite.animation.onFinish.add(function(name:String)
             {
                 // 官方徽章是非循环闪烁，播完停帧即可
-            };
+            });
             // 放大到 20 倍时故意不 updateHitbox：offset 留在 1 倍的值，视觉中心就钉在
             // 卡片的徽章槽上，于是看起来是"从巨幅缩进槽里"；结尾补一次 updateHitbox 收正。
             card.ratingSprite.scale.set(20, 20);
@@ -1906,12 +1953,12 @@ class FreeplayState extends MusicBeatState
         function hideWhenDone(spr:FlxSprite, anim:String):Void
         {
             spr.animation.play(anim, true, false, 0);
-            spr.animation.finishCallback = function(name:String)
+            spr.animation.onFinish.add(function(name:String)
             {
                 // 这里绝不能 destroy：回调返回后 flixel 还会继续 onFinish.dispatch，
                 // 销毁过的动画控制器会在信号分发上炸空引用（flixel #2782 同类坑）
                 spr.visible = false;
-            };
+            });
         }
         hideWhenDone(rankSparks, 'sparks');
         hideWhenDone(rankSparksAdd, 'sparks add');
@@ -2067,9 +2114,9 @@ class FreeplayState extends MusicBeatState
             if (card == null) continue;
             var diffInfo:ParsedSongInfo = songs[i].difficultyInfo.get(currentDiffName);
             if (diffInfo != null)
-                card.updateDifficultyInfo(diffInfo.bpm, diffInfo.formattedLength, diffInfo.noteCount, getModeDifficultyRating(diffInfo), diffInfo.keyCount);
+                card.updateDifficultyInfo(diffInfo.formattedLength, diffInfo.keyCount);
             else
-                card.updateDifficultyInfo(0, "0:00", 0, 0.0, 0);
+                card.updateDifficultyInfo("0:00", 0);
         }
     }
     
@@ -2079,11 +2126,8 @@ class FreeplayState extends MusicBeatState
         {
             if (noteCountText != null)
                 noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
-            if (difficultyRatingText != null)
-            {
-                difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
-                difficultyRatingText.color = DiffRating.getColorFromRating(0);
-            }
+            if (bpmText != null)
+                bpmText.text = Language.getPhrase('freeplay_bpm_missing', 'BPM: --');
             updateSongMetaTexts();
             return;
         }
@@ -2096,18 +2140,40 @@ class FreeplayState extends MusicBeatState
         if (diffInfo != null)
         {
             noteCountText.text = Language.getPhrase('freeplay_notes_side', 'PLAYER: {1} / OPPONENT: {2}', [diffInfo.playerNoteCount, diffInfo.opponentNoteCount]);
-            var rating:Float = getModeDifficultyRating(diffInfo);
-            difficultyRatingText.text = Language.getPhrase('freeplay_rating', 'RATING: {1}', [rating]);
-            difficultyRatingText.color = DiffRating.getColorFromRating(rating);
+            bpmText.text = formatBpmText(diffInfo.bpm, diffInfo.bpmMin, diffInfo.bpmMax);
         }
         else
         {
             noteCountText.text = Language.getPhrase('freeplay_notes_missing', 'NOTES: --');
-            difficultyRatingText.text = Language.getPhrase('freeplay_rating_missing', 'RATING: --');
-            difficultyRatingText.color = DiffRating.getColorFromRating(0);
+            bpmText.text = Language.getPhrase('freeplay_bpm_missing', 'BPM: --');
         }
 
         updateSongMetaTexts();
+    }
+
+    /** BPM 显示值：整数就写整数，带小数保留一位（和卡面上原来的口径一致）。 */
+    private function formatBpmValue(bpm:Float):String
+    {
+        return (Math.round(bpm) == bpm) ? Std.string(Math.round(bpm)) : Std.string(FlxMath.roundDecimal(bpm, 1));
+    }
+
+    /**
+     * 右上信息区的 BPM 行：`BPM: 基础 (最低~最高)`。
+     * 谱面没有变速（min == max）时不写括号，避免出现 "BPM: 150 (150~150)" 这种废话。
+     */
+    private function formatBpmText(bpm:Float, bpmMin:Float, bpmMax:Float):String
+    {
+        // 少数谱面主 BPM 写 0、只在分节里给变速 —— 拿最高值兜底，别把有 BPM 的歌显示成 --
+        var base:Float = (bpm > 0) ? bpm : bpmMax;
+        if (base <= 0) return Language.getPhrase('freeplay_bpm_missing', 'BPM: --');
+
+        var value:String = formatBpmValue(base);
+        var low:Float = (bpmMin > 0) ? bpmMin : base;
+        var high:Float = (bpmMax > 0) ? bpmMax : base;
+        if (Math.abs(high - low) >= 0.05)
+            value = '$value (${formatBpmValue(low)}~${formatBpmValue(high)})';
+
+        return Language.getPhrase('freeplay_bpm', 'BPM: {1}', [value]);
     }
 
     function makeSongMetaText(y:Float):FlxText
@@ -2233,14 +2299,12 @@ class FreeplayState extends MusicBeatState
             FlxG.sound.playMusic(Paths.inst(PlayState.SONG.song, true, Paths.currentChartCategory), 0.7, false);
             FlxG.sound.music.pause(); // 先暂停，等用户点击播放
             
-            // 音乐结束回调
+            // 音乐结束回调：这里只打标记，真正的处理放到下一帧（见 handlePreviewComplete）。
+            // 不能在回调里重建 FlxG.sound.music —— FlxSound.stopped() 是「先 onComplete(),
+            // 后 cleanup()」，cleanup 会把当前 channel 停掉，刚起的新音频会被一起掐灭。
             FlxG.sound.music.onComplete = function()
             {
-                releasePreviewAudio();
-                if (FlxG.sound.music != null)
-                    FlxG.sound.music.time = 0;
-                if (ClientPrefs.data.toolBar && toolBar != null)
-                    toolBar.setNormalMode();
+                previewCompletePending = true;
             };
             
             // ========== 加载人声 ==========
@@ -2374,6 +2438,105 @@ class FreeplayState extends MusicBeatState
         }
     }
 
+    // ===================== 播放器循环模式 =====================
+
+    /**
+     * 试听播完后的分支。只放一次时行为和以前完全一样（退回普通栏 + 恢复菜单曲）。
+     * 注意调用点：FreeplayState.update 里对 previewCompletePending 的轮询。
+     */
+    private function handlePreviewComplete():Void
+    {
+        if (musicPlayer == null || !musicPlayer.playingMusic) return;
+
+        switch (MusicPlayerLegacy.loopMode)
+        {
+            case MusicPlayerLegacy.LOOP_ONE:
+                restartPreviewSong();
+            case MusicPlayerLegacy.LOOP_ALL:
+                nextSong();
+            case MusicPlayerLegacy.LOOP_SHUFFLE:
+                randomPreviewSong();
+            default:
+                // 全关 = 只放一次
+                releasePreviewAudio();
+                if (FlxG.sound.music != null)
+                    FlxG.sound.music.time = 0;
+                if (ClientPrefs.data.toolBar && toolBar != null)
+                    toolBar.setNormalMode();
+        }
+    }
+
+    /**
+     * 单曲循环：原地从头再放。不重读谱面 / 不重新加载音频（那样每循环一次都要卡一下）。
+     * 播完之后 FlxSound 已经 cleanup 成「没有 channel、时间 0」，play() 等于从头起。
+     */
+    private function restartPreviewSong():Void
+    {
+        if (FlxG.sound.music == null) return;
+
+        FlxG.sound.music.time = 0;
+        FlxG.sound.music.play();
+        // 人声是 looped=true 的独立音轨，得手动拉回 0，否则会跟着自己的循环漂移
+        if (vocals != null) vocals.time = 0;
+        if (opponentVocals != null) opponentVocals.time = 0;
+
+        if (musicPlayer != null)
+        {
+            musicPlayer.curTime = 0;
+            musicPlayer.pauseOrResume(true);
+        }
+    }
+
+    /** 随机播放：播完随机换一首接着放（流程和 nextSong 一样，只是下标是摇出来的）。 */
+    private function randomPreviewSong():Void
+    {
+        if (musicPlayer == null || !musicPlayer.playingMusic) return;
+
+        if (songs.length < 2)
+        {
+            restartPreviewSong();
+            return;
+        }
+
+        releasePreviewAudio();
+        FlxG.sound.music.stop();
+
+        changeSelection(randomOtherSongIndex() - curSelected);
+        togglePlaySong();
+    }
+
+    /**
+     * Toolbar 的 RANDOM 按钮：普通模式下随机选中一首（不自动试听、不进播放器模式）。
+     * @return 这次点击有没有真的换歌（只有一首歌时返回 false，交给按钮放取消音）
+     */
+    public function randomSelectSong():Bool
+    {
+        if (musicPlayer == null || musicPlayer.playingMusic) return false;
+        if (songs.length < 2) return false;
+
+        // 音效交给 ToolBar 的按钮统一放，这里别再叠一层 scrollMenu
+        changeSelection(randomOtherSongIndex() - curSelected, false);
+        return true;
+    }
+
+    /**
+     * 随机挑一个「不是当前这首」的下标。只有一首歌时返回当前下标。
+     * 先摇几次，摇不中再顺序兜底 —— 别写 while(idx == curSelected) 那种，
+     * 列表只有一首（或随机源退化）时会死循环。
+     */
+    private function randomOtherSongIndex():Int
+    {
+        if (songs.length < 2 || curSelected < 0 || curSelected >= songs.length)
+            return (curSelected >= 0 && curSelected < songs.length) ? curSelected : 0;
+
+        for (_ in 0...12)
+        {
+            var idx:Int = FlxG.random.int(0, songs.length - 1);
+            if (idx != curSelected) return idx;
+        }
+        return (curSelected + 1) % songs.length;
+    }
+
     override function update(elapsed:Float)
     {
         // 空列表也要跑 update：BACK 返回主菜单、点左上角切来源都靠这里处理输入。
@@ -2388,7 +2551,28 @@ class FreeplayState extends MusicBeatState
             nmvScripts.call('onUpdatePost', [elapsed]);
         }
         #end
+
+        // 试听播完（onComplete 打的标记）：循环模式的分支在这里走。
+        // 必须在音频回调之外处理，见 togglePlaySong 里 onComplete 的注释。
+        if (previewCompletePending)
+        {
+            previewCompletePending = false;
+            handlePreviewComplete();
+        }
+
+        // 已经切去 ModsMenu（淡出过渡中）：只推进过渡和成员，不再响应任何输入 ——
+        // 否则同一帧的 ACCEPT / BACK 会在状态真正切走前又开一次歌或退主菜单。
+        if (leavingForModsMenu)
+        {
+            super.update(elapsed);
+            return;
+        }
+
+
         updateBackgroundScroll();
+        // 放在输入处理之前：本帧刚请求的换图要等下一帧（那时快照层已经盖住屏幕）
+        applyPendingBackground();
+        if (searchKeyGuard > 0) searchKeyGuard -= elapsed;
 
         if (rankAnimActive)
         {
@@ -2408,6 +2592,15 @@ class FreeplayState extends MusicBeatState
         if (FlxG.sound.music != null && FlxG.sound.music.volume < 0.7 && !musicPlayer.playingMusic)
             FlxG.sound.music.volume += 0.5 * elapsed;
 
+        // 搜索框输入 → 列表重建。必须排在 updateCardScroll 之前：卡片刚被全部销毁时，
+        // 同一帧的摆位就能把新卡建出来，不会闪出一帧空列表。
+        if (pendingFilterQuery != null)
+        {
+            var appliedQuery:String = pendingFilterQuery;
+            pendingFilterQuery = null;
+            applySongFilter(appliedQuery);
+        }
+
         // 来源 / 文件夹切换后的卡片重建：选择器关掉后第一帧补上，
         // 不让卡片停在旧列表（或占位 BPM/LENGTH）的状态上。
         if (cardsNeedRefresh && !inModFolderSelector)
@@ -2423,12 +2616,14 @@ class FreeplayState extends MusicBeatState
         updateCardScroll(elapsed);
         updateTextsThrottled(elapsed);
         processPreloadQueue(elapsed);
+        // 搜索框拿着键盘焦点时，拖选输入框里的文字不该把列表也拖着滚
+        if (cardScroller != null)
+            cardScroller.inputAllow = (searchBar == null || !searchBar.isFocused());
         handleMouseInput();
         handleKeyboardInput(elapsed);
 
-        if (ClientPrefs.data.toolBar && toolBar != null)
-            toolBar.update(elapsed);
-
+        // toolBar 已经 add() 进了 state，末尾的 super.update() 会更新它；
+        // 这里再手动调一次等于一帧走两遍 —— 按钮输入的锁定计时会被对半砍，别再加回来。
         if (!musicPlayer.playingMusic && toolBar != null)
             toolBar.setNormalMode();
 
@@ -3063,8 +3258,10 @@ class FreeplayState extends MusicBeatState
             replayButton.scale.set(REPLAY_BTN_SCALE, REPLAY_BTN_SCALE);
         }
 
-        if (searchHitbox != null && FlxG.mouse.justPressed && FlxG.mouse.overlaps(searchHitbox) && !musicPlayer.playingMusic)
-            openSearchSubstate();
+        // 点空白处 / 点列表：先把键盘焦点从搜索框收回来（Win10 的行为）。
+        // 不吞这次点击 —— 卡片才是主要交互，逼玩家点两次会很烦。
+        if (searchBar != null && FlxG.mouse.justPressed && !searchBar.isHovered())
+            searchBar.unfocus();
 
         // 松手生效：按下时指针在按钮上（replayPressed）且松手时仍在上面才算点击
         if (FlxG.mouse.justReleased && replayPressed && FlxG.mouse.overlaps(replayButton)
@@ -3130,7 +3327,7 @@ class FreeplayState extends MusicBeatState
     private function handleKeyboardInput(elapsed:Float):Void
     {
         var shiftMult:Int = 1;
-        if((FlxG.keys.pressed.SHIFT || touchPad.buttonZ.pressed) && !musicPlayer.playingMusic) shiftMult = 3;
+        if((FlxG.keys.pressed.SHIFT || (touchPad != null && touchPad.buttonZ.pressed)) && !musicPlayer.playingMusic) shiftMult = 3;
 
         if (!musicPlayer.playingMusic && PsychUIInputText.focusOn == null && !inModFolderSelector)
         {
@@ -3190,8 +3387,19 @@ class FreeplayState extends MusicBeatState
 
         if (!inModFolderSelector && (controls.BACK || FlxG.mouse.justPressedRight))
         {
-            if (PsychUIInputText.focusOn != null)
+            // 搜索框还吃键盘时这一下属于「退出输入」，不是「返回主菜单」。
+            // searchKeyGuard 覆盖 ESC 已经清掉 focusOn 的那一帧（见字段注释）。
+            if (PsychUIInputText.focusOn != null || searchKeyGuard > 0)
                 return;
+
+            // 过滤中：这一下先退出过滤视图（回到完整列表），别一步退到主菜单
+            if (filterBaseSongs != null && filterAppliedQuery.length > 0)
+            {
+                pendingFilterQuery = '';
+                if (searchBar != null) searchBar.setText('');
+                FlxG.sound.play(Paths.sound('cancelMenu'));
+                return;
+            }
 
             if (musicPlayer.playingMusic)
             {
@@ -3210,23 +3418,23 @@ class FreeplayState extends MusicBeatState
         }
         else if (!inModFolderSelector && PsychUIInputText.focusOn == null)
         {
-            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || touchPad.buttonC.justPressed) && !musicPlayer.playingMusic)
+            if((FlxG.keys.justPressed.CONTROL || FlxG.mouse.justPressedMiddle || (touchPad != null && touchPad.buttonC.justPressed)) && !musicPlayer.playingMusic)
             {
                 persistentUpdate = false;
                 if (!ClientPrefs.data.toolBar) removeTouchPad();
                 openSubState(new GameplayChangersSubstate());
             }
-            else if ((FlxG.keys.justPressed.ENTER || touchPad.buttonA.justPressed) && !musicPlayer.playingMusic)
+            else if ((FlxG.keys.justPressed.ENTER || (touchPad != null && touchPad.buttonA.justPressed)) && !musicPlayer.playingMusic && searchKeyGuard <= 0)
             {
                 selectSong();
             }
-                else if ((FlxG.keys.justPressed.SPACE || touchPad.buttonX.justPressed))
+            else if ((FlxG.keys.justPressed.SPACE || (touchPad != null && touchPad.buttonX.justPressed)) && searchKeyGuard <= 0)
             {
                 togglePlaySong();
             }
         }
 
-        if (!inModFolderSelector && PsychUIInputText.focusOn == null && (controls.RESET || touchPad.buttonY.justPressed) && !musicPlayer.playingMusic)
+        if (!inModFolderSelector && PsychUIInputText.focusOn == null && (controls.RESET || (touchPad != null && touchPad.buttonY.justPressed)) && !musicPlayer.playingMusic)
         {
             if (curSelected < 0 || curSelected >= songs.length)
             {
@@ -3386,6 +3594,10 @@ class FreeplayState extends MusicBeatState
 
         if (!loadSongIntoPlayState()) return false;
 
+        // 离开前留快照：回来时列表按全量重建，过滤视图里的下标不能直接复用
+        pendingReturnSongKey = (curSelected >= 0 && curSelected < songs.length) ? songKeyOf(songs[curSelected]) : null;
+        pendingReturnFilter = (searchBar != null) ? searchBar.getText() : filterRawQuery;
+
         persistentUpdate = false;
 
         @:privateAccess
@@ -3473,6 +3685,8 @@ class FreeplayState extends MusicBeatState
         // 音乐回调闭包会捕获整个 FreeplayState，必须先断开再销毁音频。
         if (FlxG.sound.music != null)
             FlxG.sound.music.onComplete = null;
+        // 已经停了就别留着「播完」的标记，否则下一帧会拿旧标记去走循环分支
+        previewCompletePending = false;
         if (musicPlayer != null && musicPlayer.playingMusic)
             musicPlayer.stopMusic();
         destroyFreeplayVocals();
@@ -3524,6 +3738,7 @@ class FreeplayState extends MusicBeatState
     function openSearchSubstate()
     {
         if (musicPlayer.playingMusic || songs.length == 0) return;
+        if (searchBar != null) searchBar.unfocus();
         persistentUpdate = false;
         openSubState(new SearchSubState(songs, function(song:NewSongMetaData) {
             // ★ 打开搜索界面的那一帧，MouseMove 已经把本次鼠标按下记成了“待拖拽”，
@@ -3543,14 +3758,243 @@ class FreeplayState extends MusicBeatState
         }));
     }
 
+    // ===================== 过滤器模式（搜索直接筛 Freeplay 本体） =====================
+
+    /**
+     * 关键词是否命中一首歌。
+     * 支持空格分隔的多词 AND（"bope pico" 能命中 'Bopeebo (Pico Mix)'），
+     * 匹配域与老 SearchSubState 一致：路径歌名 / 展示名 / 模组目录，外加变体标签。
+     */
+    private function songMatchesQuery(song:NewSongMetaData, query:String):Bool
+    {
+        if (song == null) return false;
+
+        var hay:String = '';
+        if (song.songName != null) hay += song.songName.toLowerCase();
+        if (song.displayName != null) hay += '\n' + song.displayName.toLowerCase();
+        if (song.folder != null) hay += '\n' + song.folder.toLowerCase();
+        if (song.variantLabel != null) hay += '\n' + song.variantLabel.toLowerCase();
+
+        for (token in query.split(' '))
+        {
+            if (token.length == 0) continue;
+            if (hay.indexOf(token) < 0) return false;
+        }
+        return true;
+    }
+
+    /** 过滤视图 / 回来还原共用的纯数据筛选（不碰界面）：把 base 按关键词过一遍。 */
+    private function filterSongsByQuery(base:Array<NewSongMetaData>, query:String):Array<NewSongMetaData>
+    {
+        var matched:Array<NewSongMetaData> = [];
+        for (song in base)
+            if (query.length == 0 || songMatchesQuery(song, query)) matched.push(song);
+        return matched;
+    }
+
+    /**
+     * 歌的唯一身份键：跨状态还原选中项只能靠它。
+     * 过滤视图的下标和全量列表不是一套，回来时光用 curSelected 会指到别的歌上。
+     */
+    public static function songKeyOf(song:NewSongMetaData):String
+    {
+        if (song == null) return '';
+        return song.songName
+            + '\n' + (song.folder == null ? '' : song.folder)
+            + '\n' + (song.contentRoot == null ? '' : song.contentRoot)
+            + '\n' + (song.variant == null ? '' : song.variant)
+            + '\n' + (song.customChart == null || song.customChart.directory == null ? '' : song.customChart.directory);
+    }
+
+    /** 按身份键找下标；同一首被多个周收录时取离 hint（旧下标）最近的那个，避免跳远。 */
+    private static function indexBySongKey(list:Array<NewSongMetaData>, key:String, hint:Int):Int
+    {
+        var best:Int = -1;
+        var bestDist:Int = 0;
+        for (i in 0...list.length)
+        {
+            if (songKeyOf(list[i]) != key) continue;
+            var dist:Int = (i > hint) ? i - hint : hint - i;
+            if (best < 0 || dist < bestDist)
+            {
+                best = i;
+                bestDist = dist;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 从 PlayState / 编辑器回来时还原上一次的过滤视图与选中歌。
+     * 顺序很关键：先在**全量**列表里按歌身份定位（这时还没过滤），再套关键词过滤，
+     * 最后在过滤结果里重新求一次下标 —— 反过来做就会拿到过滤前的旧下标。
+     */
+    private function restoreReturnSelection():Void
+    {
+        var key:String = pendingReturnSongKey;
+        var rawQuery:String = pendingReturnFilter;
+        pendingReturnSongKey = null;
+        pendingReturnFilter = '';
+
+        if (key != null && key.length > 0 && songs.length > 0)
+        {
+            var idx:Int = indexBySongKey(songs, key, curSelected);
+            if (idx >= 0) curSelected = idx;
+        }
+
+        var query:String = (rawQuery == null) ? '' : rawQuery.toLowerCase().trim();
+        if (query.length == 0) return;
+        if (!ClientPrefs.data.freeplaySearch || !ClientPrefs.data.freeplaySearchInline) return;
+        if (songs.length == 0) return;
+
+        var matched:Array<NewSongMetaData> = filterSongsByQuery(songs, query);
+        // 一首都没命中就别还原了：不能把玩家丢进空列表，还留个说不清的过滤态
+        if (matched.length == 0) return;
+
+        var keep:NewSongMetaData = (curSelected >= 0 && curSelected < songs.length) ? songs[curSelected] : null;
+
+        filterBaseSongs = songs.copy();
+        filterAppliedQuery = query;
+        filterRawQuery = rawQuery.trim();
+        songs = matched;
+
+        curSelected = (keep == null) ? 0 : songs.indexOf(keep);
+        if (curSelected < 0) curSelected = 0;
+    }
+
+    /** 过滤器模式下每次输入都走这里：重建 songs 子集并把界面同步过去。 */
+    private function applySongFilter(rawQuery:String):Void
+    {
+        if (!ClientPrefs.data.freeplaySearchInline) return;
+
+        var query:String = (rawQuery == null) ? '' : rawQuery.toLowerCase().trim();
+        filterRawQuery = (rawQuery == null) ? '' : rawQuery.trim();
+        if (query == filterAppliedQuery) return;
+        filterAppliedQuery = query;
+
+        // 试听中筛选：列表换了，试听索引会指到别的歌上，先停掉
+        if (musicPlayer != null && musicPlayer.playingMusic)
+            releasePreviewAudio();
+
+        if (filterBaseSongs == null)
+        {
+            // 关键词本来就是空的：没进过滤状态，什么都不用做
+            if (query.length == 0)
+            {
+                updateSearchCount();
+                return;
+            }
+            filterBaseSongs = songs.copy();
+        }
+
+        // 记住当前选中的歌（对象引用），过滤后它还在结果里就继续保持选中
+        var keep:NewSongMetaData = (curSelected >= 0 && curSelected < songs.length) ? songs[curSelected] : null;
+
+        songs = filterSongsByQuery(filterBaseSongs, query);
+
+        // 已物化的卡片全部摘掉重建（它们按旧下标摆位，留着会显示错歌）
+        for (i in 0...cards.length)
+            releaseCard(i);
+        cards = [];
+        mouseOverCard = -1;
+        cardPressedIndex = -1;
+        visibleCardMin = 0;
+        visibleCardMax = -1;
+
+        var target:Int = 0;
+        var sameSelection:Bool = false;
+        if (keep != null)
+        {
+            for (i in 0...songs.length)
+            {
+                if (songs[i] == keep)
+                {
+                    target = i;
+                    sameSelection = true;
+                    break;
+                }
+            }
+        }
+        curSelected = target;
+
+        initializeCardSlots();
+
+        // 列表被筛空就收掉滚动控制器；从空恢复到非空时重建；只是长度变了就改上限。
+        // 不整体重建 —— 重建会把拖拽 / 惯性状态一起清掉，边打字边重建会明显顿。
+        if (songs.length == 0)
+        {
+            resetCardScroller();
+        }
+        else if (cardScroller == null)
+        {
+            cardScroller = createCardScroller();
+            add(cardScroller);
+        }
+        else
+        {
+            cardScroller.moveLimit = [0, Math.max(0, (songs.length - 1) * CARD_SPACING)];
+            cardScroller.resetInputState();
+        }
+
+        lerpSelected = target;
+        cardScrollPos = target * CARD_SPACING;
+        if (cardScroller != null)
+            cardScroller.tweenData = cardScrollPos;
+
+        emptyReason = (songs.length == 0 && query.length > 0)
+            ? Language.getPhrase('freeplay_empty_no_match', 'No songs match your search.')
+            : '';
+        updateEmptyState();
+        updateSearchCount();
+
+        if (songs.length == 0)
+            return;
+
+        // 选中歌没变时只需要重摆卡片：背景 / 封面 / 难度 / 成绩都是同一首的，别重复读盘
+        if (sameSelection)
+        {
+            updateCardsPosition();
+            updateCardsRating();
+            return;
+        }
+
+        // 换了一首：走完整的切歌流程（难度表 / 难度记忆 / 背景色 / 封面立绘 / 难度轮盘全在里面）
+        changeSelection(0, false);
+    }
+
+    /**
+     * 清掉过滤视图、把 songs 还原成基准列表。
+     * 换来源 / 换模组文件夹时必须调 —— 否则新列表会被旧基准整片盖回去。
+     */
+    private function resetSearchFilter():Void
+    {
+        filterBaseSongs = null;
+        filterAppliedQuery = '';
+        filterRawQuery = '';
+        pendingFilterQuery = null;
+        if (searchBar != null) searchBar.setText('');
+        if (searchCountText != null) searchCountText.visible = false;
+    }
+
+    /** 右上角"命中 / 总数"提示。只在过滤器模式、且确实有关键词时显示。 */
+    private function updateSearchCount():Void
+    {
+        if (searchCountText == null) return;
+
+        var active:Bool = filterBaseSongs != null && filterAppliedQuery.length > 0;
+        searchCountText.visible = active;
+        if (!active) return;
+
+        searchCountText.text = '${songs.length} / ${filterBaseSongs.length}';
+        searchCountText.color = (songs.length == 0) ? FlxColor.fromRGB(220, 90, 90) : FlxColor.GRAY;
+    }
+
     function changeSelection(change:Int = 0, playSound:Bool = true)
     {
         if (songs.length == 0) return;
         
         var previousFolder:String = Mods.currentModDirectory;
 
-        difficultyRatingText.color = DiffRating.getColorFromRating(0);
-        
         curSelected = FlxMath.wrap(curSelected + change, 0, songs.length-1);
         var targetScroll:Float = curSelected * CARD_SPACING;
         var maxScroll = Math.max(0, (songs.length - 1) * CARD_SPACING);
@@ -3582,7 +4026,7 @@ class FreeplayState extends MusicBeatState
             var newMenuBgGraphic:Dynamic = getMenuDesatGraphicForFolder(songs[curSelected].folder);
             if (newMenuBgGraphic != null && newMenuBgGraphic != menuBg.graphic)
             {
-                changeBackgroundWithFade(newMenuBgGraphic);
+                changeBackground(newMenuBgGraphic);
             }
         }
         
@@ -3669,33 +4113,171 @@ class FreeplayState extends MusicBeatState
         // 卡片选中态由 updateCardsPosition -> FreeplayCard.updatePosition 自行判定，不需要逐个通知
     }
 
-    function changeBackgroundWithFade(newGraphic:Dynamic)
+    // ===================== 背景切换：渐变 / 马赛克 =====================
+
+    /** 渐变过渡时长（秒）。旧图淡出的同时新图直接落位，中间不闪黑。 */
+    static inline var BG_FADE_DURATION:Float = 0.35;
+    /**
+     * 渐变过渡里给「旧图快照层」挂的模糊半径，0 = 关掉（纯淡出）。
+     *
+     * 只算一次（FlxFilteredSprite 的 filterDirty 机制），不是逐帧重算 —— 逐帧改半径等于
+     * 每帧重跑一遍全屏高斯，720p 就要 6 个 pass，得不偿失。
+     * 半径越大，滤镜缓冲的 padding 越大（结果纹理约 (w+2r)×(h+2r)，另加两张 ping-pong）。
+     */
+    static inline var BG_FADE_BLUR:Float = 8;
+    /** 马赛克过渡糊到多大再换图（沿用原来的 48，观感就是靠这个值）。 */
+    static inline var BG_MOSAIC_STRENGTH:Float = 48;
+
+    /** 背景切换用马赛克而不是渐变。 */
+    inline static function useMosaicBackgroundTransition():Bool
     {
-        if (newGraphic == null || newGraphic == menuBg.graphic) return;
-        
-        if (bgEffectTween != null) bgEffectTween.cancel();
-        
-        if (menuBg.shader == null)
+        return ClientPrefs.data.freeplayBgTransition == 'mosaic';
+    }
+
+    /**
+     * 按当前模式决定主背景挂不挂 MosaicEffect。
+     * 渐变模式把 shader 摘掉：少一次全屏自定义着色，也避免「滤镜 + shader」这条
+     * 没验证过的组合出现在默认路径上（马赛克模式自己不会设 filters）。
+     */
+    private function applyBackgroundShaderMode():Void
+    {
+        if (menuBg == null || bgEffect == null) return;
+        if (useMosaicBackgroundTransition()) menuBg.shader = bgEffect.shader;
+        else menuBg.shader = null;
+    }
+
+    /**
+     * 背景切换的唯一入口，按 ClientPrefs.data.freeplayBgTransition 分流。
+     * 目前只有「切模组文件夹」会走到这里（同一文件夹内换歌只改 color 染色）。
+     */
+    function changeBackground(newGraphic:Dynamic):Void
+    {
+        if (menuBg == null || newGraphic == null || newGraphic == menuBg.graphic) return;
+
+        cancelBackgroundTransition();
+        applyBackgroundShaderMode();
+
+        if (useMosaicBackgroundTransition()) changeBackgroundMosaic(newGraphic);
+        else changeBackgroundFade(newGraphic);
+    }
+
+    /** 立刻收掉进行中的过渡：快照层丢弃、马赛克强度归位。 */
+    private function cancelBackgroundTransition():Void
+    {
+        pendingBgGraphic = null;
+        if (bgFadeTween != null)
         {
-            bgEffect = new MosaicEffect();
-            menuBg.shader = bgEffect.shader;
+            bgFadeTween.cancel();
+            bgFadeTween = null;
         }
-        
-        bgEffectTween = FlxTween.num(MosaicEffect.DEFAULT_STRENGTH, 48, 0.25, {type: ONESHOT, ease: FlxEase.quadIn}, function(v:Float)
+        destroyBackgroundSnapshot();
+
+        if (bgEffectTween != null)
+        {
+            bgEffectTween.cancel();
+            bgEffectTween = null;
+        }
+        if (bgEffect != null)
+            bgEffect.setStrength(MosaicEffect.DEFAULT_STRENGTH, MosaicEffect.DEFAULT_STRENGTH);
+    }
+
+    /** 摘掉并销毁旧图快照层（过渡结束 / 被下一次切换顶掉）。 */
+    private function destroyBackgroundSnapshot():Void
+    {
+        if (menuBgPrev == null) return;
+        var prev:FlxFilteredSprite = menuBgPrev;
+        menuBgPrev = null;
+        // 先从成员里摘出来：FlxGroup.destroy() 之后 members 会被置 null，那时就摘不掉了
+        if (members != null && members.indexOf(prev) >= 0)
+            remove(prev, true);
+        prev.destroy();
+    }
+
+    /**
+     * 渐变：旧图留一层快照压在 menuBg 上淡出，新图下一帧落位。
+     *
+     * 不走「淡到黑再淡回来」——那会闪一次黑；快照层只是多一个 sprite 引用同一张 FlxGraphic，
+     * 不复制像素。挂一次 BlurFilter 让旧图在淡出时失焦，比纯 alpha 更像镜头换焦。
+     */
+    function changeBackgroundFade(newGraphic:Dynamic):Void
+    {
+        var prevGraphic = menuBg.graphic;
+        if (prevGraphic == null)
+        {
+            // 还没有底图（缺 menuDesat）：没有可淡出的旧层，直接落位
+            menuBg.loadGraphic(newGraphic);
+            menuBg.screenCenter();
+            return;
+        }
+
+        var prev:FlxFilteredSprite = new FlxFilteredSprite();
+        prev.loadGraphic(prevGraphic);
+        prev.antialiasing = menuBg.antialiasing;
+        prev.color = menuBg.color;
+        prev.scrollFactor.copyFrom(menuBg.scrollFactor);
+        prev.alpha = 1;
+        // 位置先按未挂滤镜的真实尺寸定好：滤镜的绘制矩阵是另算的，width/height 读的仍是原图
+        prev.screenCenter();
+
+        if (BG_FADE_BLUR > 0)
+            prev.filters = [new BlurFilter(BG_FADE_BLUR, BG_FADE_BLUR, BitmapFilterQuality.LOW)];
+
+        // 插到 menuBg 正上方。add() 是追加到末尾，会盖住卡片和右上信息栏
+        var bgIndex:Int = (members != null) ? members.indexOf(menuBg) : -1;
+        if (bgIndex < 0) add(prev);
+        else insert(bgIndex + 1, prev);
+
+        menuBgPrev = prev;
+        // 新图留到下一帧再解码：那一帧旧图快照已经 alpha=1 铺满屏，解码卡顿被完全盖住
+        pendingBgGraphic = newGraphic;
+    }
+
+    /** 消费上一帧埋下的换图请求：解码完成后才开始淡出（顺序反了就等于没遮住卡顿）。 */
+    private function applyPendingBackground():Void
+    {
+        if (pendingBgGraphic == null) return;
+        var graphic:Dynamic = pendingBgGraphic;
+        pendingBgGraphic = null;
+        if (menuBg == null || graphic == menuBg.graphic)
+        {
+            // 没换成：快照层不能留在场上（alpha 还是 1，会把背景永久冻住）
+            destroyBackgroundSnapshot();
+            return;
+        }
+
+        menuBg.loadGraphic(graphic);
+        menuBg.screenCenter();
+
+        if (menuBgPrev == null) return;
+        bgFadeTween = FlxTween.tween(menuBgPrev, {alpha: 0}, BG_FADE_DURATION, {
+            ease: FlxEase.quadOut,
+            onComplete: function(_) {
+                bgFadeTween = null;
+                destroyBackgroundSnapshot();
+            }
+        });
+    }
+
+    /** 马赛克：先糊到最大再换图，最后退回来（原有效果，逻辑没动）。 */
+    function changeBackgroundMosaic(newGraphic:Dynamic):Void
+    {
+        if (menuBg.shader == null && bgEffect != null) menuBg.shader = bgEffect.shader;
+
+        bgEffectTween = FlxTween.num(MosaicEffect.DEFAULT_STRENGTH, BG_MOSAIC_STRENGTH, 0.25, {type: ONESHOT, ease: FlxEase.quadIn}, function(v:Float)
         {
             bgEffect.setStrength(v, v);
         });
-        
+
         bgEffectTween.onComplete = function(twn:FlxTween)
         {
             menuBg.loadGraphic(newGraphic);
             menuBg.screenCenter();
-            
-            bgEffectTween = FlxTween.num(48, MosaicEffect.DEFAULT_STRENGTH, 0.35, {type: ONESHOT, ease: FlxEase.quadOut}, function(v:Float)
+
+            bgEffectTween = FlxTween.num(BG_MOSAIC_STRENGTH, MosaicEffect.DEFAULT_STRENGTH, 0.35, {type: ONESHOT, ease: FlxEase.quadOut}, function(v:Float)
             {
                 bgEffect.setStrength(v, v);
             });
-            
+
             bgEffectTween.onComplete = function(twn2:FlxTween)
             {
                 bgEffectTween = null;
@@ -3925,6 +4507,25 @@ class FreeplayState extends MusicBeatState
     }
 
     /**
+     * ModFolder 面板的「模组菜单」快捷入口。
+     * 选中歌与搜索词先做快照（和进 PlayState 同一套），ModsMenu 的 BACK
+     * 用 new FreeplayState() 回来时，restoreReturnSelection() 会按全量列表还原选中项。
+     */
+    public function openModsMenu():Void
+    {
+        if (leavingForModsMenu) return;
+        leavingForModsMenu = true;
+        inModFolderSelector = false;
+
+        releasePreviewAudio();
+
+        pendingReturnSongKey = (curSelected >= 0 && curSelected < songs.length) ? songKeyOf(songs[curSelected]) : null;
+        pendingReturnFilter = (searchBar != null) ? searchBar.getText() : filterRawQuery;
+
+        MusicBeatState.switchState(new ModsMenuState(null, true));
+    }
+
+    /**
      * 供 ModFolderSubstate 显示「该模组下有多少首歌」。folder 为空表示全部。
      */
     public function getSongCountForFolder(?folder:String = null):Int
@@ -3965,6 +4566,8 @@ class FreeplayState extends MusicBeatState
 
     public function onModFolderChanged()
     {
+        // 换来源就退出过滤视图，否则下面重设的 songs 会被旧基准整片盖回去。
+        resetSearchFilter();
         // 队列项持有旧歌曲元数据；筛选变化后必须丢弃，不能让旧任务继续占内存。
         clearPreloadQueue();
         // 换分类后进度条的前提（总数）也作废，连同提示一起清掉
@@ -4155,6 +4758,10 @@ class FreeplayState extends MusicBeatState
         }
         #end
 
+        // 焦点还挂在搜索框上就交还回去，否则下一个界面收不到键盘输入
+        if (searchBar != null && PsychUIInputText.focusOn == searchBar.input)
+            PsychUIInputText.focusOn = null;
+
         releasePreviewAudio();
         clearPreloadQueue();
         // 提示条挂在 FlxG.game 上，不随 state 自动消失，离开界面时主动收掉
@@ -4175,6 +4782,14 @@ class FreeplayState extends MusicBeatState
             bgEffectTween.cancel();
             bgEffectTween = null;
         }
+        if (bgFadeTween != null)
+        {
+            bgFadeTween.cancel();
+            bgFadeTween = null;
+        }
+        // 快照层是 state 成员，super.destroy() 会统一销毁，这里只断引用别留悬垂
+        menuBgPrev = null;
+        pendingBgGraphic = null;
         menuBgGraphicCache.clear();
         cards = [];
 

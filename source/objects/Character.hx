@@ -233,7 +233,7 @@ class Character extends FlxSprite
 
 		try
 		{
-			loadCharacterFile(Json.parse(Paths.assetText(path)));
+			loadCharacterFile(Json.parse(Paths.assetText(path)), path);
 		}
 		catch(e:Dynamic)
 		{
@@ -247,15 +247,14 @@ class Character extends FlxSprite
 		dance();
 	}
 
-	public function loadCharacterFile(json:Dynamic)
+	public function loadCharacterFile(json:Dynamic, ?characterJsonPath:String)
 	{
 		isAnimateAtlas = false;
 
 		#if flxanimate
-		nmvAtlasAnchorFix = false;
-		var animToFind:String = Paths.getPath('images/' + json.image + '/Animation.json', TEXT);
-		if (Paths.assetExists(animToFind))
-			isAnimateAtlas = true;
+		// 按资源根优先级判定图集 / sparrow：不能用 getPath 全链探测，
+		// 否则 mod 的同名 sparrow 角色会被 content / assets 里的同名图集目录顶掉
+		isAnimateAtlas = Paths.isAnimateAtlasImage(json.image, characterJsonPath);
 
 		// NMV 图集语义的总开关：NMV 语料角色默认开（语料 json 都不带 atlas_anchor，
 		// 10-28 实测即无条件开、位置正确；d097ee11 改成 json 显式开启等于全关，位置才全线跑飞）。

@@ -333,8 +333,8 @@ class MobileExtraControl extends MusicBeatSubstate
 
 		
 		// ===== 新增：鼠标悬浮支持 =====
-		var mouseX:Float = FlxG.mouse.screenX;
-		var mouseY:Float = FlxG.mouse.screenY;
+		var mouseX:Float = FlxG.mouse.viewX;
+		var mouseY:Float = FlxG.mouse.viewY;
 		var hoveredTitle:ChooseButton = null;
 		var hoveredKey:ChooseButton = null;
 

@@ -88,28 +88,38 @@ class TouchPad extends MobileInputManager implements IMobileControls
 		if (DPad != "NONE")
 		{
 			if (!MobileData.dpadModes.exists(DPad))
-				throw Language.getPhrase('touchpad_dpadmode_missing', 'The touchPad dpadMode "{1}" doesn\'t exist.', [DPad]);
-
-			for (buttonData in MobileData.dpadModes.get(DPad).buttons)
 			{
-				Reflect.setField(this, buttonData.button,
-					createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
-						Reflect.getProperty(this, buttonData.button).IDs));
-				add(Reflect.field(this, buttonData.button));
+				// 资产没复制全时 dpadModes 是空表，抛异常会让整个界面闪退；
+				// 降级成「没有方向键」，至少界面还能进。
+				trace('[TouchPad] dpadMode "$DPad" missing, skipped');
+			}
+			else
+			{
+				for (buttonData in MobileData.dpadModes.get(DPad).buttons)
+				{
+					Reflect.setField(this, buttonData.button,
+						createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
+							Reflect.getProperty(this, buttonData.button).IDs));
+					add(Reflect.field(this, buttonData.button));
+				}
 			}
 		}
 
 		if (Action != "NONE")
 		{
 			if (!MobileData.actionModes.exists(Action))
-				throw Language.getPhrase('touchpad_actionmode_missing', 'The touchPad actionMode "{1}" doesn\'t exist.', [DPad]);
-
-			for (buttonData in MobileData.actionModes.get(Action).buttons)
 			{
-				Reflect.setField(this, buttonData.button,
-					createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
-						Reflect.getProperty(this, buttonData.button).IDs));
-				add(Reflect.field(this, buttonData.button));
+				trace('[TouchPad] actionMode "$Action" missing, skipped');
+			}
+			else
+			{
+				for (buttonData in MobileData.actionModes.get(Action).buttons)
+				{
+					Reflect.setField(this, buttonData.button,
+						createButton(buttonData.x * scaleX, buttonData.y * scaleY, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
+							Reflect.getProperty(this, buttonData.button).IDs));
+					add(Reflect.field(this, buttonData.button));
+				}
 			}
 		}
 

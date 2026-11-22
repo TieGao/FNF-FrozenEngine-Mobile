@@ -1,6 +1,7 @@
 package states;
 
 import backend.WeekData;
+import backend.UITheme;
 import backend.Highscore;
 import backend.Song;
 import backend.MouseMove;
@@ -12,7 +13,7 @@ import objects.MenuItem;
 import objects.MenuCharacter;
 import objects.story.StoryActionButton;
 
-import options.psychoptions.GameplayChangersSubstate;
+import options.GameplayChangersSubstate;
 import substates.ResetScoreSubState;
 import substates.WeekReplaySubState;
 
@@ -57,6 +58,11 @@ class StoryMenuState extends MusicBeatState
 	var actionButtons:Array<StoryActionButton> = [];
 	/** 周锁定时要单独置灰的那块 */
 	var replayButton:StoryActionButton;
+
+	/** 周横幅底色：纯白贴图 + color 染色，强调色变了只改 color，不重建 */
+	var bgYellow:FlxSprite;
+	/** 已套用的主题版本号，和 UITheme.version 不一致时重刷强调色 */
+	var themeVersion:Int = -1;
 
 	var loadedWeeks:Array<WeekData> = [];
 
@@ -185,7 +191,8 @@ class StoryMenuState extends MusicBeatState
 		txtWeekTitle.alpha = 0.7;
 
 		var ui_tex = Paths.getSparrowAtlas('campaign_menu_UI_assets');
-		var bgYellow:FlxSprite = new FlxSprite(0, 56).makeGraphic(FlxG.width, 386, 0xFFF9CF51);
+		bgYellow = new FlxSprite(0, 56).makeGraphic(FlxG.width, 386, 0xFFFFFFFF);
+		bgYellow.color = UITheme.accent;
 		bgSprite = new FlxSprite(0, 56);
 
 		grpWeekText = new FlxTypedGroup<MenuItem>();
@@ -448,6 +455,15 @@ class StoryMenuState extends MusicBeatState
 	// ---------------------------------------------------------
 	override function update(elapsed:Float)
 	{
+		// 设置页是 push 上来的，回到本界面时强调色可能已经变了，靠版本号补刷
+		if (themeVersion != UITheme.version)
+		{
+			themeVersion = UITheme.version;
+			if (bgYellow != null) bgYellow.color = UITheme.accent;
+			for (b in actionButtons)
+				if (b != null) b.refreshVisual();
+		}
+
 		starsBG.x -= 0.05;
         starsFG.x -= 0.15;
 
@@ -862,9 +878,10 @@ class StoryMenuState extends MusicBeatState
 			// We can't use Dynamic Array .copy() because that crashes HTML5, here's a workaround.
 			var songArray:Array<String> = [];
 			var leWeek:Array<Dynamic> = loadedWeeks[curWeek].songs;
-			for (i in 0...leWeek.length) {
-				songArray.push(leWeek[i][0]);
-			}
+			if (leWeek != null)
+				for (i in 0...leWeek.length) {
+					songArray.push(leWeek[i][0]);
+				}
 
 			// Nevermind that's stupid lmao
 			try
@@ -1110,9 +1127,11 @@ class StoryMenuState extends MusicBeatState
 
 		var leWeek:WeekData = loadedWeeks[curWeek];
 		var stringThing:Array<String> = [];
-		for (i in 0...leWeek.songs.length) {
-			stringThing.push(leWeek.songs[i][0]);
-		}
+		// 周 json 缺 songs 时 WeekData 会兜成空数组，这里再挡一次：没有曲目的周不该让选周界面崩
+		if (leWeek.songs != null)
+			for (i in 0...leWeek.songs.length) {
+				stringThing.push(leWeek.songs[i][0]);
+			}
 
 		txtTracklist.text = '';
 		for (i in 0...stringThing.length)

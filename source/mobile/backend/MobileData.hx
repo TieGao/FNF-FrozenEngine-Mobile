@@ -164,14 +164,40 @@ class MobileData
 	{
 		folder = folder.contains(':') ? folder.split(':')[1] : folder;
 
-		#if MODS_ALLOWED if (FileSystem.exists(folder)) #end
-		for (file in Paths.readDirectory(folder))
+		var files:Array<String> = [];
+		#if MODS_ALLOWED
+		if (FileSystem.exists(folder)) files = Paths.readDirectory(folder);
+		#end
+
+		// 数据根还没复制好（首启复制失败 / 用户删了目录）时，退回 APK 内嵌清单：
+		// 否则 actionModes / dpadModes 是空表，触屏按钮会整组消失。
+		if (files.length < 1)
+		{
+			for (asset in Assets.list())
+			{
+				var normalized:String = asset.contains(':') ? asset.split(':')[1] : asset;
+				if (normalized.startsWith(folder + '/') && normalized.endsWith('.json'))
+					files.push(Path.withoutDirectory(normalized));
+			}
+		}
+
+		for (file in files)
 		{
 			var fileWithNoLib:String = file.contains(':') ? file.split(':')[1] : file;
 			if (Path.extension(fileWithNoLib) == 'json')
 			{
-				file = Path.join([folder, Path.withoutDirectory(file)]);
-				var str = #if MODS_ALLOWED File.getContent(file) #else Assets.getText(file) #end;
+				var diskPath:String = Path.join([folder, Path.withoutDirectory(file)]);
+				var str:String = null;
+				#if MODS_ALLOWED
+				if (FileSystem.exists(diskPath))
+					try str = File.getContent(diskPath) catch (e:Dynamic) {}
+				#end
+				if (str == null)
+				{
+					try str = Assets.getText(diskPath) catch (e:Dynamic) {}
+				}
+				if (str == null) continue;
+
 				var json:TouchButtonsData = cast Json.parse(str);
 				var mapKey:String = Path.withoutDirectory(Path.withoutExtension(fileWithNoLib));
 				map.set(mapKey, json);

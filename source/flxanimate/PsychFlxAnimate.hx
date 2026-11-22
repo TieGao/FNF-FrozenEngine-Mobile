@@ -20,6 +20,14 @@ class PsychFlxAnimate extends OriginalFlxAnimate
 {
 	public function loadAtlasEx(img:FlxGraphicAsset, pathOrStr:String = null, myJson:Dynamic = null)
 	{
+		// 图集贴图没拿到时宁可什么都不挂，也不能继续：
+		// 后面 fromSpriteMap/fromSparrow 会拿 null 图建帧，draw 时 curSymbol 空引用 = SIGSEGV。
+		if (img == null)
+		{
+			FlxG.log.error('loadAtlasEx: atlas image is null, skipped');
+			return;
+		}
+
 		var animJson:AnimAtlas = null;
 		if(myJson is String)
 		{

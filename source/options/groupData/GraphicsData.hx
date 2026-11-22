@@ -67,17 +67,30 @@ class GraphicsData
         };
         sub.add(wideOpt);
 
-        sub.add(new Option('GPU Caching', 'Use GPU for texture caching', 'cacheOnGPU', BOOL));
-        sub.add(new Option('Divide Draw And Update', 'Draw and Update in separate threads', 'devideDrawAndUpdate', BOOL));
+        sub.add(new Option('GPU Caching', 'Texture caching mode: disabled = RAM only; auto = drop the CPU copy after the first draw; full = upload and drop the CPU copy at load (least RAM, risky on low VRAM)', 'gpuCaching', STRING, ['disabled', 'auto', 'full']));
+        sub.add(new Option('Preload to VRAM', 'Upload textures to VRAM during preload. auto = only when the GPU has 10GB+ dedicated memory; on = always; off = never (upload on first use). Only matters when GPU Caching is set to full', 'preloadTextureToVRAM', STRING, ['auto', 'on', 'off']));
+        sub.add(new Option('Keep Song on Freeplay', 'Keep textures of the last played song loaded when returning to Freeplay, so replaying the same song skips decoding entirely. They are freed when you pick a different song or leave the menu. Costs RAM while you sit in the menu', 'keepSongAssetsOnFreeplay', BOOL));
+        // TPS/FPS 拆分已废弃：flixel 的 updateFramerate 依赖 fixedTimestep，本引擎关掉了（见 ClientPrefs.applyFrameTiming）。
+        // sub.add(new Option('Divide Draw And Update', 'Draw and Update in separate threads', 'devideDrawAndUpdate', BOOL));
 
         var fps = new Option('Framerate', 'Target framerate', 'framerate', INT);
         fps.minValue = 60; fps.maxValue = 480; fps.changeValue = 1; sub.add(fps);
 
-        var ups = new Option('Update Rate', 'Target update rate', 'updaterate', INT);
-        ups.minValue = 60; ups.maxValue = 480; ups.changeValue = 1; sub.add(ups);
+        // 拆分去掉后 Update Rate 不再有任何作用，选项一并注释。
+        // var ups = new Option('Update Rate', 'Target update rate', 'updaterate', INT);
+        // ups.minValue = 60; ups.maxValue = 480; ups.changeValue = 1; sub.add(ups);
 
         sub.add(new Option('Unlimited FPS', 'Remove framerate cap (also for update rate)', 'unlimitedFPS', BOOL));
         sub.add(new Option('FPS Rework', 'Make ur game more smooth', 'fpsRework', BOOL));
+
+        // 闲置节能（FPS 减速器）：无输入一段时间后压低帧率省电（backend.IdleFPSManager）
+        sub.add(new Option('Idle FPS Saver', 'Enter power-saving mode after no input, lowering the framerate to save energy', 'idleFPSReducer', BOOL));
+        var idleTime = new Option('Idle Delay', 'Seconds of inactivity before entering power-saving mode', 'idleFPSTime', INT);
+        idleTime.minValue = 10; idleTime.maxValue = 600; idleTime.changeValue = 5;
+        sub.add(idleTime);
+        var idleFps = new Option('Idle FPS', 'Framerate cap used in power-saving mode', 'idleFPSValue', INT);
+        idleFps.minValue = 5; idleFps.maxValue = 60; idleFps.changeValue = 1;
+        sub.add(idleFps);
 
         var sub2 = cat.section('FPSCounter', 'FPS Counter');
         sub2.add(new Option('FPS Counter', 'Show FPS counter', 'showFPS', BOOL));
@@ -193,7 +206,10 @@ class GraphicsData
     static function _applyIfChanged(force:Bool = false):Void
     {
         #if mobile
-        // 移动端编译目标：更改分辨率不执行任何 resize
+        // 移动端没有物理窗口可 resize（对应 Main.applyRenderResolution 的 mobile 分支直接 return），
+        // 宽屏开关要落地只能重算画布 + 重建 scaleMode —— 只换 scaleMode 会拿旧画布比例拉伸变形。
+        // 走 Main.refreshMobileCanvas() 保证和启动时（setupGame）同一套算法。
+        Main.refreshMobileCanvas();
         return;
         #else
         #if (cpp || hl)

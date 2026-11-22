@@ -19,7 +19,7 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var frozenEngineVersion:String = '0.6.10';
+	public static var frozenEngineVersion:String = '0.6.12';
 	public static var psychEngineVersion:String = '1.0.4'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
@@ -128,34 +128,48 @@ class MainMenuState extends MusicBeatState
 		menuItems = new FlxTypedGroup<FlxSprite>();
 		add(menuItems);
 
+		// 纵向异形屏适配：菜单坐标一律按 720 高画布书写；wideScreen 开启时 Main 以
+		// 21:9 基准宽反推画布高（iPad 4:3 = 1260），硬编码 Y 会让整块菜单悬在半空。
+		// 平移多出的高度，保持到底边的边距与 16:9 一致；720 基准下 extraH = 0，布局不变。
+		var extraH:Float = FlxG.height - 720;
+
 		for (num => option in optionShit)
 		{
-			var item:FlxSprite = createMenuItem(option, 0, (num * 140) + 90);
+			var item:FlxSprite = createMenuItem(option, 0, (num * 140) + 90 + extraH);
 			item.y += (4 - optionShit.length) * 70; // Offsets for when you have anything other than 4 items
 			item.screenCenter(X);
 		}
 
 		if (leftOption != null)
-			leftItem = createMenuItem(leftOption, 60, 490);
+			leftItem = createMenuItem(leftOption, 60, 490 + extraH);
 		if (rightOption != null)
 		{
-			rightItem = createMenuItem(rightOption, FlxG.width - 60, 490);
+			rightItem = createMenuItem(rightOption, FlxG.width - 60, 490 + extraH);
 			rightItem.x -= rightItem.width;
 		}
 
-		var frozenVer:FlxText = new FlxText(12, FlxG.height - 64, 0, "Frozen Engine Mobile v" + frozenEngineVersion, 12);
+		// 左下角版本行缩回边缘安全区：宽屏下刘海/圆角/Home 条会盖住贴边文字（16:9 恒 0 不动）
+		#if mobile
+		var cornerIns = mobile.backend.SafeArea.get();
+		var cornerX:Float = 12 + cornerIns.left;
+		var cornerBottom:Float = cornerIns.bottom;
+		#else
+		var cornerX:Float = 12;
+		var cornerBottom:Float = 0;
+		#end
+		var frozenVer:FlxText = new FlxText(cornerX, FlxG.height - 64 - cornerBottom, 0, "Frozen Engine Mobile v" + frozenEngineVersion, 12);
 		frozenVer.scrollFactor.set();
 		frozenVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		frozenVer.borderSize = 1;
 		frozenVer.antialiasing = ClientPrefs.data.antialiasing;
 		add(frozenVer);
-		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Psych Engine v" + psychEngineVersion, 12);
+		var psychVer:FlxText = new FlxText(cornerX, FlxG.height - 44 - cornerBottom, 0, "Psych Engine v" + psychEngineVersion, 12);
 		psychVer.scrollFactor.set();
 		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		psychVer.borderSize = 1;
 		psychVer.antialiasing = ClientPrefs.data.antialiasing;
 		add(psychVer);
-		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + "0.3.0", 12);
+		var fnfVer:FlxText = new FlxText(cornerX, FlxG.height - 24 - cornerBottom, 0, "Friday Night Funkin' v" + "0.3.0", 12);
 		fnfVer.scrollFactor.set();
 		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
 		fnfVer.borderSize = 1;
@@ -237,12 +251,6 @@ class MainMenuState extends MusicBeatState
 
 			if (controls.UI_DOWN_P)
 				changeItem(1);
-
-		    if (FlxG.keys.justPressed.F3 ||  touchPad.buttonF.justPressed )
-    		{
-				persistentUpdate = false;
-				//openSubState(new substates.StatsSubState());
-    		}
 
 			var allowMouse:Bool = allowMouse;
 			if (allowMouse && ((FlxG.mouse.deltaViewX != 0 && FlxG.mouse.deltaViewY != 0) || FlxG.mouse.justPressed)) //FlxG.mouse.deltaViewX/Y checks is more accurate than FlxG.mouse.justMoved

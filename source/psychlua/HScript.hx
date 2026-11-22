@@ -93,9 +93,9 @@ class HScript extends Iris
 		{
 			this.origin = filePath;
 			#if MODS_ALLOWED
-			var myFolder:Array<String> = filePath.split('/');
-			if(myFolder[0] + '/' == Paths.mods() && (Mods.currentModDirectory == myFolder[1] || Mods.getGlobalMods().contains(myFolder[1]))) //is inside mods folder
-				this.modFolder = myFolder[1];
+			var modName:String = Paths.getModFolder(filePath);
+			if(modName != null && (Mods.currentModDirectory == modName || Mods.getGlobalMods().contains(modName))) //is inside mods folder
+				this.modFolder = modName;
 			#end
 		}
 		var scriptThing:String = file;
@@ -212,7 +212,7 @@ class HScript extends Iris
 		#end
 		set('options.OptionsState', options.psychoptions.PsychOptionsState);
 		set('options.ModSettingsSubState', options.ModSettingsSubState);
-		set('options.GameplayChangersSubstate', options.psychoptions.GameplayChangersSubstate);
+		set('options.GameplayChangersSubstate', options.GameplayChangersSubstate);
 
 		// Functions & Variables
 		set('setVar', function(name:String, value:Dynamic) {

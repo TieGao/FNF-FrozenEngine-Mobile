@@ -49,6 +49,11 @@ FrozenEngine-mobile-content-PicoMix.zip
 FrozenEngine-mobile-content-Erect.zip
 FrozenEngine-mobile-content-Collab.zip
 FrozenEngine-mobile-content-BFMix.zip
+# 所有 APK 都是构建产物（单个 400MB+，GitHub 也会拒收），一律不入库
+*.apk
+docs/updates/0.6.10-announcement.md
+tools/convert_cne_chart.py
+.tmp_modtest/
 
 # 本地类型检查用（NMV 移植工作区同款约定）
 _nmvcheck*.hxml

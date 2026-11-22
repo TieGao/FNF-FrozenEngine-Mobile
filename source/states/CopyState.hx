@@ -128,9 +128,17 @@ class CopyState extends MusicBeatState
 					// 改非阻塞 toast；完整失败清单仍落盘 logs/
 					final folder:String = #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'logs/';
 					if (!FileSystem.exists(folder))
-						FileSystem.createDirectory(folder);
+						StorageUtil.mkDirs(folder);
 					final logFile:String = folder + Date.now().toString().replace(' ', '-').replace(':', "'") + '-CopyState' + '.txt';
-					File.saveContent(logFile, failedFilesStack.join('\n'));
+					// 已经走到「复制有失败」的收尾路径了，写日志再抛一次就是满屏错误页，比丢日志严重得多。
+					// 清单同时逐条 trace 到 logcat，日志落不了盘时仍能定位是哪些文件失败。
+					for (msg in failedFilesStack)
+						trace('[CopyState] $msg');
+					try
+					{
+						File.saveContent(logFile, failedFilesStack.join('\n'));
+					}
+					catch (e:Dynamic) trace('[CopyState] write $logFile failed: $e');
 					MessageBox.show('Failed To Copy ${failedFiles.length} File.',
 						'See ${Path.withoutDirectory(logFile)} in the logs folder.', MessageBoxType.MESSAGE, null, 8.0);
 				}
@@ -159,11 +167,21 @@ class CopyState extends MusicBeatState
 
 	public function copyAsset(file:String)
 	{
-		if (forceRecopy || !FileSystem.exists(file))
+		// 写入统一用数据根下的绝对路径。相对路径完全依赖进程 CWD：一旦 chdir 没落到数据根，
+		// 整批文件都会写到不可写的位置，表现就是「Failed To Copy 全部文件」且数据根是空的。
+		#if android
+		var target:String = StorageUtil.getStorageDirectory() + file;
+		#else
+		var target:String = file;
+		#end
+
+		if (forceRecopy || !FileSystem.exists(target))
 		{
-			var directory = Path.directory(file);
+			var directory = Path.directory(target);
+			// 资产是边遍历边建的，父目录不一定已经存在；createDirectory 不递归会抛，
+			// 而这里跑在 ThreadPool 线程上，异常没人接就是整个进程闪退。
 			if (!FileSystem.exists(directory))
-				FileSystem.createDirectory(directory);
+				StorageUtil.mkDirs(directory);
 			try
 			{
 				if (OpenFLAssets.exists(getFile(file)))
@@ -172,24 +190,17 @@ class CopyState extends MusicBeatState
 						createContentFromInternal(file);
 					else
 					{
-						var path:String = '';
-						#if android
-						if (file.startsWith('mods/'))
-							path = StorageUtil.getExternalStorageDirectory() + file;
-						else
-						#end
-							path = file;
 						// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主
-						if (FileSystem.exists(path))
-							try FileSystem.deleteFile(path) catch (e:Dynamic) {}
+						if (FileSystem.exists(target))
+							try FileSystem.deleteFile(target) catch (e:Dynamic) {}
 						#if ios
 						// iOS：包内资产在 bundle 是散文件，走 64KB 分块流式拷贝（内存恒定）。
 						// 旧的整块路径（getBytes/fromFile→saveBytes）逐文件分配整块内存（14MB 字体、
 						// 数 MB 视频逐个瞬态分配/释放），内存曲线剧烈锯齿。
-						if (!copyAssetStreaming(getFile(file), path))
-							File.saveBytes(path, getFileBytes(getFile(file)));
+						if (!copyAssetStreaming(getFile(file), target))
+							File.saveBytes(target, getFileBytes(getFile(file)));
 						#else
-						File.saveBytes(path, getFileBytes(getFile(file)));
+						File.saveBytes(target, getFileBytes(getFile(file)));
 						#end
 					}
 				}
@@ -260,10 +271,11 @@ class CopyState extends MusicBeatState
 	public function createContentFromInternal(file:String)
 	{
 		var fileName = Path.withoutDirectory(file);
-		var directory = Path.directory(file);
+		// 与 copyAsset 保持一致：目标目录从数据根算绝对路径，不依赖进程 CWD
 		#if android
-		if (fileName.startsWith('mods/'))
-			directory = StorageUtil.getExternalStorageDirectory() + directory;
+		var directory = Path.directory(StorageUtil.getStorageDirectory() + file);
+		#else
+		var directory = Path.directory(file);
 		#end
 		try
 		{
@@ -271,7 +283,7 @@ class CopyState extends MusicBeatState
 			if (fileData == null)
 				fileData = '';
 			if (!FileSystem.exists(directory))
-				FileSystem.createDirectory(directory);
+				StorageUtil.mkDirs(directory);
 			// 先删后写：同 copyAsset，保证重装后文件属主回到当前 uid
 			var target:String = Path.join([directory, fileName]);
 			if (FileSystem.exists(target))

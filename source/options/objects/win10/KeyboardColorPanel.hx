@@ -245,8 +245,8 @@ class KeyboardColorPanel extends FlxSpriteGroup
 
 			if (path != null)
 			{
-				try bmp = BitmapData.fromFile(path)
-				catch (e:Dynamic) {}
+				// 统一入口：Android 上相对路径直接给 BitmapData.fromFile 会静默返回 null
+				bmp = Paths.bitmapFromFile(path);
 
 				owned = (bmp != null);
 			}

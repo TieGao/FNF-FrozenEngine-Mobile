@@ -16,6 +16,9 @@ import states.TitleState;
 	public var controlsAlpha:Float = FlxG.onMobile ? 0.6 : 0;
 	public var screensaver:Bool = false;
 	public var wideScreen:Bool = false;
+	// 边缘安全区额外内缩（画布 px）：刘海/灵动岛/挖孔自动检测之外的补充量。
+	// 仅 wideScreen 下与自动检测叠加生效（16:9 画布够不到刘海，恒 0）；改后下一个界面生效。
+	public var edgeSafeOffset:Int = 0;
 	public var hitboxType:String = "Gradient";
 	public var popUpRating:Bool = true;
 	public var vsync:Bool = false;
@@ -41,11 +44,24 @@ import states.TitleState;
 	public var holdcoverAlpha:Float = 0.8;//FE
 	public var lowQuality:Bool = false;
 	public var shaders:Bool = true;
-	public var cacheOnGPU:Bool = #if !switch false #else true #end; // GPU Caching made by Raltyro
+	/**
+	 * GPU 贴图缓存（Raltyro 的 GPU Caching），三态：
+	 *   disabled = 只用内存，CPU 像素常驻；
+	 *   auto     = 加载时只把像素标记为不可读，首次绘制上传后由 openfl 丢 CPU 副本；
+	 *   full     = 加载时立刻上传成纹理并丢掉 CPU 副本（NovaFlare 式，最省内存，显存小的卡慎用）。
+	 */
+	public var gpuCaching:String = 'disabled';
+
+	public var preloadTextureToVRAM:String = 'auto';
+	public var keepSongAssetsOnFreeplay:Bool = true; //打完歌回到 Freeplay 时**不立刻**清理贴图缓存。
 	public var framerate:Int = 60;
-	public var updaterate:Int = 60;
+	public var updaterate:Int = 60; // 已废弃：TPS/FPS 拆分在本引擎无效（fixedTimestep = false），仅保留存档兼容
 	public var unlimitedFPS:Bool = false;
-	public var devideDrawAndUpdate:Bool = false;
+	public var devideDrawAndUpdate:Bool = false; // 已废弃：同上，选项已注释，字段留着读旧存档不报错
+	// 闲置节能（FPS 减速器）：无输入一段时间后压低帧率省电，逻辑见 backend.IdleFPSManager
+	public var idleFPSReducer:Bool = true;
+	public var idleFPSTime:Int = 60;   // 触发闲置的秒数（10~600）
+	public var idleFPSValue:Int = 15;  // 节能模式的帧率上限（5~60）
 	public var camZooms:Bool = true;
 	public var hideHud:Bool = false;
 	// 游戏内 HUD / Lua 文本是否跟随语言字体（默认否，见 backend.GameFont）
@@ -95,6 +111,15 @@ import states.TitleState;
 		[0xFFFF80B0, 0xFFFFF0F5, 0xFF4A0020], // 15 - 玫瑰
 	];
 
+	// 旧版（legacy）音符贴图的 HSV 着色参数，[轨道][hue(-180~180), saturation(-100~100), brightness(-100~100)]。
+	// 只有被判定为 legacy 的音符贴图才会用到（见 backend.NoteSkinStyle / shaders.NoteHSV）；
+	// 全 0 = 不改色，连 shader 都不挂。
+	public var arrowHSV:Array<Array<Int>> = [
+		[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+		[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+		[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+		[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]
+	];
 
 	public var ghostTapping:Bool = true;
 	// 对手模式专用：脚本 / 舞台回调名跟随 note 所属侧（打 dad 的 note 发 opponentNoteHit），
@@ -122,6 +147,13 @@ import states.TitleState;
 	public var healthText:Bool = true;
 	public var ImpStory:Bool = false;
 	public var freeplayspace:Bool = false;
+	/**
+	 * Freeplay 主背景（menuDesat）切模组文件夹时的过渡特效：
+	 *   'fade'   → 旧图快照压在新图之上淡出，快照层自带一次 BlurFilter 失焦（默认）
+	 *   'mosaic' → 先用 MosaicEffect 糊成马赛克再换图
+	 * 两个分支都在 FreeplayState.changeBackground() 里，改这个值即可互换。
+	 */
+	public var freeplayBgTransition:String = 'fade';
 	public var saveFreeplayCache:Bool = true;
 	/**
 	 * Freeplay 的谱面信息解析放到后台线程。
@@ -145,6 +177,13 @@ import states.TitleState;
 	public var optionstype:String = 'new';
 	public var colorMode:String = 'dark';
 	/**
+	 * UI 强调色：选中、开关、滑块、徽章、描边等交互态的主色。
+	 * 深浅色模式共用同一个值，不再按 colorMode 分两套。
+	 */
+	public var uiAccent:FlxColor = 0xFF4CC2FF;
+	/** 强调色的次要槽位：只用于悬停与轻量反馈 */
+	public var uiAccentHover:FlxColor = 0xFF67CBFF;
+	/**
 	 * 控件主题：决定设置界面里的"按键元素"用哪套风格。
 	 *   'auto'  → 跟随界面（Win10 界面用 Win10 控件，Win8 Charm 边栏用 Win8 控件）
 	 *   'win10' → 全部用 Win10 风格
@@ -156,6 +195,12 @@ import states.TitleState;
 	public var modInfoBox:Bool = true;
 	public var toolBar:Bool = true;
 	public var freeplaySearch:Bool = true;
+	/**
+	 * Freeplay 搜索的两种形态：
+	 *   false → 顶部搜索框只当入口，点开独立的 SearchSubState
+	 *   true  → 输入直接过滤 Freeplay 列表本身（不弹窗）
+	 */
+	public var freeplaySearchInline:Bool = true;
 	// Freeplay 右下角补充信息（音乐人 / 谱师 / 游玩次数）
 	public var freeplaySongMeta:Bool = true;
 	// Freeplay 右侧展示元素开关（默认全开）
@@ -171,9 +216,15 @@ import states.TitleState;
 	public var pauseDoubleEnterSkip:Bool = false;       // 关闭动画期间双击 accept 键瞬时关闭
 	public var pauseUnlockInputDuringAnim:Bool = false; // 开场动画期间也允许操作
 	public var legacyMouseWheelScroll:Bool = false; //是否启用旧版鼠标滚轮行为（滚轮滚动数值选项时改变数值，滚轮滚动选项列表时滚动列表）
-	public var forceSplashSkin:Bool = false;
-	public var forceNoteSkin:Bool = false;
-	public var forceRGBShader:Bool = false;
+	/**
+	 * 音符 / 溅射各自一套「体系」三态开关（注意两条互相独立）：
+	 *   auto   —— 引擎自己判：皮肤 json → 谱面声明 → 像素甄别，皮肤按"谱面 arrowSkin 优先"取；
+	 *   legacy —— 强制旧版：贴图沿用谱面指定的（旧谱通常自带），着色一律走 HSV；
+	 *   new    —— 强制新版：忽略谱面的 arrowSkin / splashSkin，改用玩家皮肤，着色一律走 RGB。
+	 * 取值见 backend.NoteSkinStyle 的 AUTO / LEGACY / RGB（存的是 'auto' / 'legacy' / 'new'）。
+	 */
+	public var noteSystem:String = 'auto';
+	public var splashSystem:String = 'auto';
 	public var customChartFolder:String = 'custom';
 	public var customChartModFolder:String = '';
 	public var customChartStage:String = 'audiostage';
@@ -253,6 +304,8 @@ import states.TitleState;
 	public var screenLog:Bool = false;
 	// 把 trace 同时写进 crash/latest.log
 	public var sessionLog:Bool = true;
+	// 保留多少份历史会话日志（crash/log_时间戳.log）；0 = 不留、50 = 不限制
+	public var sessionLogMax:Int = 30;
 	// 崩溃时用全屏蓝屏界面呈现（关 = 保持原生弹窗）
 	public var blueScreen:Bool = false;
 	// 蓝屏停留秒数，到点自动回标题界面（0 = 只等按键）
@@ -289,7 +342,7 @@ import states.TitleState;
 	public var hitErrorBarOffsetY:Int = 0;
 	public var noteSustainsOffset:Float = 0.0;
 	public var legacymp:Bool = true;
-	public var useSystemCursor:Bool = false;
+	public var useSystemCursor:Bool = #if mobile true #else false #end;
 	public var showEarlyLate:Bool = true;
 	public var showCombo:Bool = false;
 	public var forceNoteSkins:Bool = false;
@@ -299,6 +352,9 @@ import states.TitleState;
 	public var skipResultExitAnim:Bool = false;
 	// 游玩期间禁用 hxcpp 的 GC：只关掉分配器的主动回收，堆真不够时仍会回收，不会 OOM
 	public var disablePlayStateGC:Bool = false;
+
+	/** 每次场景切换都做一次 full GC（+堆整理）：把已经释放的贴图真正还给系统，代价是切换时可能有几十毫秒停顿。 */
+	public var frequentGC:Bool = false;
 
 	public var songText:Bool = true;
 	public var songInfoTextSize:Float = 1.0;
@@ -1035,6 +1091,8 @@ class ClientPrefs {
 
 	/**
 	 * 统一应用帧率 / lime 帧调度。loadPrefs() 与三套设置菜单的即时生效都走这里。
+	 * 传 idleFps（仅 backend.IdleFPSManager 调用）= 闲置节能档：强制 BALANCED + 关 vsync，
+	 * 帧率压到 idleFps（UNCAPPED 档无视 frameRate，必须临时切走）；无参调用即恢复常规档。
 	 *
 	 * unlimitedFPS 用 lime 8.4.0 官方的 FrameProfile.UNCAPPED：主循环忽略 window.frameRate，
 	 * 一帧结束立刻开下一帧（UncapMode.SOFT 保留常规事件处理）。必须同时关掉 vsync，
@@ -1044,69 +1102,62 @@ class ClientPrefs {
 	 * SDLApplication::ApplyMainLoopSettings() 把 <= 0 的帧率当成 effectiveFrameRate = 1.0
 	 * （约 1 FPS），flixel 6.2.1 那边还会算出 _stepMS / _maxAccumulation = Inf。
 	 */
-	public static function applyFrameTiming():Void
+	public static function applyFrameTiming(?idleFps:Int):Void
 	{
 		#if (!html5 && !switch)
 		if (FlxG.stage != null && FlxG.stage.application != null)
 		{
 			final app = FlxG.stage.application;
-			if (data.unlimitedFPS)
+			if (idleFps != null)
+			{
+				// 闲置节能档：UNCAPPED 完全无视 frameRate，必须临时切回 BALANCED；
+				// vsync 一并关掉，防止显示器刷新率把 idle 帧率顶回去。唤醒走无参路径还原。
+				app.configureFrameTiming(lime.app.FrameProfile.BALANCED,
+					{uncapMode: lime.app.UncapMode.OFF}, lime.app.VSyncMode.OFF);
+			}
+			else if (data.unlimitedFPS)
 			{
 				app.configureFrameTiming(lime.app.FrameProfile.UNCAPPED,
 					{uncapMode: lime.app.UncapMode.SOFT}, lime.app.VSyncMode.OFF);
 				return;
 			}
-
-			app.configureFrameTiming(lime.app.FrameProfile.BALANCED,
-				{uncapMode: lime.app.UncapMode.OFF},
-				data.vsync ? lime.app.VSyncMode.ON : lime.app.VSyncMode.OFF);
+			else
+			{
+				app.configureFrameTiming(lime.app.FrameProfile.BALANCED,
+					{uncapMode: lime.app.UncapMode.OFF},
+					data.vsync ? lime.app.VSyncMode.ON : lime.app.VSyncMode.OFF);
+			}
 		}
 		#end
 
 		// 无限制帧率时不动 FlxG.*Framerate：它们只决定 stage.frameRate 与固定步长，
 		// 而 UNCAPPED 由 lime 主循环直接放行，写这些值只会带来抖动。
-		if (data.unlimitedFPS) return;
+		if (idleFps == null && data.unlimitedFPS) return;
 
-		// 核心修改：正确区分设置 Update 和 Draw 帧率
-		if (data.fpsRework)
-		{
-			// 使用 fpsRework 模式，可以完全分离 TPS 和 FPS
-			FlxG.stage.window.frameRate = data.framerate;  // 绘制帧率（屏幕刷新）
-			
-			if (data.devideDrawAndUpdate)
-			{
-				// 完全分离模式：更新速率和绘制速率可以完全不同
-				var drawFps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				var updateTps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
-				
-				FlxG.drawFramerate = drawFps;
-				FlxG.updateFramerate = updateTps;
-			}
-			else
-			{
-				// 同步模式：更新速率跟随绘制速率（传统行为）
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				FlxG.drawFramerate = fps;
-				FlxG.updateFramerate = fps;
-			}
-		}
-		else
-		{
-			// 传统模式（不使用 fpsRework）
-			if (data.devideDrawAndUpdate)
-			{
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				var tps = Std.int(FlxMath.bound(data.updaterate, 30, 480));
-				FlxG.drawFramerate = fps;
-				FlxG.updateFramerate = tps;
-			}
-			else
-			{
-				var fps = Std.int(FlxMath.bound(data.framerate, 30, 480));
-				FlxG.updateFramerate = fps;
-				FlxG.drawFramerate = fps;
-			}
-		}
+		// TPS / FPS 拆分（devideDrawAndUpdate + updaterate）已注释掉，只留一档帧率。
+		//
+		// flixel 6.2.1 里 updateFramerate 并不是"更新线程"：它只写 FlxGame._stepMS / _stepSeconds
+		// （FlxG.hx:693-694），真正"一帧里多跑几次 update"是 FlxGame.onEnterFrame 的固定步长累加器
+		// （FlxGame.hx:494-514：累加器满一次 _stepMS 才 step()，帧末统一 draw() 一次），
+		// 而那条分支只在 FlxG.fixedTimestep == true 时才会走 —— 本引擎 Main.hx:245 设了
+		// fixedTimestep = false，每帧只 step() 一次，updateFramerate 不参与逻辑，拆分等于空转。
+		//
+		// 两个字段仍写同一个值，不能只写 draw：set_drawFramerate 在 draw > update 时会
+		// FlxG.log.warn（FlxG.hx:702-705），而 flixel 的 WARNING 样式 openConsole = true
+		// （LogFrontEnd.hx:29），调试版会直接把 flixel 控制台弹出来。
+		final fps = (idleFps != null)
+			? Std.int(FlxMath.bound(idleFps, 5, 60))
+			: Std.int(FlxMath.bound(data.framerate, 30, 480));
+		FlxG.updateFramerate = fps;
+		FlxG.drawFramerate = fps;
+	}
+
+	/** GPU Caching 取值归一化：老存档是 Bool，现在只认 disabled / auto / full。 */
+	public static function normalizeGpuCaching(?value:Dynamic):String
+	{
+		if (Std.isOfType(value, Bool)) return (cast value) ? 'auto' : 'disabled';
+		var s:String = (value == null) ? '' : Std.string(value).toLowerCase();
+		return (s == 'auto' || s == 'full') ? s : 'disabled';
 	}
 
 	public static function loadPrefs() {
@@ -1115,6 +1166,33 @@ class ClientPrefs {
 		for (key in Reflect.fields(data))
 			if (key != 'gameplaySettings' && Reflect.hasField(FlxG.save.data, key))
 				Reflect.setField(data, key, Reflect.field(FlxG.save.data, key));
+
+		// arrowHSV 是后加的键：老存档没有它（走默认值）。万一存的是短数组 / 空数组，
+		// 这里是唯一能补齐的地方 —— NoteHSV / 编辑器都会按下标 0~15 直接读，越界会炸。
+		var savedHSV:Array<Array<Int>> = data.arrowHSV;
+		if (savedHSV == null || savedHSV.length < 16)
+		{
+			var fixedHSV:Array<Array<Int>> = [];
+			for (i in 0...16)
+			{
+				var row:Array<Int> = (savedHSV != null && i < savedHSV.length) ? savedHSV[i] : null;
+				if (row != null && row.length >= 3) fixedHSV.push([row[0], row[1], row[2]]);
+				else fixedHSV.push([0, 0, 0]);
+			}
+			data.arrowHSV = fixedHSV;
+		}
+
+		// 三态体系开关只认 auto/legacy/new，老存档没这两个键（走默认 auto）、手改的 json 里
+		// 写错一个字母就会让整条判定链哑掉，这里统一收口。
+		data.noteSystem = NoteSkinStyle.normalizeMode(data.noteSystem);
+		data.splashSystem = NoteSkinStyle.normalizeMode(data.splashSystem);
+
+		// GPU Caching 从 Bool 换成三态字符串（disabled/auto/full）。老存档里还是 cacheOnGPU:Bool，
+		// 新键缺失时读老键做一次映射，别把老用户的选择重置掉。
+		var savedGpu:Dynamic = Reflect.hasField(FlxG.save.data, 'gpuCaching')
+			? Reflect.field(FlxG.save.data, 'gpuCaching')
+			: Reflect.field(FlxG.save.data, 'cacheOnGPU');
+		data.gpuCaching = normalizeGpuCaching(savedGpu);
 
 		if (!Reflect.hasField(FlxG.save.data, 'customChartTrackSplit')
 			&& Reflect.hasField(FlxG.save.data, 'customChart8KTo4K'))

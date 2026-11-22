@@ -15,7 +15,7 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 		boyfriend.setGraphicSize(Std.int(boyfriend.width * 0.75));
 		boyfriend.updateHitbox();
 		boyfriend.dance();
-		boyfriend.animation.finishCallback = function (name:String) boyfriend.dance();
+		boyfriend.animation.onFinish.add(function (name:String) boyfriend.dance());
 		boyfriend.visible = false;
 
 		//I'd suggest using "Low Quality" as an example for making your own option since it is the simplest here
@@ -39,13 +39,26 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 			BOOL);
 		addOption(option);
 
-		var option:Option = new Option('GPU Caching', //Name
-			"If checked, allows the GPU to be used for caching textures, decreasing RAM usage.\nDon't turn this on if you have a shitty Graphics Card.", //Description
-			'cacheOnGPU',
+		var option:Option = new Option('GPU Caching',
+			"Texture caching mode://ndisabled = RAM only\nauto = drop the CPU copy after the first draw\nfull = upload and drop the CPU copy at load (least RAM, risky on low VRAM)",
+			'gpuCaching',
+			STRING, ['disabled', 'auto', 'full']);
+		addOption(option);
+
+		var option:Option = new Option('Preload to VRAM',
+			"Upload textures to VRAM during preload. auto = only when the GPU has 10GB+ dedicated memory; on = always; off = never (upload on first use). Only matters when GPU Caching is set to full",
+			'preloadTextureToVRAM',
+			STRING, ['auto', 'on', 'off']);
+		addOption(option);
+
+		var option:Option = new Option('Keep Song on Freeplay',
+			"Keep textures of the last played song loaded when returning to Freeplay, so replaying the same song skips decoding entirely. They are freed when you pick a different song or leave the menu. Costs RAM while you sit in the menu",
+			'keepSongAssetsOnFreeplay',
 			BOOL);
 		addOption(option);
 
-		#if !html5 //Apparently other framerates isn't correctly supported on Browser? Probably it has some V-Sync shit enabled by default, idk
+
+		#if !html5
 		var option:Option = new Option('Framerate',
 			"Pretty self explanatory, isn't it?",
 			'framerate',

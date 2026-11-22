@@ -43,6 +43,12 @@ class OptionsState extends MusicBeatState
     var cardContainer:FlxSpriteGroup;
     /** 网格列数（buildCards 和键盘上下移动共用，别让两处各写一个 4） */
     var cardCols:Int = 4;
+    /**
+     * 点击保护：已经排了一次切页就不再响应。
+     * switchState 走的是 0.5s 淡出过渡，期间本 state 仍在 update（persistentUpdate），
+     * 卡片会继续吃鼠标事件 —— 连点 / 双击会重复排切换，淡出被反复重启，看起来就是"一直跳转"。
+     */
+    var navigating:Bool = false;
 
     // ---------- 键盘导航 ----------
     // 焦点区域。界面分两类：搜索框 / 卡片网格。
@@ -243,7 +249,7 @@ class OptionsState extends MusicBeatState
             new CategoryData(
                 'OuterUI',
                 ['Outer UI', 'Outer UI'],
-                ['Freeplay', 'Main Menu', 'Transition'],
+                ['Freeplay', 'Main Menu', 'Transition', 'Theme', 'Accent'],
                 '',
                 'menu'
             ),
@@ -564,8 +570,10 @@ class OptionsState extends MusicBeatState
     {
         var btnW = 220;
         var btnH = 44;
-        var btnX = 0;
-        var btnY = FlxG.height - btnH - 20;
+        // 左下角贴边钮缩回边缘安全区：宽屏下刘海/圆角/Home 条会盖住或压住它（16:9 恒 0 不动）
+        var cornerIns = mobile.backend.SafeArea.get();
+        var btnX = 0 + cornerIns.left;
+        var btnY = FlxG.height - btnH - 20 - cornerIns.bottom;
 
         backButton = new Win10BackButton(
             btnX, btnY, btnW, btnH,
@@ -583,8 +591,10 @@ class OptionsState extends MusicBeatState
     {
         var btnW = 220;
         var btnH = 44;
-        var btnX = FlxG.width - btnW - 20;
-        var btnY = FlxG.height - btnH - 20;
+        // 右下角贴边钮缩回边缘安全区（与返回钮同规则，16:9 恒 0 不动）
+        var cornerIns = mobile.backend.SafeArea.get();
+        var btnX = FlxG.width - btnW - 20 - cornerIns.right;
+        var btnY = FlxG.height - btnH - 20 - cornerIns.bottom;
 
         // 复用已有的 colorMode 字段，只把它当成一个"动作"来用
         themeOption = new Option('Theme', 'Switch between dark and light mode',
@@ -617,7 +627,8 @@ class OptionsState extends MusicBeatState
     // =========================================================
 	function onCardClick(data:CategoryData)
 	{
-		FlxG.sound.play(Paths.sound('confirmMenu'));
+		// 点击保护：淡出过渡期间卡片还在 update，连点会重复排切页
+		if (navigating) return;
 
 		var cat = getCategoryOptions(data.id);
 		if (cat == null)
@@ -625,6 +636,9 @@ class OptionsState extends MusicBeatState
 			trace('Category not wired yet: ' + data.id);
 			return;
 		}
+
+		navigating = true;
+		FlxG.sound.play(Paths.sound('confirmMenu'));
 
 		// 带着当前搜索词进入分类页，进去后直接就是过滤结果 + 各子分类命中数
 		MusicBeatState.switchState(new OptionsPageState([cat], cat, function() {}, searchQuery));

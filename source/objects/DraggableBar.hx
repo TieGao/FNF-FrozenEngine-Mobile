@@ -1,6 +1,7 @@
 package objects;
 
 import flixel.FlxG;
+import flixel.FlxObject;
 import flixel.FlxSprite;
 import flixel.util.FlxColor;
 import flixel.text.FlxText;
@@ -13,9 +14,16 @@ class DraggableBar extends Bar
     public var isDragging(default, null):Bool = false;
     public var draggable:Bool = true;
     public var jumpOnClick:Bool = true;   // 若为true，点击立即跳转并拖拽
-    
+
     public var valueText:FlxText = null;
-    
+
+    // 移动端触控区扩边：条本尊只有 ~18px 高，手指很难按中。
+    // 判定改用一块隐形探针（上下加厚 / 左右微扩），条本体与视觉完全不动；桌面两值恒 0，行为逐像素不变。
+    // 垂直 20px 的取值考虑：KE 菜单里探针顶正好贴在行列表裁剪下界，不会吃进选项行的命中区。
+    public var hitPadX:Float = #if mobile 8 #else 0 #end;
+    public var hitPadY:Float = #if mobile 20 #else 0 #end;
+    var hitProbe:FlxObject;
+
     var dragStartPercent:Float = 0;
     var dragStartMouseX:Float = 0;
     var dragStartMouseScreenX:Float = 0;
@@ -44,7 +52,16 @@ class DraggableBar extends Bar
             return;
         }
         
+        // 命中判定：mobile 用跟随条本体几何的加厚探针，桌面直接判条本尊
+        #if mobile
+        if (hitProbe == null) hitProbe = new FlxObject();
+        hitProbe.setPosition(bg.x - hitPadX, bg.y - hitPadY);
+        hitProbe.setSize(bg.width + hitPadX * 2, bg.height + hitPadY * 2);
+        hitProbe.scrollFactor.copyFrom(bg.scrollFactor);
+        var mouseOverBg = FlxG.mouse.overlaps(hitProbe, FlxG.camera);
+        #else
         var mouseOverBg = FlxG.mouse.overlaps(bg, FlxG.camera);
+        #end
         
         // --- 开始拖拽（按下时立即跳转） ---
         if (FlxG.mouse.justPressed && mouseOverBg && !isDragging)
@@ -136,6 +153,7 @@ class DraggableBar extends Bar
     override public function destroy():Void
     {
         if (valueText != null) valueText.destroy();
+        if (hitProbe != null) hitProbe.destroy();
         super.destroy();
     }
 }

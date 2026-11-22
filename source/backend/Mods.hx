@@ -244,7 +244,13 @@ class Mods
 			fileStr += values[0] + '|' + (values[1] ? '1' : '0');
 		}
 
-		File.saveContent(#if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'modsList.txt', fileStr);
+		// 写不进去（只读挂载 / 磁盘满 / 目录被同名文件占位）不能连累启动：
+		// 这条链在 Main.setupGame 里，抛出去就是闪退。内存里的列表照常可用。
+		try
+		{
+			File.saveContent(#if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'modsList.txt', fileStr);
+		}
+		catch (e:Dynamic) trace('[Mods] save modsList.txt failed: $e');
 		updatedOnState = true;
 		//trace('Saved modsList.txt');
 		#end

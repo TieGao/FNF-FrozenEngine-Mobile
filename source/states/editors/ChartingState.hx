@@ -24,6 +24,9 @@ import states.editors.content.VSlice;
 import states.editors.content.ChartConvertCore.ChartImportInfo;
 import states.editors.content.ChartImportDialog.ChartConvertOptions;
 import states.editors.content.OsuArchiveExtractor.ExtractResult;
+import states.editors.content.ChartAudioImportWizard;
+import states.editors.content.ChartAudioImportWizard.ChartAudioImportResult;
+import states.editors.content.NewChartDialog.NewChartRequest;
 import states.editors.content.Prompt;
 import states.editors.content.*;
 import states.editors.content.ChartMinimap.ChartMinimapPanel;
@@ -145,6 +148,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	var chartEditorSave:FlxSave;
 	var chartMinimap:ChartMinimap;
+	var notePreviewStrip:FlxSprite;
+	var notePreviewEnabled:Bool = true;
+	var overlappingNotes:Map<MetaNote, Bool> = new Map();
+	/** 拖拽缩略图前音频是否在播放：松手后只恢复本来就在播的情况 */
+	var minimapWasPlaying:Bool = false;
 	var mainBox:PsychUIBox;
 	var mainBoxPosition:FlxPoint = FlxPoint.get(920, 40);
 	var infoBox:PsychUIBox;
@@ -156,7 +164,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var prevGridBg:ChartingGridSprite;
 	var gridBg:ChartingGridSprite;
 	var nextGridBg:ChartingGridSprite;
-	var waveformSprite:FlxSprite;
+	var waveformSprite:FlxSprite; // 人声轨（左半，玩家）
+	var waveformSpriteOpp:FlxSprite; // 人声轨（右半，对手）
+	var waveformSpriteInst:FlxSprite; // 器乐轨（整条，垫在两条人声下面）
+	var audioGeneration:Int = 0;
+	var waveformCache:Map<String, Array<Array<Array<Float>>>> = new Map();
 	var scrollY:Float = 0;
 	
 	var zoomList:Array<Float> = [
@@ -223,8 +235,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var fullTipText:FlxText;
 	
 	var vortexEnabled:Bool = false;
-	var waveformEnabled:Bool = false;
-	var waveformTarget:WaveformTarget = INST;
+	// 三条波形各自独立开关（固定位置：Inst 整条 / Player 左半 / Opponent 右半）
+	var waveformInst:Bool = false;
+	var waveformPlayer:Bool = false;
+	var waveformOpponent:Bool = false;
+	// 人声颜色是否跟随角色小图标主色（Inst 不受影响）
+	var waveformFollowIcons:Bool = false;
 	var chartAudioCategory:String = null;
 
 	override function create()
@@ -251,6 +267,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		chartEditorSave = new FlxSave();
 		chartEditorSave.bind('chart_editor_data', CoolUtil.getSavePath());
+		EditorAudioState.load(chartEditorSave);
 
 		bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
 		bg.antialiasing = ClientPrefs.data.antialiasing;
@@ -260,6 +277,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		if(chartEditorSave.data.autoSave != null) autoSaveCap = chartEditorSave.data.autoSave;
 		if(chartEditorSave.data.backupLimit != null) backupLimit = chartEditorSave.data.backupLimit;
 		if(chartEditorSave.data.vortex != null) vortexEnabled = chartEditorSave.data.vortex;
+		loadWaveformPrefs();
 
 		if(chartEditorSave.data.customBgColor == null) chartEditorSave.data.customBgColor = '303030';
 		if(chartEditorSave.data.customGridColors == null || chartEditorSave.data.customGridColors.length < 2)
@@ -271,10 +289,22 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		createGrids();
 
-		waveformSprite = new FlxSprite(gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0), 0).makeGraphic(1, 1, 0x00FFFFFF);
+		// 顺序即绘制顺序：Inst 垫在最底，两条人声盖在上面
+		// 三条都用 unique 位图：波形是自绘 pixels，共享位图会被后画的那条覆盖，dispose 时还会误伤别人
+		waveformSpriteInst = new FlxSprite(gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0), 0).makeGraphic(1, 1, 0x00FFFFFF, true);
+		waveformSpriteInst.scrollFactor.x = 0;
+		waveformSpriteInst.visible = false;
+		add(waveformSpriteInst);
+
+		waveformSprite = new FlxSprite(gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0), 0).makeGraphic(1, 1, 0x00FFFFFF, true);
 		waveformSprite.scrollFactor.x = 0;
 		waveformSprite.visible = false;
 		add(waveformSprite);
+
+		waveformSpriteOpp = new FlxSprite(gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0), 0).makeGraphic(1, 1, 0x00FFFFFF, true);
+		waveformSpriteOpp.scrollFactor.x = 0;
+		waveformSpriteOpp.visible = false;
+		add(waveformSpriteOpp);
 
 		dummyArrow = new FlxSprite().makeGraphic(1, 1, FlxColor.WHITE);
 		dummyArrow.setGraphicSize(GRID_SIZE, GRID_SIZE);
@@ -387,6 +417,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		addEditTab();
 		addViewTab();
 		//
+		notePreviewStrip = new FlxSprite(0, 0).makeGraphic(1, 1, 0x00FFFFFF);
+		notePreviewStrip.scrollFactor.set();
+		notePreviewStrip.cameras = [camUI];
+		notePreviewStrip.visible = false;
+		add(notePreviewStrip);
 
 		// 谱面缩略图（密度条）：点击/拖拽跳转时间，齿轮开 Win8 设置面板。
 		// 设置跟着编辑器自己的 chart_editor_data 走
@@ -394,6 +429,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		chartMinimap.buildSections = buildMinimapSections;
 		chartMinimap.getPlayheadPos = function() return FlxG.sound.music != null ? FlxG.sound.music.time : 0;
 		chartMinimap.onSeek = seekToMinimapTime;
+		chartMinimap.onScrubStart = function()
+		{
+			minimapWasPlaying = FlxG.sound.music != null && FlxG.sound.music.playing;
+			if (minimapWasPlaying) setSongPlaying(false);
+		};
+		chartMinimap.onScrubEnd = function()
+		{
+			if (minimapWasPlaying) setSongPlaying(true);
+			minimapWasPlaying = false;
+		};
 		chartMinimap.openSettings = function() openSubState(new ChartMinimapPanel(chartMinimap, camUI));
 		chartMinimap.cameras = [camUI];
 		add(chartMinimap);
@@ -586,6 +631,158 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		loadChart(song);
 	}
 
+	/**
+	 * 新建谱面向导入口：收集存放类型 / 歌名 / BPM（mod 另选模组与 week.json），
+	 * 确认后由 createNewChart 落地目录、空谱与音频。
+	 */
+	function openNewChartWizard()
+	{
+		openSubState(new NewChartDialog(function(req:NewChartRequest)
+		{
+			createNewChart(req);
+		}));
+	}
+
+	/**
+	 * 递归建目录（createDirectory 不递归，父目录要先建好）。
+	 */
+	function mkdirChartRecursive(path:String):Void
+	{
+		#if sys
+		if (FileSystem.exists(path)) return;
+		var parent:String = path.substring(0, path.lastIndexOf('/'));
+		if (parent.length > 0 && !FileSystem.exists(parent)) mkdirChartRecursive(parent);
+		try { FileSystem.createDirectory(path); } catch (e:Dynamic) {}
+		#end
+	}
+
+	#if mobile
+	/**
+	 * DocumentPicker 给的是音频/JSON 的 App 内副本，不是模组原始 week.json。
+	 * 按文件名映射回所选模组里的真实 week，映射不到就返回空串，避免只改副本却以为写成功。
+	 */
+	function resolveMobileWeekPath(picked:String, mod:String):String
+	{
+		if (picked == null || picked.length < 1 || mod == null || mod.length < 1) return '';
+		var base:String = picked.substring(picked.lastIndexOf('/') + 1);
+		var roots:Array<String> = ['mods/$mod/weeks', 'mods/$mod/shared/weeks', 'mods/$mod'];
+		for (root in roots)
+		{
+			if (!FileSystem.exists(root) || !FileSystem.isDirectory(root)) continue;
+			for (f in FileSystem.readDirectory(root))
+			{
+				if (f == base) return '$root/$f';
+			}
+		}
+		return '';
+	}
+	#end
+
+	/**
+	 * 把新歌追加进 week.json 的 songs 元组（幂等：同名条目已存在则跳过）。
+	 */
+	function appendSongToWeek(weekPath:String, songName:String):Void
+	{
+		#if sys
+		try
+		{
+			if (weekPath == null || weekPath.length < 1 || !FileSystem.exists(weekPath)) return;
+			var week:Dynamic = Json.parse(File.getContent(weekPath));
+			if (week == null || week.songs == null) return;
+			for (entry in cast(week.songs, Array<Dynamic>))
+			{
+				if (entry != null && entry.length > 0 && Std.string(entry[0]) == songName) return;
+			}
+			var entry:Array<Dynamic> = [songName, 'dad', [146, 113, 253]];
+			week.songs.push(entry);
+			File.saveContent(weekPath, Json.stringify(week, null, '\t'));
+		}
+		catch (e:Dynamic)
+		{
+			showOutput('Warning: could not update week.json: $e', true);
+		}
+		#end
+	}
+
+	/**
+	 * 落地一张新谱面：建目录、写空谱、（mod）追加 week 条目、复制音频，最后载入编辑器。
+	 */
+	function createNewChart(req:NewChartRequest):Void
+	{
+		#if sys
+		try
+		{
+			var songPath:String = Paths.formatToSongPath(req.songName);
+			var isMod:Bool = (req.kind == 'mod');
+			var dir:String = isMod ? 'mods/${req.mod}/data/$songPath' : '${Paths.CHART_ROOT}/$songPath';
+			dir = StringTools.replace(dir, '\\', '/');
+			mkdirChartRecursive(dir);
+
+			var song:SwagSong = {
+				song: req.songName,
+				notes: [],
+				events: [],
+				bpm: req.bpm,
+				needsVoices: true,
+				speed: 1,
+				offset: 0,
+				player1: 'bf',
+				player2: 'dad',
+				gfVersion: 'gf',
+				stage: 'stage',
+				format: 'psych_v1'
+			};
+			var chartPath:String = '$dir/$songPath.json';
+			File.saveContent(chartPath, PsychJsonPrinter.print(song, ['sectionNotes', 'events']));
+
+			#if mobile
+			if (isMod)
+			{
+				if (req.weekPath != null && req.weekPath.length > 0)
+				{
+					var realWeek:String = resolveMobileWeekPath(req.weekPath, req.mod);
+					if (realWeek.length > 0) appendSongToWeek(realWeek, req.songName);
+					else showOutput('Warning: selected week.json is not inside mod "${req.mod}"; week entry not added.', true);
+				}
+			}
+			#else
+			if (isMod) appendSongToWeek(req.weekPath, req.songName);
+			#end
+
+			var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
+			wizard.importVocals = true;
+			wizard.overwrite = false;
+			wizard.start(dir, function(res:ChartAudioImportResult)
+			{
+				chartAudioCategory = null;
+				if (isMod)
+				{
+					Mods.currentModDirectory = req.mod;
+					Paths.currentChartCategory = null;
+					Paths.currentChartDirectory = dir;
+				}
+				else
+				{
+					Paths.currentChartCategory = Paths.CUSTOM_CHART_GROUP;
+					Paths.currentChartDirectory = dir;
+				}
+				Song.chartPath = chartPath;
+				loadChart(song);
+				reloadNotesDropdowns();
+				prepareReload();
+				showOutput('New chart "${req.songName}" created at $chartPath'
+					+ (res.anyImported ? '' : ' (audio skipped)'));
+			});
+		}
+		catch (e:Dynamic)
+		{
+			showOutput('Error creating chart: $e', true);
+		}
+		#else
+		showOutput('New chart creation requires a desktop build.', true);
+		#end
+	}
+
 	function prepareReload()
 	{
 		updateJsonData();
@@ -665,6 +862,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var lastBeatHit:Int = 0;
 	override function update(elapsed:Float)
 	{
+		#if mobile
+		// DocumentPicker 回调在 JNI 线程，统一在 GL 线程消费（含音频向导自带的私有 dialog）
+		FileDialogHandler.flushAll();
+		#end
 		if(!fileDialog.completed)
 		{
 			lastFocus = PsychUIInputText.focusOn;
@@ -1242,7 +1443,21 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var minX:Float = gridBg.x;
 		if(SHOW_EVENT_COLUMN && lockedEvents) minX += GRID_SIZE;
 
-		if (controls.mobileC)
+		// 网格输入：触摸与鼠标必须**共存** —— Win 平板 / Win on ARM64 一样有触摸屏，
+		// 按编译目标写死会把触摸废掉。判据用「本帧的输入到底来自哪里」：
+		//   移动端：沿用 controls.mobileC（= 移动控件不透明度 >= 0.1），手机行为一点不动；
+		//   桌面端：只看有没有真实触摸。有触摸走触摸分支，没触摸落回下面的鼠标分支。
+		// 为什么桌面端不能只判 controls.mobileC：它只表示「移动控件不透明度 > 0」，
+		// 桌面存档里也可能是 0.7（设置项，或导入了手机存档 —— 本机 funkin.sol 就是 0.7）。
+		// 那样鼠标点击会被触摸分支整个吞掉（FlxG.touches.list 为空 → for 循环一次不跑），
+		// 加不出 note、选中/删除全失效、按住拖 note 也停不下来。
+		var useTouchGrid:Bool;
+		#if mobile
+		useTouchGrid = controls.mobileC;
+		#else
+		useTouchGrid = hasActiveTouch();
+		#end
+		if (useTouchGrid)
 		{
 			for (touch in FlxG.touches.list)
 			{
@@ -1251,7 +1466,19 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		
 				if(isMovingNotes && touch.justReleased)
 					stopMovingNotes();
-		
+
+				// 点在虚拟按键上的触摸不参与谱面编辑（同 mainBox/infoBox 的点击屏蔽）：
+				// 否则按 ↑2/↓2 拉 sustain 时，触摸落在网格左侧空当，先走"点空白处取消选中"
+				// 把选中清掉，后面的 sustain 处理看到 selectedNotes 为空就永远加不上
+				var touchOnButton:Bool = false;
+				touchPad.forEachAlive(function(btn:TouchButton)
+				{
+					if(btn.visible && touch.overlaps(btn))
+						touchOnButton = true;
+				});
+				if(touchOnButton)
+					continue;
+
 				if(touch.x >= minX && touch.x < gridBg.x + gridBg.width)
 				{
 					var diffX:Float = touch.x - gridBg.x;
@@ -1706,8 +1933,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 			var vortexPlaying:Bool = (vortexEnabled && FlxG.sound.music != null && FlxG.sound.music.playing);
 			var canPlayHitSound:Bool = (FlxG.sound.music != null && FlxG.sound.music.playing && lastTime < Conductor.songPosition);
-			var hitSoundPlayer:Bool = (hitsoundPlayerStepper.value > 0);
-			var hitSoundOpp:Bool = (hitsoundOpponentStepper.value > 0);
+			var hitSoundPlayer:Bool = (EditorAudioState.effectiveVolume(EditorAudioState.CH_HIT_PLAYER) > 0);
+			var hitSoundOpp:Bool = (EditorAudioState.effectiveVolume(EditorAudioState.CH_HIT_OPPONENT) > 0);
 			for (note in curRenderedNotes)
 			{
 				if(note == null || note.isEvent) continue;
@@ -1719,12 +1946,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					{
 						if(hitSoundPlayer && note.mustPress)
 						{
-							FlxG.sound.play(Paths.sound(ClientPrefs.data.hitsound), hitsoundPlayerStepper.value);
+							FlxG.sound.play(Paths.sound(EditorAudioState.hitSound(true)), EditorAudioState.effectiveVolume(EditorAudioState.CH_HIT_PLAYER));
 							hitSoundPlayer = false;
 						}
 						else if(hitSoundOpp && !note.mustPress)
 						{
-							FlxG.sound.play(Paths.sound(ClientPrefs.data.hitsound), hitsoundOpponentStepper.value);
+							FlxG.sound.play(Paths.sound(EditorAudioState.hitSound(false)), EditorAudioState.effectiveVolume(EditorAudioState.CH_HIT_OPPONENT));
 							hitSoundOpp = false;
 						}
 					}
@@ -1743,8 +1970,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			forceDataUpdate = false;
 			
 			// moved from beatHit()
-			if(metronomeStepper.value > 0 && lastBeatHit != curBeat)
-				FlxG.sound.play(Paths.sound('Metronome_Tick'), metronomeStepper.value);
+			var metroVol:Float = EditorAudioState.effectiveVolume(EditorAudioState.CH_METRONOME);
+			if(metroVol > 0 && lastBeatHit != curBeat)
+				FlxG.sound.play(Paths.sound(EditorAudioState.metronomeSound(curBeat % 4 == 0)), metroVol);
 
 			lastBeatHit = curBeat;
 		}
@@ -1870,6 +2098,21 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			dataCopy[1] = eventGrp;
 		}
 		return dataCopy;
+	}
+
+	/**
+	 * 本帧是否有真实触摸活动（按下 / 按住 / 抬起任一根手指）。
+	 * 桌面端（含 Win 平板、Win on ARM64）只有真的摸到屏幕才为 true，
+	 * 纯鼠标机器上 `FlxG.touches.list` 恒空 → 恒 false，从而回落到鼠标分支。
+	 * 抬起帧也要算进来：`pressed` 在 release 那一帧已经是 false，
+	 * 只判 pressed 会让"拖着 note 松手"落到鼠标分支，`stopMovingNotes()` 就不触发了。
+	 */
+	function hasActiveTouch():Bool
+	{
+		for (touch in FlxG.touches.list)
+			if (touch.pressed || touch.justReleased) return true;
+
+		return false;
 	}
 
 	// 是否指在某个 UI 面板上（面板背景缩到最小化时只剩标签栏高度，所以直接用 bg 的实际矩形）
@@ -2039,6 +2282,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			value2InputText.text = '';
 		}
 		forceDataUpdate = true;
+		updateNotePreviewStrip();
 	}
 
 	function updateSelectedEventText()
@@ -2182,7 +2426,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		createGridIndicators();
 
 		timeLine.setGraphicSize(Std.int(gridBg.width), 4);
-		waveformSprite.x = gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0);
+		// 三条波形跟着网格走（对手轨的 x 由 updateWaveform 按半宽重算）
+		var waveX:Float = gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0);
+		waveformSpriteInst.x = waveformSprite.x = waveX;
+		waveformSpriteOpp.x = waveX + GRID_SIZE * GRID_COLUMNS_PER_PLAYER * GRID_PLAYERS / 2;
 		// 重置虚拟箭头位置
 		var startX:Float = gridBg.x;
 		if(SHOW_EVENT_COLUMN) startX += GRID_SIZE;
@@ -2226,7 +2473,13 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			insert(getFirstNull(), nextGridBg);
 			insert(getFirstNull(), gridBg);
 			// 确保在重建网格后，重要的覆盖层（波形、虚拟箭头、vortex 指示器、strumLine 和笔记组）位于网格之上
-			if(waveformSprite != null) { remove(waveformSprite, false); add(waveformSprite); }
+			for (wave in [waveformSpriteInst, waveformSprite, waveformSpriteOpp])
+			{
+				if(wave == null) continue;
+				// remove(x) + add(x) 会填回空槽、提不到顶，必须摘干净再追加
+				remove(wave, true);
+				insert(members.length, wave);
+			}
 			if(dummyArrow != null) { remove(dummyArrow, false); add(dummyArrow); }
 			if(vortexIndicator != null) { remove(vortexIndicator, false); add(vortexIndicator); }
 			if(strumLineNotes != null) { remove(strumLineNotes, false); add(strumLineNotes); }
@@ -2255,6 +2508,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	function loadChart(song:SwagSong)
 	{
 		PlayState.SONG = song;
+		Paths.currentChartInstPath = null;
 		updateColumnConfig(song);
 		StageData.loadDirectory(PlayState.SONG);
 		Conductor.bpm = PlayState.SONG.bpm;
@@ -2323,7 +2577,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			{
 				Assets.cache.clear(key);
 				Paths.currentTrackedSounds.remove(key);
-				Paths.localTrackedAssets.remove(key);
+				Paths.forgetAsset(key);
 			}
 		}
 
@@ -2373,6 +2627,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		updateAudioVolume();
 		setPitch();
 		_cacheSections();
+		audioGeneration++;
+		waveformCache.clear();
+		updateWaveform();
 	}
 
 	function onSongComplete()
@@ -2386,12 +2643,9 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	function updateAudioVolume()
 	{
-		FlxG.sound.music.volume = instVolumeStepper.value;
-		vocals.volume = playerVolumeStepper.value;
-		opponentVocals.volume = opponentVolumeStepper.value;
-		if(instMuteCheckBox.checked) FlxG.sound.music.volume = 0;
-		if(playerMuteCheckBox.checked) vocals.volume = 0;
-		if(opponentMuteCheckBox.checked) opponentVocals.volume = 0;
+		if(FlxG.sound.music != null) FlxG.sound.music.volume = EditorAudioState.effectiveVolume(EditorAudioState.CH_INST);
+		if(vocals != null) vocals.volume = EditorAudioState.effectiveVolume(EditorAudioState.CH_PLAYER);
+		if(opponentVocals != null) opponentVocals.volume = EditorAudioState.effectiveVolume(EditorAudioState.CH_OPPONENT);
 	}
 
 	var playbackRate:Float = 1;
@@ -2759,6 +3013,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				}
 			}
 		}
+		if(!onlyCurrent) updateNotePreviewStrip();
 	}
 
 	function getMinNoteTime(sec:Int)
@@ -2918,6 +3173,28 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	var playerMuteCheckBox:PsychUICheckBox;
 	var opponentVolumeStepper:PsychUINumericStepper;
 	var opponentMuteCheckBox:PsychUICheckBox;
+
+	function syncAudioStepper(stepper:PsychUINumericStepper, index:Int)
+	{
+		if(stepper.value != EditorAudioState.getVolume(index))
+			stepper.value = EditorAudioState.getVolume(index);
+	}
+
+	function audioStepperChanged(index:Int, stepper:PsychUINumericStepper)
+	{
+		EditorAudioState.setVolume(index, stepper.value);
+		EditorAudioState.save(chartEditorSave);
+		updateAudioVolume();
+	}
+
+	function audioMuteChanged(index:Int, checkbox:PsychUICheckBox, stepper:PsychUINumericStepper)
+	{
+		EditorAudioState.setMuted(index, checkbox.checked);
+		EditorAudioState.save(chartEditorSave);
+		syncAudioStepper(stepper, index);
+		updateAudioVolume();
+	}
+
 	function addChartingTab()
 	{
 		var tab_group = mainBox.getTab('Charting').menu;
@@ -2940,22 +3217,34 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		ignoreProgressCheckBox.checked = chartEditorSave.data.ignoreProgressWarns;
 
 		objY += 50;
-		hitsoundPlayerStepper = new PsychUINumericStepper(objX, objY, 0.2, 0, 0, 1, 1);
-		hitsoundOpponentStepper = new PsychUINumericStepper(objX + 100, objY, 0.2, 0, 0, 1, 1);
-		metronomeStepper = new PsychUINumericStepper(objX + 200, objY, 0.2, 0, 0, 1, 1);
+		hitsoundPlayerStepper = new PsychUINumericStepper(objX, objY, 0.1, 0.2, 0, 1, 1);
+		hitsoundOpponentStepper = new PsychUINumericStepper(objX + 100, objY, 0.1, 0.2, 0, 1, 1);
+		metronomeStepper = new PsychUINumericStepper(objX + 200, objY, 0.1, 0.2, 0, 1, 1);
+		syncAudioStepper(hitsoundPlayerStepper, EditorAudioState.CH_HIT_PLAYER);
+		syncAudioStepper(hitsoundOpponentStepper, EditorAudioState.CH_HIT_OPPONENT);
+		syncAudioStepper(metronomeStepper, EditorAudioState.CH_METRONOME);
+		hitsoundPlayerStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_HIT_PLAYER, hitsoundPlayerStepper);
+		hitsoundOpponentStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_HIT_OPPONENT, hitsoundOpponentStepper);
+		metronomeStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_METRONOME, metronomeStepper);
 
 		objY += 50;
 		instVolumeStepper = new PsychUINumericStepper(objX, objY, 0.1, 0.6, 0, 1, 1);
-		instVolumeStepper.onValueChange = updateAudioVolume;
 		playerVolumeStepper = new PsychUINumericStepper(objX + 100, objY, 0.1, 1, 0, 1, 1);
-		playerVolumeStepper.onValueChange = updateAudioVolume;
 		opponentVolumeStepper = new PsychUINumericStepper(objX + 200, objY, 0.1, 1, 0, 1, 1);
-		opponentVolumeStepper.onValueChange = updateAudioVolume;
+		syncAudioStepper(instVolumeStepper, EditorAudioState.CH_INST);
+		syncAudioStepper(playerVolumeStepper, EditorAudioState.CH_PLAYER);
+		syncAudioStepper(opponentVolumeStepper, EditorAudioState.CH_OPPONENT);
+		instVolumeStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_INST, instVolumeStepper);
+		playerVolumeStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_PLAYER, playerVolumeStepper);
+		opponentVolumeStepper.onValueChange = function() audioStepperChanged(EditorAudioState.CH_OPPONENT, opponentVolumeStepper);
 
 		objY += 25;
-		instMuteCheckBox = new PsychUICheckBox(objX, objY, 'Mute', 60, updateAudioVolume);
-		playerMuteCheckBox = new PsychUICheckBox(objX + 100, objY, 'Mute', 60, updateAudioVolume);
-		opponentMuteCheckBox = new PsychUICheckBox(objX + 200, objY, 'Mute', 60, updateAudioVolume);
+		instMuteCheckBox = new PsychUICheckBox(objX, objY, 'Mute', 60, function() audioMuteChanged(EditorAudioState.CH_INST, instMuteCheckBox, instVolumeStepper));
+		playerMuteCheckBox = new PsychUICheckBox(objX + 100, objY, 'Mute', 60, function() audioMuteChanged(EditorAudioState.CH_PLAYER, playerMuteCheckBox, playerVolumeStepper));
+		opponentMuteCheckBox = new PsychUICheckBox(objX + 200, objY, 'Mute', 60, function() audioMuteChanged(EditorAudioState.CH_OPPONENT, opponentMuteCheckBox, opponentVolumeStepper));
+		instMuteCheckBox.checked = EditorAudioState.isMuted(EditorAudioState.CH_INST);
+		playerMuteCheckBox.checked = EditorAudioState.isMuted(EditorAudioState.CH_PLAYER);
+		opponentMuteCheckBox.checked = EditorAudioState.isMuted(EditorAudioState.CH_OPPONENT);
 
 		tab_group.add(playbackSlider);
 		tab_group.add(mouseSnapCheckBox);
@@ -3922,25 +4211,12 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var btnY = 1;
 		var btnWid = Std.int(tab.width);
 
-		#if !mobile
-		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  New', function()
-		{
-			var func:Void->Void = function()
-			{
-				openNewChart();
-				reloadNotesDropdowns();
-				prepareReload();
-			}
-
-			if(!ignoreProgressCheckBox.checked) openSubState(new Prompt('Are you sure you want to start over?', func));
-			else func();
-		}, btnWid);
+		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  New', openNewChartWizard, btnWid);
 		btn.text.alignment = LEFT;
 		tab_group.add(btn);
 
 		btnY++;
 		btnY += 20;
-		#end
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Open Chart...', function()
 		{
 			if(!fileDialog.completed) return;
@@ -3959,15 +4235,39 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 						return;
 					}
 
+					var savedPath:String = fileDialog.path;
+					var chartDir:String = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+
 					var func:Void->Void = function()
 					{
-						loadChart(loadedChart);
-						Song.chartPath = fileDialog.path;
-						reloadNotesDropdowns();
-						prepareReload();
-						showOutput('Opened chart "${Song.chartPath}" successfully!');
+						// 所有格式统一走音频向导，只对缺 Inst 弹警告；不按谱面格式特化。
+						// 声明了音频行的谱面按声明定位；管理目录信任同目录音频，
+						// 外部散落目录一律要求手动导入（不认目录里的通用名残留文件）。
+						var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
+						wizard.importVocals = (loadedChart.needsVoices != false);
+						wizard.allowFolderScan = isManagedChartDirectory(filePath);
+						wizard.declaredAudioPath = getDeclaredAudio(filePath);
+						wizard.start(chartDir, function(res:ChartAudioImportResult)
+						{
+							var proceed:Void->Void = function()
+							{
+								// 登记目录必须早于 prepareReload()。
+								setChartDirectoryFromPath(filePath);
+								loadChart(loadedChart);
+								Paths.currentChartInstPath = res.instPath;
+								Song.chartPath = savedPath;
+								reloadNotesDropdowns();
+								prepareReload();
+
+								var audioMsg:String = res.anyImported
+									? 'audio imported (Inst:${res.instPath != null}, P1:${res.playerVocalPath != null}, P2:${res.opponentVocalPath != null})'
+									: (res.hasInst ? 'audio detected in chart folder' : 'no audio');
+								showOutput('Opened chart "${Song.chartPath}" successfully! ($audioMsg)');
+							};
+							loadChartOrWarnNoInst(loadedChart, res, proceed);
+						});
 					}
-					
+
 					if(!ignoreProgressCheckBox.checked) openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', func));
 					else func();
 				}
@@ -4975,12 +5275,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var btnY = 1;
 		var btnWid = Std.int(tab.width);
 
-		if(chartEditorSave.data.waveformEnabled != null)
-			waveformEnabled = chartEditorSave.data.waveformEnabled;
-		if(chartEditorSave.data.waveformTarget != null)
-			waveformTarget = chartEditorSave.data.waveformTarget;
-		if(chartEditorSave.data.waveformColor != null)
-			waveformSprite.color = CoolUtil.colorFromString(chartEditorSave.data.waveformColor);
+		if(chartEditorSave.data.notePreview != null)
+			notePreviewEnabled = chartEditorSave.data.notePreview;
 
 		showLastGridButton = new PsychUIButton(btnX, btnY, '', function()
 		{
@@ -5011,6 +5307,19 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		btnY++;
 		btnY += 20;
+		var notePreviewButton:PsychUIButton = null;
+		notePreviewButton = new PsychUIButton(btnX, btnY, notePreviewEnabled ? '  Note Preview ON' : '  Note Preview OFF', function()
+		{
+			notePreviewEnabled = !notePreviewEnabled;
+			chartEditorSave.data.notePreview = notePreviewEnabled;
+			notePreviewButton.text.text = notePreviewEnabled ? '  Note Preview ON' : '  Note Preview OFF';
+			updateNotePreviewStrip();
+		}, btnWid);
+		notePreviewButton.text.alignment = LEFT;
+		tab_group.add(notePreviewButton);
+
+		btnY++;
+		btnY += 20;
 		vortexEditorButton = new PsychUIButton(btnX, btnY, vortexEnabled ? '  Vortex Editor ON' : '  Vortex Editor OFF', function()
 		{
 			vortexEnabled = !vortexEnabled;
@@ -5033,7 +5342,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var btn:PsychUIButton = new PsychUIButton(btnX, btnY, '  Waveform...', function()
 		{
 			ClientPrefs.toggleVolumeKeys(false);
-			openSubState(new BasePrompt(320, 200, 'Waveform Settings',
+			openSubState(new BasePrompt(480, 300, 'Waveform Settings',
 				function(state:BasePrompt) {
 					upperBox.isMinimized = true;
 					upperBox.bg.visible = false;
@@ -5042,46 +5351,72 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					btn.cameras = state.cameras;
 					state.add(btn);
 
-					var check:PsychUICheckBox = new PsychUICheckBox(state.bg.x + 40, state.bg.y + 80, 'Enabled', 60);
-					check.onClick = function()
-					{
-						chartEditorSave.data.waveformEnabled = waveformEnabled = check.checked;
-						updateWaveform();
-					};
-					check.cameras = state.cameras;
-					check.checked = waveformEnabled;
-					state.add(check);
+					var labelX:Float = state.bg.x + 30;
+					var colorLabelX:Float = state.bg.x + 235;
+					var inputX:Float = state.bg.x + 330;
+					var rowY:Float = state.bg.y + 70;
 
-					var waveformC:String = '0000FF';
-					if(chartEditorSave.data.waveformColor != null)
-						waveformC = chartEditorSave.data.waveformColor;
-
-					var input:PsychUIInputText = new PsychUIInputText(check.x, check.y + 50, 60, waveformC, 10);
-					input.onChange = function(old:String, cur:String)
+					function addTrack(target:WaveformTarget, label:String, colorLabel:String, colorKey:String, row:Int):PsychUIInputText
 					{
-						chartEditorSave.data.waveformColor = cur;
-						waveformSprite.color = CoolUtil.colorFromString(cur);
+						var y:Float = rowY + row * 30;
+
+						var check:PsychUICheckBox = new PsychUICheckBox(labelX, y, label, 150);
+						check.checked = isWaveformTrackOn(target);
+						check.onClick = function()
+						{
+							setWaveformTrack(target, check.checked);
+							// 旧键同步成「任意一条开着」，方便旧存档/降级读
+							chartEditorSave.data.waveformEnabled = waveformInst || waveformPlayer || waveformOpponent;
+							updateWaveform();
+						};
+						check.cameras = state.cameras;
+						state.add(check);
+
+						var colorText:FlxText = new FlxText(colorLabelX, y + 3, 90, colorLabel, 12);
+						colorText.cameras = state.cameras;
+						state.add(colorText);
+
+						var savedColor:String = Reflect.field(chartEditorSave.data, colorKey);
+						if(savedColor == null) savedColor = '';
+
+						var input:PsychUIInputText = new PsychUIInputText(inputX, y, 60, savedColor, 10);
+						input.onChange = function(old:String, cur:String)
+						{
+							Reflect.setField(chartEditorSave.data, colorKey, cur);
+							// 只换颜色，不重绘像素（hex 是一格一格敲的）
+							applyWaveformColors();
+						};
+						input.maxLength = 6;
+						input.filterMode = ONLY_HEXADECIMAL;
+						input.cameras = state.cameras;
+						input.forceCase = UPPER_CASE;
+						state.add(input);
+						return input;
 					}
-					input.maxLength = 6;
-					input.filterMode = ONLY_HEXADECIMAL;
-					input.cameras = state.cameras;
-					input.forceCase = UPPER_CASE;
 
-					var options:Array<WaveformTarget> = [INST, PLAYER, OPPONENT];
-					var radioGrp:PsychUIRadioGroup = new PsychUIRadioGroup(check.x + 120, check.y, ['Instrumental', 'Main Vocals', 'Opponent Vocals']);
-					radioGrp.cameras = state.cameras;
-					radioGrp.onClick = function()
+					addTrack(INST, 'Inst', 'Inst Color:', 'waveformColorInst', 0);
+					var colPlayerInput:PsychUIInputText = addTrack(PLAYER, 'Player', 'Player Color:', 'waveformColorPlayer', 1);
+					var colOppInput:PsychUIInputText = addTrack(OPPONENT, 'Opponent', 'Opp Color:', 'waveformColorOpp', 2);
+
+					var followCheck:PsychUICheckBox = new PsychUICheckBox(labelX, rowY + 98, 'Vocal colors follow character icons', 420);
+					followCheck.onClick = function()
 					{
-						waveformTarget = chartEditorSave.data.waveformTarget = options[radioGrp.checked];
-						updateWaveform();
+						waveformFollowIcons = chartEditorSave.data.waveformFollowIcons = followCheck.checked;
+						applyWaveformColors();
+						// 跟随图标时两条人声的自定义色暂不生效，置灰提示
+						colPlayerInput.alpha = colOppInput.alpha = followCheck.checked ? 0.4 : 1;
 					};
-					radioGrp.checked = options.indexOf(waveformTarget);
-					state.add(radioGrp);
+					followCheck.cameras = state.cameras;
+					followCheck.checked = waveformFollowIcons;
+					state.add(followCheck);
 
-					var txt1:FlxText = new FlxText(input.x, input.y - 15, 80, 'Color (Hex):');
-					txt1.cameras = state.cameras;
-					state.add(txt1);
-					state.add(input);
+					if(waveformFollowIcons)
+						colPlayerInput.alpha = colOppInput.alpha = 0.4;
+
+					var hint:FlxText = new FlxText(labelX, rowY + 130, 420, 'Inst = full grid · Player = left half · Opponent = right half', 12);
+					hint.color = 0xFF9E9E9E;
+					hint.cameras = state.cameras;
+					state.add(hint);
 				}
 			));
 		}, btnWid);
@@ -5175,7 +5510,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			upperBox.isMinimized = true;
 			upperBox.bg.visible = false;
 
-			openSubState(new BasePrompt(500, 260, 'Chart Editor Theme',
+			openSubState(new BasePrompt(500, 380, 'Chart Editor Theme',
 				function(state:BasePrompt)
 				{
 					var btn:PsychUIButton = new PsychUIButton(state.bg.x + state.bg.width - 40, state.bg.y, 'X', state.close, 40);
@@ -5307,6 +5642,42 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 						changeTheme(CUSTOM);
 					}
 					state.add(input);
+
+					var audioTitle:FlxText = new FlxText(state.bg.x + 20, btnY + 75, 460, 'Audio Theme (applies to metronome + hitsounds):', 14);
+					audioTitle.cameras = state.cameras;
+					state.add(audioTitle);
+
+					var psychBtn:PsychUIButton = null;
+					var funkinBtn:PsychUIButton = null;
+					function refreshAudioThemeLabels()
+					{
+						psychBtn.text.text = EditorAudioState.isFunkin() ? '  Psych Engine' : '> Psych Engine';
+						funkinBtn.text.text = EditorAudioState.isFunkin() ? '> Funkin V-Slice' : '  Funkin V-Slice';
+					}
+
+					psychBtn = new PsychUIButton(0, btnY + 105, 'Psych Engine', function()
+					{
+						EditorAudioState.setTheme(PSYCH);
+						EditorAudioState.save(chartEditorSave);
+						refreshAudioThemeLabels();
+					}, 200);
+					psychBtn.screenCenter(X);
+					psychBtn.x -= 105;
+					psychBtn.cameras = state.cameras;
+					state.add(psychBtn);
+
+					funkinBtn = new PsychUIButton(0, btnY + 105, 'Funkin V-Slice', function()
+					{
+						EditorAudioState.setTheme(FUNKIN);
+						EditorAudioState.save(chartEditorSave);
+						refreshAudioThemeLabels();
+					}, 200);
+					funkinBtn.screenCenter(X);
+					funkinBtn.x += 105;
+					funkinBtn.cameras = state.cameras;
+					state.add(funkinBtn);
+
+					refreshAudioThemeLabels();
 				}
 			));
 		}, btnWid);
@@ -5594,7 +5965,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		setSongPlaying(false);
 		chartEditorSave.flush(); //just in case a random crash happens before loading
 
-		openSubState(new EditorPlayState(cast notes, [vocals, opponentVocals]));
+		var startMs:Float = FlxG.sound.music != null ? (FlxG.sound.music.time + Conductor.offset) : Conductor.songPosition;
+		openSubState(new EditorPlayState(cast notes, [vocals, opponentVocals], startMs));
 		upperBox.isMinimized = true;
 		upperBox.visible = mainBox.visible = infoBox.visible = false;
 	}
@@ -5642,6 +6014,55 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	}
 
 	/**
+	 * 引擎管理的谱面目录（content/CustomCharts、assets、mods）：音频与谱面同放，
+	 * 可以信任目录里的通用名音频，不必强制手动导入。
+	 * 判据是路径类别，与谱面格式、歌名无关。
+	 */
+	function isManagedChartDirectory(path:String):Bool
+	{
+		var p:String = (path == null ? '' : path).replace('\\', '/').toLowerCase();
+		var chartRoot:String = Paths.CHART_ROOT.toLowerCase();
+		if (p.startsWith(chartRoot + '/') || p.indexOf('/' + chartRoot + '/') >= 0) return true;
+		if (p.startsWith('assets/') || p.indexOf('/assets/') >= 0) return true;
+		if (p.startsWith('mods/') || p.indexOf('/mods/') >= 0) return true;
+		return false;
+	}
+
+	/**
+	 * 读谱面自己声明的音轨文件，返回绝对路径；谱面没有声明行或声明文件不存在时返回 null。
+	 * 目前实现的是 osu 的 AudioFilename 字段；这属于「格式自带音频声明」的通用判据，
+	 * 与谱面来源目录无关 —— 有声明行就按它定位，不按通用名猜。
+	 */
+	function getDeclaredAudio(chartPath:String):Null<String>
+	{
+		#if sys
+		var norm:String = (chartPath == null ? '' : chartPath).replace('\\', '/');
+		if (!norm.toLowerCase().endsWith('.osu') || !FileSystem.exists(norm)) return null;
+		try
+		{
+			for (line in File.getContent(norm).split('\n'))
+			{
+				var trimmed:String = StringTools.trim(line);
+				if (trimmed.toLowerCase().indexOf('audiofilename:') != 0) continue;
+				var value:String = StringTools.trim(trimmed.substr(trimmed.indexOf(':') + 1));
+				if (value.length < 1) return null;
+				value = value.replace('\\', '/');
+				var slash:Int = value.lastIndexOf('/');
+				if (slash >= 0) value = value.substr(slash + 1);
+				if (value.length < 1) return null;
+				var full:String = norm.substring(0, norm.lastIndexOf('/') + 1) + value;
+				return FileSystem.exists(full) ? full : null;
+			}
+		}
+		catch (e:Dynamic)
+		{
+			trace('[osu] AudioFilename read failed: $e');
+		}
+		#end
+		return null;
+	}
+
+	/**
 	 * 把谱面文件所在目录登记为「当前谱面目录」。
 	 * 音轨 / 人声候选靠它定位（Paths.inst / voices 的 chartDir 分支），
 	 * 缺了它就只能按歌名猜路径 —— 自定义谱面的歌名往往不等于目录名（osu 用 Title）。
@@ -5652,6 +6073,113 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		var norm:String = filePath.replace('\\', '/');
 		var slash:Int = norm.lastIndexOf('/');
 		Paths.currentChartDirectory = (slash > 0) ? norm.substring(0, slash) : null;
+	}
+
+	/**
+	 * 缺 Inst 时谱面会在第一个 section 截断（Conductor 没有音轨不推进）。
+	 * 有 Inst 直接 proceed()；否则弹三按钮警告：手动选择音轨 / 导出谱面 JSON / 取消打开。
+	 * @param loadedChart 待载入的谱面（导出用）
+	 * @param res 音频向导结果，用 hasInst 判断
+	 * @param proceed 真正载入编辑器的闭包（setChartDirectoryFromPath → loadChart → prepareReload…）
+	 */
+	function loadChartOrWarnNoInst(loadedChart:SwagSong, res:ChartAudioImportResult, proceed:Void->Void)
+	{
+		if (res.hasInst)
+		{
+			proceed();
+			return;
+		}
+
+		openSubState(new BasePrompt(640, 210,
+			'No instrumental (Inst) was selected.\nWithout it the chart stops at the first section.\n\nSelect an audio file, export the chart as JSON, or cancel?',
+			function(state:BasePrompt)
+			{
+				var btnY:Float = state.bg.y + state.bg.height - 60;
+
+				// 手动选择音轨：不覆盖目录里已有的 inst.*，靠 currentChartInstPath 直接指向选中的文件
+				var selectBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Select Audio', function()
+				{
+					state.close();
+					if (!fileDialog.completed) return;
+					fileDialog.open(null, 'Select Instrumental (Inst)', [new FileFilter('Audio (ogg/mp3)', '*.ogg;*.mp3')],
+						function()
+						{
+							var src:String = fileDialog.path.replace('\\', '/');
+							if (src.length < 1) return;
+							var ext:String = src.toLowerCase().endsWith('.mp3') ? '.mp3' : '.ogg';
+							var dir:String = (res.targetDir != null && res.targetDir.length > 0)
+								? res.targetDir
+								: ((Paths.currentChartDirectory != null ? Paths.currentChartDirectory : '') + '/');
+							var dst:String = dir + (dir.endsWith('/') ? '' : '/') + 'selected-inst' + ext;
+							try
+							{
+								File.copy(src, dst);
+							}
+							catch (e:Dynamic)
+							{
+								showOutput('Error importing audio: $e', true);
+								return;
+							}
+							res.instPath = dst;
+							res.hasInst = true;
+							res.anyImported = true;
+							proceed();
+						},
+						function() showOutput('Open cancelled: no instrumental selected.'),
+						function() showOutput('Error reading audio file.', true)
+					);
+				});
+				selectBtn.normalStyle.bgColor = FlxColor.GREEN;
+				selectBtn.normalStyle.textColor = FlxColor.WHITE;
+				selectBtn.cameras = state.cameras;
+				selectBtn.screenCenter(X);
+				selectBtn.x -= 190;
+				state.add(selectBtn);
+
+				// 导出谱面 JSON
+				var exportBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Export Chart JSON', function()
+				{
+					state.close();
+					if (!fileDialog.completed) return;
+					var chartData:String = PsychJsonPrinter.print(loadedChart, ['sectionNotes', 'events']);
+					var chartName:String = Paths.formatToSongPath(loadedChart.song) + '.json';
+					#if mobile
+					// lime 的 save 对话框在移动端不存在；直接落到 App 数据根的 saves/
+					try
+					{
+						StorageUtil.saveContent(chartName, chartData, false);
+						showOutput('Chart exported to: saves/$chartName');
+					}
+					catch (e:Dynamic)
+					{
+						showOutput('Error exporting chart! $e', true);
+					}
+					#else
+					fileDialog.save(chartName, chartData,
+						function() showOutput('Chart exported to: ${fileDialog.path}'),
+						null,
+						function() showOutput('Error exporting chart!', true));
+					#end
+				});
+				exportBtn.normalStyle.bgColor = FlxColor.GREEN;
+				exportBtn.normalStyle.textColor = FlxColor.WHITE;
+				exportBtn.cameras = state.cameras;
+				exportBtn.screenCenter(X);
+				state.add(exportBtn);
+
+				// 取消打开
+				var cancelBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Cancel', function()
+				{
+					state.close();
+					showOutput('Open cancelled: no instrumental selected.');
+				});
+				cancelBtn.normalStyle.bgColor = FlxColor.RED;
+				cancelBtn.normalStyle.textColor = FlxColor.WHITE;
+				cancelBtn.cameras = state.cameras;
+				cancelBtn.screenCenter(X);
+				cancelBtn.x += 190;
+				state.add(cancelBtn);
+			}));
 	}
 
 	function loadChartFromAnyPath(path:String)
@@ -5894,10 +6422,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 		ClientPrefs.toggleVolumeKeys(false);
 		var dialog:ChartImportDialog = new ChartImportDialog(ChartImportDialog.MODE_IMPORT, info.keys, info.keys, info.diffs, info.formatLabel,
-			info.format, info.title);
+			info.format, info.title, info.midiParts);
 		dialog.onConfirm = function(opts:ChartConvertOptions)
 		{
-			performChartImport(filePath, opts.diff, opts.convertKeys ? opts.targetKeys : info.keys, opts.action, opts.extractAudio);
+			performChartImport(filePath, opts.diff, opts.convertKeys ? opts.targetKeys : info.keys, opts.action, opts.extractAudio,
+				opts.midiParts, opts.midiLaneMode, opts.funkinKeys);
 		};
 		dialog.onCancel = function()
 		{
@@ -5910,12 +6439,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	 * 统一谱面导入（.sm/.ssc/.osu/.osz/.qua/.qp/.mid/.mc → SwagSong）
 	 * ACTION_LOAD 直接载入编辑器；ACTION_SAVE 先存转换后的 Psych JSON 再询问是否载入
 	 * @param extractAudio 仅 .osz 有效：保存时把包内音频一起落到输出目录
+	 * @param midiPartIds 仅 MIDI：选中的声部 id（null = 优先级最高的那一条）
+	 * @param midiLaneMode 仅 MIDI：音高 → 轨道映射
+	 * @param funkinKeys true = 转成 FNF 4K+4K 双人布局（每侧 4 轨）
 	 */
-	function performChartImport(filePath:String, diff:String, targetKeys:Int, action:Int, extractAudio:Bool = false)
+	function performChartImport(filePath:String, diff:String, targetKeys:Int, action:Int, extractAudio:Bool = false,
+			?midiPartIds:Array<Int>, midiLaneMode:String = 'range', funkinKeys:Bool = false)
 	{
 		try
 		{
-			var loadedChart:SwagSong = ChartConverter.importChart(filePath, diff, targetKeys);
+			var loadedChart:SwagSong = ChartConverter.importChart(filePath, diff, targetKeys, midiPartIds, midiLaneMode, funkinKeys);
 			if(loadedChart == null || !Reflect.hasField(loadedChart, 'song'))
 			{
 				showOutput('Error: Unable to read chart file', true);
@@ -5933,7 +6466,89 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				#else
 				fileDialog.openDirectory('Save Converted Psych JSON', function()
 				{
-					saveConvertedPsychJSON(loadedChart, fileDialog.path, filePath, extractAudio, targetKeys);
+					var path:String = fileDialog.path.replace('\\', '/');
+					if(!path.endsWith('/')) path += '/';
+
+					var chartName:String = Paths.formatToSongPath(loadedChart.song);
+					if(chartName == null || chartName.length == 0) chartName = 'converted';
+					var savePath:String = path + chartName + '.json';
+					var saveData:String = PsychJsonPrinter.print(loadedChart, ['sectionNotes', 'events']);
+
+					overwriteCheck(savePath, chartName + '.json', saveData, function()
+					{
+						// .osz 里的音频一起落地，省得用户再去解包（失败不影响谱面本身）
+						var audioPath:String = extractAudio ? extractOszAudio(filePath, path) : null;
+						if(audioPath != null)
+							showOutput('Audio extracted to: $audioPath');
+
+						// 所有格式统一：谱面自带音频声明行就按声明定位，否则管理目录可扫同目录音频，
+						// 外部散落目录一律要求手动导入。缺 Inst 时由 loadChartOrWarnNoInst 弹警告。
+						var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
+						wizard.importVocals = (loadedChart.needsVoices != false);
+						wizard.allowFolderScan = isManagedChartDirectory(filePath);
+						// osz 的解包音频即包内 .osu 声明的音轨落地结果，和 .osu 的 AudioFilename 同等对待。
+						var declared:String = getDeclaredAudio(filePath);
+						wizard.declaredAudioPath = (declared == null) ? audioPath : declared;
+						wizard.start(path, function(res:ChartAudioImportResult)
+						{
+						openSubState(new BasePrompt(400, 150, 'Import Complete', function(state:BasePrompt)
+						{
+							var btnY:Float = state.bg.y + state.bg.height - 70;
+
+							var yesBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Yes, load to editor', function()
+							{
+								state.close();
+
+								var proceed:Void->Void = function()
+								{
+									GRID_COLUMNS_PER_PLAYER = funkinKeys ? 4 : targetKeys;
+									setChartDirectoryFromPath(savePath);
+									loadChart(loadedChart);
+									Paths.currentChartInstPath = res.instPath;
+									Song.chartPath = savePath;
+									reloadNotesDropdowns();
+									rebuildChartLayout();
+									prepareReload();
+									showOutput('Chart loaded from: ' + savePath
+										+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)')));
+								};
+
+								var afterWarn:Void->Void = function()
+								{
+									if (!ignoreProgressCheckBox.checked)
+										openSubState(new Prompt('Warning: Any unsaved progress\nwill be lost.', proceed));
+									else
+										proceed();
+								};
+								loadChartOrWarnNoInst(loadedChart, res, afterWarn);
+							});
+							yesBtn.normalStyle.bgColor = FlxColor.GREEN;
+							yesBtn.normalStyle.textColor = FlxColor.WHITE;
+							yesBtn.cameras = state.cameras;
+							yesBtn.screenCenter(X);
+							yesBtn.x -= 100;
+							state.add(yesBtn);
+
+							var noBtn:PsychUIButton = new PsychUIButton(0, btnY, 'No, just save', function()
+							{
+								state.close();
+								showOutput('Chart converted and saved successfully: ' + savePath
+									+ (res.anyImported ? ' (audio imported)' : ''));
+							});
+							noBtn.cameras = state.cameras;
+							noBtn.screenCenter(X);
+							noBtn.x += 100;
+							state.add(noBtn);
+
+							var infoTxt:FlxText = new FlxText(0, state.bg.y + 60, state.bg.width,
+								'Chart saved successfully!\nWould you like to load it into the editor?', 18);
+							infoTxt.setFormat(null, 18, FlxColor.WHITE, CENTER);
+							infoTxt.cameras = state.cameras;
+							state.add(infoTxt);
+						}
+						));
+						});
+					}, true);
 				});
 				#end
 			}
@@ -5941,14 +6556,31 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			{
 				var func:Void->Void = function()
 				{
-					GRID_COLUMNS_PER_PLAYER = targetKeys;
-					setChartDirectoryFromPath(filePath);
-					loadChart(loadedChart);
-					Song.chartPath = null;
-					reloadNotesDropdowns();
-					rebuildChartLayout();
-					prepareReload();
-					showOutput('${targetKeys}K chart loaded from: ' + filePath);
+					GRID_COLUMNS_PER_PLAYER = funkinKeys ? 4 : targetKeys;
+
+					// 所有格式统一走音频向导，只对缺 Inst 弹警告；不按谱面格式特化。
+					// 声明了音频行就按声明定位；管理目录信任同目录音频，外部目录一律手动导入。
+					var srcDir:String = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+					var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
+					wizard.importVocals = (loadedChart.needsVoices != false);
+					wizard.allowFolderScan = isManagedChartDirectory(filePath);
+					wizard.declaredAudioPath = getDeclaredAudio(filePath);
+					wizard.start(srcDir, function(res:ChartAudioImportResult)
+					{
+						var proceed:Void->Void = function()
+						{
+							setChartDirectoryFromPath(filePath);
+							loadChart(loadedChart);
+							Paths.currentChartInstPath = res.instPath;
+							Song.chartPath = null;
+							reloadNotesDropdowns();
+							rebuildChartLayout();
+							prepareReload();
+							showOutput('${targetKeys}K chart loaded from: ' + filePath
+								+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)')));
+						};
+						loadChartOrWarnNoInst(loadedChart, res, proceed);
+					});
 				};
 
 				if (!ignoreProgressCheckBox.checked)
@@ -6298,86 +6930,285 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 	}
 
-	// Ported from the old chart editor
-	var wavData:Array<Array<Array<Float>>> = [[[0], [0]], [[0], [0]]];
-	function updateWaveform() {
-		#if (lime_cffi && !macro)
-		if(curSec < 0 || curSec >= cachedSectionTimes.length || !waveformEnabled)
+	// 检测重叠音符并按时间轴画成细条：选中=黄，重叠=暗红，其它=灰白
+	function updateNotePreviewStrip()
+	{
+		if(!notePreviewEnabled)
 		{
-			waveformSprite.visible = false;
+			notePreviewStrip.visible = false;
+			return;
+		}
+		if(notes == null || notes.length < 1)
+		{
+			notePreviewStrip.visible = false;
 			return;
 		}
 
-		waveformSprite.visible = true;
-		waveformSprite.y = gridBg.y;
-		var width:Int = Std.int(GRID_SIZE * GRID_COLUMNS_PER_PLAYER * GRID_PLAYERS);
-		var height:Int = Std.int(gridBg.height);
-		if(Std.int(waveformSprite.height) != height && waveformSprite.pixels != null)
+		var stripW:Int = FlxG.width - 40;
+		var stripH:Int = 8;
+		var stripX:Int = 20;
+		var stripY:Int = FlxG.height - 8;
+		if(Std.int(notePreviewStrip.width) != stripW || Std.int(notePreviewStrip.height) != stripH)
+			notePreviewStrip.makeGraphic(stripW, stripH, 0x00FFFFFF);
+		notePreviewStrip.setPosition(stripX, stripY);
+		notePreviewStrip.visible = true;
+		notePreviewStrip.pixels.fillRect(new Rectangle(0, 0, stripW, stripH), 0x00FFFFFF);
+
+		overlappingNotes.clear();
+		var lastTime:Float = cachedSectionTimes != null && cachedSectionTimes.length > 0 ? cachedSectionTimes[cachedSectionTimes.length - 1] : 0;
+		if(lastTime <= 0) return;
+
+		// 只按 lane(songData[1]) 分组，避开 MetaNote 的 4 键 colArray 假设
+		var lanes:Map<Int, Array<MetaNote>> = new Map();
+		for(note in notes)
 		{
-			waveformSprite.pixels.dispose();
-			waveformSprite.pixels.disposeImage();
-			waveformSprite.makeGraphic(width, height, 0x00FFFFFF);
+			if(note == null || note.isEvent) continue;
+			var lane:Int = note.songData[1];
+			if(!lanes.exists(lane)) lanes.set(lane, []);
+			lanes.get(lane).push(note);
 		}
-		waveformSprite.pixels.fillRect(new Rectangle(0, 0, width, height), 0x00FFFFFF);
+		for(laneNotes in lanes)
+		{
+			laneNotes.sort(PlayState.sortByTime);
+			for(i in 0...laneNotes.length)
+			{
+				var a:MetaNote = laneNotes[i];
+				var aEnd:Float = a.strumTime + a.sustainLength;
+				for(j in i + 1...laneNotes.length)
+				{
+					var b:MetaNote = laneNotes[j];
+					if(b.strumTime > aEnd + 2) break;
+					var sameInstant:Bool = Math.abs(b.strumTime - a.strumTime) <= 2;
+					var holdOverlap:Bool = a.sustainLength > 0 && b.strumTime <= aEnd;
+					if(sameInstant || holdOverlap)
+					{
+						overlappingNotes.set(a, true);
+						overlappingNotes.set(b, true);
+					}
+				}
+			}
+		}
 
-		wavData[0][0].resize(0);
-		wavData[0][1].resize(0);
-		wavData[1][0].resize(0);
-		wavData[1][1].resize(0);
+		for(note in notes)
+		{
+			if(note == null || note.isEvent) continue;
+			var x:Int = Std.int(FlxMath.bound(note.strumTime / lastTime, 0, 1) * (stripW - 1));
+			var c:Int = 0xFF9E9E9E;
+			if(overlappingNotes.exists(note)) c = 0xFF8B0000;
+			if(selectedNotes.contains(note)) c = 0xFFFFFF00;
+			notePreviewStrip.pixels.fillRect(new Rectangle(x, 0, 1, stripH), c);
+		}
+	}
 
-		var sound:FlxSound = switch(waveformTarget)
+	/** 读回三条波形的开关/颜色。旧存档只有一个总开关 + 目标单选，这里迁移成对应的一条。 */
+	function loadWaveformPrefs():Void
+	{
+		var legacyColor:String = chartEditorSave.data.waveformColor;
+		if(legacyColor == null || legacyColor.length < 6) legacyColor = '0000FF';
+
+		if(chartEditorSave.data.waveformColorInst == null) chartEditorSave.data.waveformColorInst = legacyColor;
+		if(chartEditorSave.data.waveformColorPlayer == null) chartEditorSave.data.waveformColorPlayer = legacyColor;
+		if(chartEditorSave.data.waveformColorOpp == null) chartEditorSave.data.waveformColorOpp = '8B0000';
+
+		if(chartEditorSave.data.waveformFollowIcons != null)
+			waveformFollowIcons = chartEditorSave.data.waveformFollowIcons;
+
+		var hasNewFlags:Bool = chartEditorSave.data.waveformShowInst != null
+			|| chartEditorSave.data.waveformShowPlayer != null
+			|| chartEditorSave.data.waveformShowOpp != null;
+		if(hasNewFlags)
+		{
+			waveformInst = chartEditorSave.data.waveformShowInst == true;
+			waveformPlayer = chartEditorSave.data.waveformShowPlayer == true;
+			waveformOpponent = chartEditorSave.data.waveformShowOpp == true;
+		}
+		else if(chartEditorSave.data.waveformEnabled == true)
+		{
+			var legacyTarget:String = chartEditorSave.data.waveformTarget;
+			if(legacyTarget == 'voc') waveformPlayer = true;
+			else if(legacyTarget == 'opp') waveformOpponent = true;
+			else waveformInst = true;
+		}
+	}
+
+	function isWaveformTrackOn(t:WaveformTarget):Bool
+	{
+		return switch(t)
+		{
+			case INST: waveformInst;
+			case PLAYER: waveformPlayer;
+			case OPPONENT: waveformOpponent;
+		}
+	}
+
+	function setWaveformTrack(t:WaveformTarget, on:Bool):Void
+	{
+		switch(t)
 		{
 			case INST:
-				FlxG.sound.music;
+				waveformInst = on;
+				chartEditorSave.data.waveformShowInst = on;
 			case PLAYER:
-				vocals;
+				waveformPlayer = on;
+				chartEditorSave.data.waveformShowPlayer = on;
 			case OPPONENT:
-				opponentVocals;
-			default:
-				null;
+				waveformOpponent = on;
+				chartEditorSave.data.waveformShowOpp = on;
 		}
-		
+	}
+
+	/** Inst 只用自己的自定义色；人声在「跟随图标」时取角色头像主色，太贴近网格底色就调明度保色相。 */
+	function waveformColorFor(t:WaveformTarget):Int
+	{
+		var customKey:String = switch(t)
+		{
+			case INST: 'waveformColorInst';
+			case PLAYER: 'waveformColorPlayer';
+			case OPPONENT: 'waveformColorOpp';
+		};
+		var custom:String = Reflect.field(chartEditorSave.data, customKey);
+		if(custom == null || custom.length < 6) custom = (t == OPPONENT ? '8B0000' : '0000FF');
+		var customColor:FlxColor = CoolUtil.colorFromString(custom);
+
+		if(t == INST || !waveformFollowIcons || icons == null) return customColor;
+
+		var iconIndex:Int = (t == PLAYER ? 0 : 1);
+		if(icons.length <= iconIndex || icons[iconIndex] == null) return customColor;
+		return ensureWaveformContrast(icons[iconIndex].getDominantColor());
+	}
+
+	function ensureWaveformContrast(color:Int):Int
+	{
+		var fg:FlxColor = FlxColor.fromInt(color);
+		var bg:FlxColor = (gridColors != null && gridColors.length > 0) ? gridColors[0] : 0xFFDFDFDF;
+		if(Math.abs(fg.brightness - bg.brightness) >= 0.22) return color;
+		return bg.brightness > 0.5 ? fg.getDarkened(0.35) : fg.getLightened(0.35);
+	}
+
+	/** 只换颜色，不重绘像素（颜色输入是逐字符敲的） */
+	function applyWaveformColors():Void
+	{
+		if(waveformSprite == null) return;
+		waveformSpriteInst.color = waveformColorFor(INST);
+		waveformSprite.color = waveformColorFor(PLAYER);
+		waveformSpriteOpp.color = waveformColorFor(OPPONENT);
+	}
+
+	function hideWaveforms():Void
+	{
+		if(waveformSprite == null) return;
+		waveformSprite.visible = waveformSpriteOpp.visible = waveformSpriteInst.visible = false;
+	}
+
+	function getSoundForTarget(t:WaveformTarget):FlxSound
+	{
+		return switch(t)
+		{
+			case INST: FlxG.sound.music;
+			case PLAYER: vocals;
+			case OPPONENT: opponentVocals;
+		}
+	}
+
+	function sampleWaveform(t:WaveformTarget):Array<Array<Array<Float>>>
+	{
+		if(curSec < 0 || curSec + 1 >= cachedSectionTimes.length) return [[[0], [0]], [[0], [0]]];
+		var key:String = t + '|' + curSec + '|' + audioGeneration;
+		var cached:Array<Array<Array<Float>>> = waveformCache.get(key);
+		if(cached != null) return cached;
+
+		var result:Array<Array<Array<Float>>> = [[[0], [0]], [[0], [0]]];
+		var sound:FlxSound = getSoundForTarget(t);
 		@:privateAccess
-		if (sound != null && sound._sound != null && sound._sound.__buffer != null)
+		if(sound != null && sound._sound != null && sound._sound.__buffer != null)
 		{
 			var bytes:Bytes = sound._sound.__buffer.data.toBytes();
-			wavData = waveformData(sound._sound.__buffer, bytes, cachedSectionTimes[curSec] - Conductor.offset, cachedSectionTimes[curSec+1] - Conductor.offset, 1, wavData, height);
+			var fresh:Array<Array<Array<Float>>> = [[[0], [0]], [[0], [0]]];
+			result = waveformData(sound._sound.__buffer, bytes, cachedSectionTimes[curSec] - Conductor.offset, cachedSectionTimes[curSec+1] - Conductor.offset, 1, fresh, Std.int(gridBg.height));
 		}
+		waveformCache.set(key, result);
+		return result;
+	}
 
-		// 计算波形绘制区域的偏移量，使其居中
-		// 原始绘制宽度为 GRID_SIZE * 8（固定8列）
-		var originalDrawWidth:Float = GRID_SIZE * 8;
-		// 实际需要绘制的宽度
-		var actualWidth:Float = GRID_SIZE * GRID_COLUMNS_PER_PLAYER * GRID_PLAYERS;
-		// 偏移量 = (实际宽度 - 原始宽度) / 2
-		var offsetX:Float = (actualWidth - originalDrawWidth) / 2;
-		
-		// 如果键数 <= 4，偏移量为0或负数，限制最小为0
-		if (offsetX < 0) offsetX = 0;
+	// 波形像素直接画白色，染色交给 sprite.color（三条各自上色）
+	function drawWaveformInto(sprite:FlxSprite, data:Array<Array<Array<Float>>>, centerX:Float, width:Int, height:Int)
+	{
+		if(Std.int(sprite.width) != width || Std.int(sprite.height) != height)
+		{
+			if(sprite.pixels != null)
+			{
+				sprite.pixels.dispose();
+				sprite.pixels.disposeImage();
+			}
+			// unique 必须 true：makeGraphic 默认按「尺寸+颜色」共用 FlxGraphic，
+			// Player/Opponent 两条同宽同色会拿到同一张位图，后画的那条会覆盖掉前一条
+			sprite.makeGraphic(width, height, 0x00FFFFFF, true);
+		}
+		sprite.pixels.fillRect(new Rectangle(0, 0, width, height), 0x00FFFFFF);
 
 		var gSize:Int = Std.int(GRID_SIZE * 8);
-		var hSize:Int = Std.int(gSize / 2);
-		var size:Float = 1;
-
-		var leftLength:Int = (wavData[0][0].length > wavData[0][1].length ? wavData[0][0].length : wavData[0][1].length);
-		var rightLength:Int = (wavData[1][0].length > wavData[1][1].length ? wavData[1][0].length : wavData[1][1].length);
-		var length:Int = leftLength > rightLength ? leftLength : rightLength;
-
-		for (index in 0...length)
+		var hSize:Float = gSize / 2;
+		var lminArr:Array<Float> = data[0][0];
+		var lmaxArr:Array<Float> = data[0][1];
+		var rminArr:Array<Float> = data[1][0];
+		var rmaxArr:Array<Float> = data[1][1];
+		var length:Int = Std.int(Math.max(Math.max(lminArr.length, lmaxArr.length), Math.max(rminArr.length, rmaxArr.length)));
+		for(index in 0...length)
 		{
-			var lmin:Float = FlxMath.bound(((index < wavData[0][0].length && index >= 0) ? wavData[0][0][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-			var lmax:Float = FlxMath.bound(((index < wavData[0][1].length && index >= 0) ? wavData[0][1][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-			var rmin:Float = FlxMath.bound(((index < wavData[1][0].length && index >= 0) ? wavData[1][0][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-			var rmax:Float = FlxMath.bound(((index < wavData[1][1].length && index >= 0) ? wavData[1][1][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-
-			// 左声道偏移 + offsetX
-			var leftX:Float = offsetX + hSize - (lmin + rmin);
+			var lmin:Float = FlxMath.bound((index < lminArr.length ? lminArr[index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
+			var lmax:Float = FlxMath.bound((index < lmaxArr.length ? lmaxArr[index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
+			var rmin:Float = FlxMath.bound((index < rminArr.length ? rminArr[index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
+			var rmax:Float = FlxMath.bound((index < rmaxArr.length ? rmaxArr[index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
+			var leftX:Float = centerX - (lmin + rmin);
 			var leftW:Float = (lmin + rmin) + (lmax + rmax);
 			if(leftW > 0)
-				waveformSprite.pixels.fillRect(new Rectangle(leftX, index * size, leftW, size), FlxColor.WHITE);
+				sprite.pixels.fillRect(new Rectangle(leftX, index, leftW, 1), FlxColor.WHITE);
+		}
+	}
+
+	function updateWaveform()
+	{
+		#if (lime_cffi && !macro)
+		if(curSec < 0 || curSec + 1 >= cachedSectionTimes.length || !(waveformInst || waveformPlayer || waveformOpponent))
+		{
+			hideWaveforms();
+			return;
+		}
+
+		// 固定位置：Inst 整条居中垫底，Player 占左半（玩家列），Opponent 占右半（对手列）
+		var width:Int = Std.int(GRID_SIZE * GRID_COLUMNS_PER_PLAYER * GRID_PLAYERS);
+		var height:Int = Std.int(gridBg.height);
+		var halfW:Int = Std.int(width / 2);
+		var oppW:Int = width - halfW;
+		var baseX:Float = gridBg.x + (SHOW_EVENT_COLUMN ? GRID_SIZE : 0);
+
+		hideWaveforms();
+		waveformSpriteInst.x = waveformSprite.x = baseX;
+		waveformSpriteOpp.x = baseX + halfW;
+		waveformSpriteInst.y = waveformSprite.y = waveformSpriteOpp.y = gridBg.y;
+		// 有人声同屏时 Inst 退成背景；只剩 Inst 时保持原亮度，避免看着发灰
+		waveformSpriteInst.alpha = (waveformPlayer || waveformOpponent) ? 0.45 : 1;
+		waveformSprite.alpha = waveformSpriteOpp.alpha = 1;
+
+		applyWaveformColors();
+
+		if(waveformInst)
+		{
+			waveformSpriteInst.visible = true;
+			drawWaveformInto(waveformSpriteInst, sampleWaveform(INST), width / 2, width, height);
+		}
+		if(waveformPlayer)
+		{
+			waveformSprite.visible = true;
+			drawWaveformInto(waveformSprite, sampleWaveform(PLAYER), halfW / 2, halfW, height);
+		}
+		if(waveformOpponent)
+		{
+			waveformSpriteOpp.visible = true;
+			drawWaveformInto(waveformSpriteOpp, sampleWaveform(OPPONENT), oppW / 2, oppW, height);
 		}
 		#else
-		waveformSprite.visible = false;
+		hideWaveforms();
 		#end
 	}
 

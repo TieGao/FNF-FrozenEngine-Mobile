@@ -24,6 +24,13 @@ class OptionsPageState extends MusicBeatState
     static inline var ROW_GAP:Float     = 6;
     static inline var SEARCH_H:Float    = 36;
 
+    /** 左栏整体右移的安全区内缩量；底部贴边控件上抬量 */
+    var safeL:Float = 0;
+    var safeB:Float = 0;
+    /** 左栏平移后的左右边界；右侧内容一律从 navRight 开始排 */
+    var navX:Float = 0;
+    var navRight:Float = NAV_W;
+
     var ROW_W:Float = 0;
 
     // ---------- 数据 ----------
@@ -110,6 +117,22 @@ class OptionsPageState extends MusicBeatState
      */
     var searchEnterHandled:Bool = false;
 
+    // ===== 长按连滚（手感对齐 PE 设置菜单：按住 0.5s 起步，之后连续） =====
+    /** 列表上下连滚的按住时长；0.5s 后按 10 格/秒 */
+    var navHoldTime:Float = 0;
+    /** 数值行左右连滚的按住时长；0.5s 后按 option.scrollSpeed 连续 */
+    var valueHoldTime:Float = 0;
+    /** 连滚期间累积的浮点值（PE 的 holdValue） */
+    var valueHold:Float = 0;
+    /** 左右键是否正压在数值行上（决定松手时补不补一次写盘） */
+    var valueHeld:Bool = false;
+    /**
+     * 开局输入保护（秒）。进页面后的这一小段时间里不吃上下滚动 ——
+     * 否则上一页还按着的方向键会被当成"已经在长按"，一进来就直接刷列表。
+     */
+    var openGuard:Float = 0;
+    static inline var OPEN_GUARD:Float = 0.25;
+
     /**
      * 是否处于「键盘导航模式」——决定要不要画键盘焦点 / 选中视觉。
      *
@@ -131,6 +154,12 @@ class OptionsPageState extends MusicBeatState
 
     var scroll:Float = 0;
     var maxScroll:Float = 0;
+
+    /**
+     * 语言热重载要重建整页，但触发点在某个控件的 update() 里 —— 延后到下一帧
+     * （和 pageGateDirty 同一套路，见 refreshLanguage 的注释）。
+     */
+    var langDirty:Bool = false;
 
     var onClose:Void->Void = null;
     var langReloadCb:Void->Void = null;
@@ -161,6 +190,7 @@ class OptionsPageState extends MusicBeatState
         super.create();
         instance = this;
         FlxG.mouse.visible = true;
+        openGuard = OPEN_GUARD; // 开局 0.25s 内不响应上下滚动（见 listHoldStep）
 
         // ---------- 主题 ----------
         UITheme.ensure();
@@ -182,7 +212,15 @@ class OptionsPageState extends MusicBeatState
         downBG.visible = false;
         add(downBG);
 
-        ROW_W = FlxG.width - NAV_W - NAV_PAD;
+        // 安全区作用于整个左栏：搜索框、导航项、返回钮一起内移，分界线跟着右移，
+        // 左栏宽度不变；只缩返回钮会让它和同栏其它内容错开。
+        var edge = mobile.backend.SafeArea.get();
+        safeL = edge.left;
+        safeB = edge.bottom;
+        navX = safeL;
+        navRight = navX + NAV_W;
+
+        ROW_W = FlxG.width - navRight - NAV_PAD;
 
         // 用白色图形 + color 着色，切主题时只要改 color
         bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.WHITE);
@@ -190,26 +228,26 @@ class OptionsPageState extends MusicBeatState
         bg.scrollFactor.set();
         add(bg);
 
-        navBG = new Rect(0, HEADER_H, NAV_W, FlxG.height - HEADER_H,
+        navBG = new Rect(navX, HEADER_H, NAV_W, FlxG.height - HEADER_H - safeB,
                         0, 0, UITheme.sidebar, 1);
         navBG.scrollFactor.set();
         add(navBG);
 
-        navDivider = new Rect(NAV_W, HEADER_H, 1, FlxG.height - HEADER_H,
+        navDivider = new Rect(navRight, HEADER_H, 1, FlxG.height - HEADER_H - safeB,
                             0, 0, UITheme.divider, 1);
         navDivider.scrollFactor.set();
         add(navDivider);
 
-        headerLeft = new Rect(0, 0, NAV_W, HEADER_H, 0, 0, UITheme.sidebar, 1);
+        headerLeft = new Rect(navX, 0, NAV_W, HEADER_H, 0, 0, UITheme.sidebar, 1);
         headerLeft.scrollFactor.set();
         add(headerLeft);
 
-        headerRight = new Rect(NAV_W, 0, FlxG.width - NAV_W, HEADER_H,
+        headerRight = new Rect(navRight, 0, FlxG.width - navRight, HEADER_H,
                                 0, 0, UITheme.windowBG, 1);
         headerRight.scrollFactor.set();
         add(headerRight);
 
-        var leftX = NAV_W + NAV_PAD;
+        var leftX = navRight + NAV_PAD;
         var leftW = (FlxG.width - leftX - NAV_PAD) * 0.5;
 
         buildSearchBar();
@@ -220,8 +258,8 @@ class OptionsPageState extends MusicBeatState
         contentContainer = new FlxSpriteGroup();
         add(contentContainer);
 
-        var maskX = NAV_W;
-        var maskW = Std.int(FlxG.width - NAV_W);
+        var maskX = navRight;
+        var maskW = Std.int(FlxG.width - navRight);
 
         // 顶部遮罩：从 HEADER_H 往下 24px（可调）
         var topMaskH = 150;
@@ -251,7 +289,7 @@ class OptionsPageState extends MusicBeatState
         var kbPanelY:Float = HEADER_H + 40 + 104 + 16;
         var kbPanelH:Float = Math.min(420, FlxG.height - 24 - kbPanelY);
         var kbPanelX:Float = FlxMath.bound(FlxG.width * 0.72 - kbPanelW / 2,
-                                           NAV_W + 24, FlxG.width - kbPanelW - 16);
+                                           navRight + 24, FlxG.width - kbPanelW - 16);
 
         kbPanel = new KeyboardColorPanel(kbPanelX, kbPanelY, kbPanelW, kbPanelH);
         kbPanel.visible = false;
@@ -302,7 +340,7 @@ class OptionsPageState extends MusicBeatState
 
     function buildSearchBar()
     {
-        var searchX = NAV_PAD / 2;
+        var searchX = navX + NAV_PAD / 2;
         var searchY = HEADER_H + NAV_PAD;
         var searchW = NAV_W * 0.9;
 
@@ -344,8 +382,8 @@ class OptionsPageState extends MusicBeatState
             navScrollHolder, 'value',
             [0, 0],
             [
-                [0, NAV_W + 1],
-                [HEADER_H + NAV_PAD, FlxG.height]
+                [navX, navRight + 1],
+                [HEADER_H + NAV_PAD, FlxG.height - safeB]
             ],
             function()
             {
@@ -366,7 +404,7 @@ class OptionsPageState extends MusicBeatState
             scrollHolder, 'value',
             [0, 0],
             [
-                [NAV_W, FlxG.width + 1],
+                [navRight, FlxG.width + 1],
                 [HEADER_H, FlxG.height - 60]
             ],
             function()
@@ -389,8 +427,8 @@ class OptionsPageState extends MusicBeatState
     {
         var btnW = NAV_W - NAV_PAD * 2;
         var btnH = 44;
-        var btnX = NAV_PAD;
-        var btnY = FlxG.height - btnH - NAV_PAD;
+        var btnX = navX + NAV_PAD;
+        var btnY = FlxG.height - btnH - NAV_PAD - safeB;
 
         backButton = new Win10BackButton(
             btnX, btnY, btnW, btnH,
@@ -407,18 +445,24 @@ class OptionsPageState extends MusicBeatState
     function buildNav()
     {
         // 先把旧导航项上的 hover / 聚焦色 tween 掐掉（`remove()` 不 destroy 成员，
-        // 脱离了绘制树但 tween 还在跑，会一直往 bg 上写 color）
+        // 脱离了绘制树但 tween 还在跑，会一直往 bg 上写 color）；左侧强调条的
+        // scale / alpha tween 同理。
         for (item in navItems)
         {
             FlxTween.cancelTweensOf(item);
             if (item.bg != null) FlxTween.cancelTweensOf(item.bg);
+            if (item.accent != null)
+            {
+                FlxTween.cancelTweensOf(item.accent);
+                FlxTween.cancelTweensOf(item.accent.scale);
+            }
             navContainer.remove(item, true);
         }
         navItems = [];
         navScroll = 0;
 
         navViewTop = HEADER_H + NAV_PAD + SEARCH_H + NAV_PAD;
-        navViewBottom = FlxG.height - NAV_PAD;
+        navViewBottom = FlxG.height - NAV_PAD - safeB;
 
         // 主分类自己的选项也算一页，见 OptionCategory.navPages()
         var subs = selectedCat.navPages();
@@ -428,7 +472,7 @@ class OptionsPageState extends MusicBeatState
         for (i in 0...subs.length)
         {
             var sub = subs[i];
-            var item = new Win10NaviItem(0,
+            var item = new Win10NaviItem(navX,
                 startY + i * (NAV_ITEM_H + NAV_ITEM_GAP),
                 NAV_W, NAV_ITEM_H,
                 sub,
@@ -603,10 +647,19 @@ class OptionsPageState extends MusicBeatState
     // =========================================================
     function buildRows()
     {
+        // 旧行必须 remove + destroy，不能只 remove：
+        //  1) 下拉 / 调色板的弹层挂在 overlayContainer 上，不 destroy 就会脱离行、
+        //     永远留在顶层继续渲染（切子分类后还挂着一个鬼下拉）；
+        //  2) StringSelect 在 OptionInput 里登记了"弹层遮挡"，只有 destroy 会把它注销，
+        //     否则整页控件都不再响应鼠标。
+        // tween 先掐掉：remove() 之后控件不再 update，还在跑的 hover 颜色 tween
+        // 会继续往已销毁的精灵上写 color（和 buildNav 的处理同款）。
         for (r in rows)
         {
             FlxTween.cancelTweensOf(r);
+            if (r.bg != null) FlxTween.cancelTweensOf(r.bg);
             contentContainer.remove(r, true);
+            r.destroy();
         }
         rows = [];
 
@@ -636,7 +689,7 @@ class OptionsPageState extends MusicBeatState
             optionsToShow = currentSub.visibleOptions();
         }
 
-        var startX = NAV_W + NAV_PAD * 2;
+        var startX = navRight + NAV_PAD * 2;
         var curY:Float = HEADER_H + NAV_PAD;
 
         for (i in 0...optionsToShow.length)
@@ -835,6 +888,105 @@ class OptionsPageState extends MusicBeatState
         return (r != null && r.widget != null && Std.isOfType(r.widget, NumButton));
     }
 
+    /**
+     * 列表上下连滚。PE 的写法：按住 0.5s 之后按 floor((hold-0.5)*10) 的增量触发，即 10 格/秒。
+     * 一帧最多一格，免得一口气跨过整个分类。
+     * @return -1 上 / 0 不动 / 1 下
+     */
+    function listHoldStep(elapsed:Float, upPressed:Bool, downPressed:Bool, upHeld:Bool, downHeld:Bool):Int
+    {
+        // 开局保护：进页面后的 OPEN_GUARD 秒内完全不吃上下滚动，
+        // 同时把计时器清零 —— 否则上一页一直按着的键会被当成已长按，一进来就狂刷
+        if (openGuard > 0)
+        {
+            navHoldTime = 0;
+            return 0;
+        }
+
+        if (upPressed || downPressed)
+        {
+            navHoldTime = 0;
+            return upPressed ? -1 : 1;
+        }
+        if (!upHeld && !downHeld)
+        {
+            navHoldTime = 0;
+            return 0;
+        }
+
+        var before:Int = Std.int(Math.floor((navHoldTime - 0.5) * 10));
+        navHoldTime += elapsed;
+        var after:Int = Std.int(Math.floor((navHoldTime - 0.5) * 10));
+        return after > before ? (upHeld ? -1 : 1) : 0;
+    }
+
+    /**
+     * 数值行的左右键：按下走一格（原有行为），按住 0.5s 后按 option.scrollSpeed 连续改值
+     * —— 和 PE BaseOptionsMenu 的 holdValue 同款。
+     * 长按期间不写盘（saveCurrentValue 会 ClientPrefs.saveSettings()，每帧调太贵），松手补一次。
+     */
+    function updateValueHold(elapsed:Float):Void
+    {
+        if (controls.UI_LEFT_P || controls.UI_RIGHT_P)
+        {
+            var dir:Int = controls.UI_LEFT_P ? -1 : 1;
+            if (selectedRowIsNum())
+            {
+                var r:Win10OptionRow = selectedRow();
+                adjustSelected(dir);
+                // PE 也是先走一格再拿新值当连滚基准
+                valueHold = (r != null && r.option != null) ? cast r.option.getValue() : 0;
+                valueHeld = true;
+                valueHoldTime = 0;
+            }
+            else if (dir < 0) rowLeft(); // 非数值行：左键离开列表回导航（右键本来就没动作）
+            return;
+        }
+
+        if (!valueHeld) return;
+
+        if (controls.UI_LEFT || controls.UI_RIGHT)
+        {
+            valueHoldTime += elapsed;
+            if (valueHoldTime > 0.5) holdSelectedValue(elapsed);
+            return;
+        }
+
+        if (valueHoldTime > 0.5)
+        {
+            var r:Win10OptionRow = selectedRow();
+            if (r != null && r.option != null) r.option.saveCurrentValue();
+            FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+        }
+        valueHeld = false;
+        valueHoldTime = 0;
+    }
+
+    /** 连滚一次：按秒累积（和帧率无关），只对 INT/FLOAT/PERCENT 生效 */
+    function holdSelectedValue(elapsed:Float):Void
+    {
+        var r:Win10OptionRow = selectedRow();
+        if (r == null || r.option == null) return;
+
+        var opt:Option = r.option;
+        if (opt.type != INT && opt.type != FLOAT && opt.type != PERCENT) return;
+
+        // 连滚速度：范围窄的选项（0~1 的百分比 / 透明度）按"整程约 1.2 秒"走，
+        // 否则用 option.scrollSpeed（PE 默认 50/秒）。直接拿 50 去推 0~1 的滑块会瞬间拉满。
+        var span:Float = 0;
+        if (opt.minValue != null && opt.maxValue != null) span = opt.maxValue - opt.minValue;
+
+        var speed:Float = (span > 0 && span <= 10) ? span * 0.8 : ((opt.scrollSpeed > 0) ? opt.scrollSpeed : 50);
+        valueHold += (controls.UI_LEFT ? -1 : 1) * speed * elapsed;
+
+        if (opt.minValue != null && valueHold < opt.minValue) valueHold = opt.minValue;
+        if (opt.maxValue != null && valueHold > opt.maxValue) valueHold = opt.maxValue;
+
+        opt.setValue(opt.type == INT ? Math.round(valueHold) : FlxMath.roundDecimal(valueHold, opt.decimals));
+        opt.change();
+        OptionWidgetFactory.refreshValue(r.widget);
+    }
+
     function rowLeft():Void
     {
         if (selectedRowIsNum()) adjustSelected(-1);
@@ -946,7 +1098,7 @@ class OptionsPageState extends MusicBeatState
         var mx:Float = FlxG.mouse.x;
         var my:Float = FlxG.mouse.y;
 
-        if (mx <= NAV_W && my > HEADER_H)
+        if (mx >= navX && mx <= navRight && my > HEADER_H)
         {
             for (i in 0...navItems.length)
             {
@@ -1060,7 +1212,7 @@ class OptionsPageState extends MusicBeatState
         var mx = FlxG.mouse.x;
         var my = FlxG.mouse.y;
 
-        if (mx > NAV_W && my > HEADER_H && my < FlxG.height - 60)
+        if (mx > navRight && my > HEADER_H && my < FlxG.height - 60)
         {
             for (i in 0...rows.length)
             {
@@ -1144,6 +1296,13 @@ class OptionsPageState extends MusicBeatState
             buildRows();
         }
 
+        // 语言热重载：必须在这里（成员 update 之前）重建，不能在回调里当场做
+        if (langDirty)
+        {
+            langDirty = false;
+            applyLanguage();
+        }
+
         // 调色盘只在 KeyboardDisplay 子页出现，且跟着子页切换即时收放
         if (kbPanel != null)
         {
@@ -1157,6 +1316,9 @@ class OptionsPageState extends MusicBeatState
         }
 
         super.update(elapsed);
+
+        // 开局保护计时（只挡上下滚动，不挡返回/确认）
+        if (openGuard > 0) openGuard = Math.max(0, openGuard - elapsed);
 
         // 指针压在调色盘上时，列表既不吃滚轮也不吃拖拽，右键也不该关页面
         var overPanel:Bool = (kbPanel != null
@@ -1251,18 +1413,24 @@ class OptionsPageState extends MusicBeatState
             {
                 case ZONE_NAV:
                     // 首项再往上 / 按左键 → 回搜索框（搜索框在导航正上方）
-                    if (controls.UI_UP_P)    { if (navIndex == 0) setFocusZone(ZONE_SEARCH); else changeNavSelection(-1); }
-                    if (controls.UI_DOWN_P)  changeNavSelection(1);
+                    {
+                        var navStep:Int = listHoldStep(elapsed, controls.UI_UP_P, controls.UI_DOWN_P, controls.UI_UP, controls.UI_DOWN);
+                        if (navStep < 0)      { if (navIndex == 0) setFocusZone(ZONE_SEARCH); else changeNavSelection(-1); }
+                        else if (navStep > 0) changeNavSelection(1);
+                    }
                     if (controls.UI_LEFT_P)  setFocusZone(ZONE_SEARCH);
                     if (controls.UI_RIGHT_P) setFocusZone(ZONE_ROWS);
                     // 上下移动已经直接切了子分类，回车只是给个"确认"反馈
                     if (controls.ACCEPT)     FlxG.sound.play(Paths.sound('confirmMenu'));
 
                 case ZONE_ROWS:
-                    if (controls.UI_UP_P)   { if (rowIndex == 0) setFocusZone(ZONE_NAV); else changeRowSelection(-1); }
-                    if (controls.UI_DOWN_P) changeRowSelection(1);
-                    if (controls.UI_LEFT_P)  rowLeft();
-                    if (controls.UI_RIGHT_P) rowRight();
+                    {
+                        var rowStep:Int = listHoldStep(elapsed, controls.UI_UP_P, controls.UI_DOWN_P, controls.UI_UP, controls.UI_DOWN);
+                        if (rowStep < 0)      { if (rowIndex == 0) setFocusZone(ZONE_NAV); else changeRowSelection(-1); }
+                        else if (rowStep > 0) changeRowSelection(1);
+                    }
+                    // 左右：数值行按下走一格、按住连滚（PE 手感），非数值行左键回导航
+                    updateValueHold(elapsed);
                     if (controls.ACCEPT)     activateSelected();
                     if (controls.RESET)      resetSelected();
 
@@ -1281,7 +1449,23 @@ class OptionsPageState extends MusicBeatState
         MusicBeatState.switchState(new OptionsState());
     }
 
+    /**
+     * 语言热重载。
+     *
+     * ⚠️ 这里**不能**直接重建：reload 是从 Option 的回调里同步触发的
+     * （`Option.saveCurrentValue()` → `Language.reloadPhrases()`），也就是某个控件
+     * 正在 `update()` 的中途。当场 `buildRows()` 会把正在跑 update 的那个 StringSelect
+     * 连同它的 dis 一起销毁，回到控件里再 `refreshValue()` 就是 Null Object Reference
+     * （crash/Frozen_Engine_2026-11-14_19'48'50.txt 就是这个）。
+     * 和 Win8CharmSettings.refreshLanguage 一样延后一帧最稳。
+     */
     function refreshLanguage():Void
+    {
+        langDirty = true;
+    }
+
+    /** refreshLanguage() 的真正落实（延后一帧，在 update() 开头执行） */
+    function applyLanguage():Void
     {
         if (selectedCat != null)
             selectedCat.refreshLanguage();

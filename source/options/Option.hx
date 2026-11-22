@@ -1,5 +1,7 @@
 package options;
 
+import options.objects.OptionCategory;
+import options.objects.backend.IStringValueSource;
 import flixel.util.FlxColor;
 
 typedef Keybind = {
@@ -18,7 +20,7 @@ enum OptionType {
 	COLOR;   // ← 新增
 }
 
-class Option
+class Option implements options.objects.backend.IStringValueSource
 {
 	public var child:Alphabet;
 	public var text(get, set):String;
@@ -38,6 +40,11 @@ class Option
 	public var decimals:Int = 1;
 
 	public static var onValueSaved:Option->Void = null;
+
+	/** 运行时注入的取值/写值钩子（ModSettingsSubState 用 save 映射替代 ClientPrefs 直读）。
+	 *  之前靠 dynamic 函数重赋值实现；IStringValueSource 接口化后 getValue/setValue 必须是普通方法，改走钩子。 */
+	public var getValueOverride:Void->Dynamic = null;
+	public var setValueOverride:Dynamic->Void = null;
 
 	public var displayFormat:String = '%v';
 	public var description:String = '';
@@ -70,6 +77,13 @@ class Option
 	public var action:Void->Void = null;
 	public var actionLabel:String = '';
 	public var ownerCategory:OptionCategory = null;
+
+	/**
+	 * COLOR 类型专用的色板。为 null 时回落到全局 COLOR_PALETTE。
+	 * 强调色这类"只该从固定几色里挑"的选项用它收窄选择范围。
+	 */
+	public var palette:Array<Int> = null;
+	public var paletteNames:Array<String> = null;
 
 	/**
 	 * 本页总开关（只有 BOOL 能用）。
@@ -105,6 +119,30 @@ class Option
 		"PURPLE", "BLUE", "BROWN", "PINK", "MAGENTA", "CYAN"
 	];
 
+	/**
+	 * UI 强调色专用色板：全部取中明度，浅色底上作文字色也能读。
+	 * 首项是默认蓝，刻意保留现有暗色观感（比其余色亮一档）。
+	 */
+	public static var ACCENT_PALETTE:Array<Int> = [
+		0xFF4CC2FF, // Default Blue
+		0xFF0891B2, // Cyan
+		0xFF0D9488, // Teal
+		0xFF16A34A, // Green
+		0xFF65A30D, // Lime
+		0xFFCA8A04, // Amber
+		0xFFEA580C, // Orange
+		0xFFDC2626, // Red
+		0xFFDB2777, // Pink
+		0xFF7C3AED, // Purple
+		0xFF4F46E5, // Indigo
+		0xFF64748B  // Slate
+	];
+
+	public static var ACCENT_NAMES:Array<String> = [
+		"Default Blue", "Cyan", "Teal", "Green", "Lime", "Amber",
+		"Orange", "Red", "Pink", "Purple", "Indigo", "Slate"
+	];
+
 	private static var HEX_CHARS:Array<String> = ["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F"];
 
 	public static function byteToHex(b:Int):String {
@@ -124,11 +162,46 @@ class Option
 
 	/** 根据亮度选前景色（黑/白），用于在色块上画字 */
 	public static function contrastText(c:Int):Int {
-		var r = (c >> 16) & 0xFF;
-		var g = (c >> 8) & 0xFF;
-		var b = c & 0xFF;
-		var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-		return lum > 150 ? 0xFF000000 : 0xFFFFFFFF;
+		return backend.UITheme.contrastText(c, 150);
+	}
+
+	// ---------------------------------------------------------
+	// 色板
+	// ---------------------------------------------------------
+	public function paletteOf():Array<Int>
+		return palette != null ? palette : COLOR_PALETTE;
+
+	public function paletteNamesOf():Array<String>
+		return paletteNames != null ? paletteNames : COLOR_NAMES;
+
+	/** 按本选项的色板查色名，查不到回落 #RRGGBB */
+	public function colorNameOf(c:Int):String
+	{
+		var pal:Array<Int> = paletteOf();
+		var names:Array<String> = paletteNamesOf();
+		for (i in 0...pal.length)
+			if (pal[i] == c && i < names.length) return names[i];
+		return intToHex(c);
+	}
+
+	/**
+	 * 设置专用色板，并按当前值重新对齐 curOption。
+	 * 不重算的话键盘左右循环会从错误的下标起步。
+	 */
+	public function setPalette(pal:Array<Int>, names:Array<String>):Void
+	{
+		palette = pal;
+		paletteNames = names;
+		if (type != COLOR || pal == null) return;
+
+		var v:Dynamic = getValue();
+		if (v == null) v = defaultValue;
+		curOption = 0;
+		if (v == null) return;
+
+		var iv:Int = v;
+		for (i in 0...pal.length)
+			if (pal[i] == iv) { curOption = i; break; }
 	}
 
 	// =========================================================
@@ -223,23 +296,29 @@ class Option
 		return Language.getPhrase('setting_$_translationKey-${raw}', raw);
 	}
 
-	dynamic public function getValue():Dynamic
+	public function getValue():Dynamic
 	{
+		if (getValueOverride != null) return getValueOverride();
 		var value = Reflect.getProperty(ClientPrefs.data, variable);
 		if (type == KEYBIND) return !Controls.instance.controllerMode ? value.keyboard : value.gamepad;
 		return value;
 	}
 
-	dynamic public function setValue(value:Dynamic)
+	public function setValue(value:Dynamic):Void
 	{
+		if (setValueOverride != null)
+		{
+			setValueOverride(value);
+			return;
+		}
 		if (type == KEYBIND)
 		{
 			var keys = Reflect.getProperty(ClientPrefs.data, variable);
 			if (!Controls.instance.controllerMode) keys.keyboard = value;
 			else keys.gamepad = value;
-			return value;
+			return;
 		}
-		return Reflect.setProperty(ClientPrefs.data, variable, value);
+		Reflect.setProperty(ClientPrefs.data, variable, value);
 	}
 
 	public function saveCurrentValue():Void
@@ -264,12 +343,18 @@ class Option
 				FlxG.autoPause = ClientPrefs.data.autoPause;
 			case 'language':
 				backend.Language.reloadPhrases();
+			case 'sessionLogMax':
+				// 保留上限改动立即清理旧日志档案
+				debug.LogFile.trimArchives();
 			case 'colorMode':
 				// 深浅色切换：刷新调色板，界面会收到通知后重建
 				backend.UITheme.refresh();
 			case 'controlTheme':
 				// 控件风格（Win10 / Win8 按钮）切换：同样刷新一次，
 				// 界面发现 UITheme.version 变了就会按新风格重建控件
+				backend.UITheme.refresh();
+			case 'uiAccent', 'uiAccentHover':
+				// 强调色改动：UITheme 重新派生整套色，界面按 version 重建
 				backend.UITheme.refresh();
 			case 'keyboardBGColor', 'keyboardEdgeColor', 'keyboardRainColor', 'keyboardTextColor':
 				// 颜色语义已经按目标拆开（主体 / 边缘 / 键雨 / 文字），不能再对 members 无脑

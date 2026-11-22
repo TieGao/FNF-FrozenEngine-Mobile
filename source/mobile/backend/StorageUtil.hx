@@ -57,6 +57,35 @@ class StorageUtil
 		#end
 	}
 
+	/**
+	 * 逐层创建目录。
+	 * FileSystem.createDirectory 只建最后一层，父目录缺失时 mkdir 返回 ENOENT 并抛异常；
+	 * 复制资产时目录是边遍历边建的，不能假设父目录已经存在。
+	 */
+	public static function mkDirs(directory:String):Void
+	{
+		if (directory == null || directory.length == 0) return;
+
+		var total:String = '';
+		if (directory.substr(0, 1) == '/') total = '/';
+
+		var parts:Array<String> = directory.split('/');
+		if (parts.length > 0 && parts[0].indexOf(':') > -1) parts.shift();
+
+		for (part in parts)
+		{
+			if (part == '.' || part == '') continue;
+			if (total != '' && total != '/') total += '/';
+			total += part;
+			try
+			{
+				if (!FileSystem.exists(total))
+					FileSystem.createDirectory(total);
+			}
+			catch (e:Dynamic) trace('[StorageUtil] mkDirs failed at $total: $e');
+		}
+	}
+
 	public static function saveContent(fileName:String, fileData:String, ?alert:Bool = true):Void
 	{
 		final folder:String = getStorageDirectory() + 'saves/';
@@ -77,36 +106,84 @@ class StorageUtil
 	}
 
 	#if android
-	// always force path due to haxe
+	/**
+	 * 数据根的真实路径。
+	 * 必须走 JNI 取 /storage/emulated/0，不能硬编码 /sdcard —— 那是个符号链接，
+	 * 部分 ROM 上第三方 app 通过它 mkdir 会失败（表现就是首启弹「请创建目录」直接退出）。
+	 * JNI 取不到时才退回 /sdcard。
+	 */
 	public static function getExternalStorageDirectory():String
-		return '/sdcard/.FrozenEngine/';
+	{
+		var base:String = '';
+		try base = extension.androidtools.os.Environment.getExternalStorageDirectory() catch (e:Dynamic) {}
+		if (base == null || base.length == 0) base = '/sdcard';
+		return haxe.io.Path.addTrailingSlash(base) + '.FrozenEngine/';
+	}
 
 	public static function requestPermissions():Void
 {
-    if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.TIRAMISU)
+    // 按 Android 版本分流（对齐 NF 的 doPermissionsShit）：
+    //   API 30+  —— 只认「所有文件访问权限」，isExternalStorageManager 在这区间才有意义
+    //   API 29-  —— 只认运行时存储权限；isExternalStorageManager 在这区间恒 true，
+    //              拿它判断会让整段权限检查失效，目录能建出来但写不进去
+    if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.R)
     {
-        // Request each permission individually
-        extension.androidtools.Permissions.requestPermissions(['READ_MEDIA_IMAGES','READ_MEDIA_VISUAL_USER_SELECTED','READ_MEDIA_VIDEO','READ_MEDIA_AUDIO']);
+        if (!extension.androidtools.os.Environment.isExternalStorageManager())
+            extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
     }
     else
     {
-        // Request each permission individually
-        extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']);
+        extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']);
     }
-
-    if (!extension.androidtools.os.Environment.isExternalStorageManager())
-        extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
-
-    // 移除了权限检查的 if 语句块
 
     try
     {
-        if (!FileSystem.exists(StorageUtil.getStorageDirectory()))
-            FileSystem.createDirectory(StorageUtil.getStorageDirectory());
+        // 去掉尾部斜杠再 mkdir：FUSE 上带斜杠的路径个别 ROM 会拒绝
+        var root:String = StorageUtil.getStorageDirectory();
+        if (root.endsWith('/')) root = root.substr(0, root.length - 1);
+        if (!FileSystem.exists(root))
+            FileSystem.createDirectory(root);
+
+        // 写探针：Android 10 及以下 isExternalStorageManager() 恒 true，目录建得出来
+        // 不代表写得进去（scoped storage / 运行时权限被拒）。写不进去时复制和 zip 解压
+        // 都会静默全失败，玩家看到的是「目录是空的」。
+        var probe:String = root + '/.fe_write_probe';
+        File.saveContent(probe, 'ok');
+        FileSystem.deleteFile(probe);
     }
     catch (e:Dynamic)
     {
-        CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+        // 区分「权限没给」和「真的建不出来」：提示必须把人送去能解决问题的那一页，
+        // 否则玩家看到的是「请手动创建文件夹」，而真正缺的是权限。
+        #if android
+        if (extension.androidtools.os.Build.VERSION.SDK_INT >= extension.androidtools.os.Build.VERSION_CODES.R)
+        {
+            if (!extension.androidtools.os.Environment.isExternalStorageManager())
+            {
+                extension.androidtools.Settings.requestSetting('MANAGE_APP_ALL_FILES_ACCESS_PERMISSION');
+                CoolUtil.showPopUp(
+                    Language.getPhrase('storage_permission_required',
+                        'Frozen Engine needs "All files access" to create\n{1}\n\nTurn it on in the settings page that just opened, then reopen the game.',
+                        [StorageUtil.getStorageDirectory()]),
+                    Language.getPhrase('mobile_error', "Error!"));
+            }
+            else
+            {
+                CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
+            }
+        }
+        else
+        {
+            // Android 10 及以下没有「所有文件访问权限」开关，缺的是运行时存储权限
+            extension.androidtools.Permissions.requestPermissions(['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']);
+            extension.androidtools.Settings.requestSetting('APPLICATION_DETAILS_SETTINGS');
+            CoolUtil.showPopUp(
+                Language.getPhrase('storage_permission_required_legacy',
+                    'Frozen Engine needs storage permission to write\n{1}\n\nAllow "Storage" for this app in the settings page that just opened, then reopen the game.',
+                    [StorageUtil.getStorageDirectory()]),
+                Language.getPhrase('mobile_error', "Error!"));
+        }
+        #end
         lime.system.System.exit(1);
     }
 
@@ -117,8 +194,8 @@ class StorageUtil
     }
     catch (e:Dynamic)
     {
-        CoolUtil.showPopUp(Language.getPhrase('create_directory_error', 'Please create directory to\n{1}\nPress OK to close the game', [StorageUtil.getExternalStorageDirectory()]), Language.getPhrase('mobile_error', "Error!"));
-        lime.system.System.exit(1);
+        // mods 目录建不出来不该让整个游戏退出：没有 mod 也能正常玩
+        trace('[StorageUtil] create mods dir failed: $e');
     }
 }
 	#end

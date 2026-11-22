@@ -3,7 +3,6 @@ package options.groupData;
 import options.objects.OptionCategory;
 import options.Option;
 import options.Option.OptionType;
-import mobile.backend.MobileScaleMode;
 
 class BasicsData
 {
@@ -34,7 +33,7 @@ class BasicsData
         var adjustDelay = new Option('Adjust Delay and Combo', 'Customize ingame experience', '', ACTION);
         adjustDelay.actionLabel = 'Open';
         adjustDelay.action = function() {
-            MusicBeatState.switchState(new options.psychoptions.NoteOffsetState());
+            MusicBeatState.switchState(new options.NoteOffsetState());
         };
         cat.add(adjustDelay);
 
@@ -73,9 +72,16 @@ class BasicsData
             'If checked, The game will stetch to fill your whole screen. (WARNING: Can result in bad visuals & break some mods that resizes the game/cameras)',
             'wideScreen', BOOL);
         wideScreen.onChange = function() {
-            FlxG.scaleMode = new MobileScaleMode();
+            // 画布比例 + scaleMode 一起重算，跟图形页那个 Wide Screen 开关同一条路径
+            Main.refreshMobileCanvas();
         };
         mobileCat.add(wideScreen);
+
+        var edgeSafeOffset = new Option('Edge Safe Offset',
+            'Extra inset (px) added to screen-edge UI (FPS counter, menu corner buttons, toolbar, judgement counter) beyond the auto-detected notch, Dynamic Island, punch-hole and home-indicator insets.\nOnly applies in Wide Screen Mode - the 16:9 canvas never reaches the notch.\nTakes effect on the next screen you enter.',
+            'edgeSafeOffset', INT);
+        edgeSafeOffset.minValue = 0; edgeSafeOffset.maxValue = 80; edgeSafeOffset.decimals = 0;
+        mobileCat.add(edgeSafeOffset);
         #end
 
         mobileCat.add(new Option('Hitbox Design', 'Choose how your hitbox should look like.',
@@ -110,9 +116,6 @@ class BasicsData
         mobileCat.add(customizeMobileExtraControls);
 
         cat.add(new Option('Language', 'Change the game\'s language', 'language', STRING, ['en-US', 'pt-BR', 'zh-CN', 'zh-TW']));
-        cat.add(new Option('Color Mode', 'Switch between dark and white mode', 'colorMode', STRING, ['dark', 'white']));
-        cat.add(new Option('Control Theme', 'Choose the button style: auto (each UI uses its own style), win10 or win8',
-            'controlTheme', STRING, ['auto', 'win10', 'win8']));
 
         var resetKeyBinds = new Option('Reset KeyBinds', 'Reset key bindings', 'keybinds', ACTION);
         resetKeyBinds.actionLabel = 'Reset';

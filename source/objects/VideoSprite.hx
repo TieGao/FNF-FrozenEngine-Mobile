@@ -7,6 +7,9 @@ import hxvlc.flixel.FlxVideoSprite;
 #end
 
 class VideoSprite extends FlxSpriteGroup {
+	/** 存活中的视频实例数：闲置节能（backend.IdleFPSManager）据此跳过降帧，防视频卡成幻灯片 */
+	public static var playingVideos:Int = 0;
+
 	#if VIDEOS_ALLOWED
 	public var finishCallback:Void->Void = null;
 	public var onSkip:Void->Void = null;
@@ -47,7 +50,7 @@ class VideoSprite extends FlxSpriteGroup {
 		// callbacks
 		if(!shouldLoop) videoSprite.bitmap.onEndReached.add(finishVideo);
 
-		videoSprite.bitmap.onFormatSetup.add(function()
+		videoSprite.bitmap.onVideoFormatSetup.add(function() // hxvlc 2.3.2 改名（旧 onFormatSetup 已弃用）
 		{
 			/*
 			#if hxvlc
@@ -64,6 +67,8 @@ class VideoSprite extends FlxSpriteGroup {
 
 		// start video and adjust resolution to screen size
 		videoSprite.load(videoName, shouldLoop ? ['input-repeat=65545'] : null);
+
+		playingVideos++;
 	}
 
 	public var alreadyDestroyed:Bool = false;
@@ -71,6 +76,8 @@ class VideoSprite extends FlxSpriteGroup {
 	{
 		if(alreadyDestroyed)
 			return;
+
+		playingVideos--;
 
 		trace('Video destroyed');
 		if(cover != null)

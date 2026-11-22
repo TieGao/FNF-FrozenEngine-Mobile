@@ -67,6 +67,21 @@ class VisualsSettingsSubState extends BaseOptionsMenu
 			option.onChange = onChangeSplashSkin;
 		}
 
+		// 音符 / 溅射体系三态开关（auto 自动判 / legacy 强制 HSV / new 强制 RGB + 自定义皮肤），两者互相独立
+		var noteSystemOption:Option = new Option('Note System',
+			"auto: detect | legacy: force HSV | new: force RGB + custom skin.",
+			'noteSystem',
+			STRING,
+			['auto', 'legacy', 'new']);
+		addOption(noteSystemOption);
+
+		var splashSystemOption:Option = new Option('Splash System',
+			"auto: detect | legacy: force HSV | new: force RGB + custom skin.",
+			'splashSystem',
+			STRING,
+			['auto', 'legacy', 'new']);
+		addOption(splashSystemOption);
+
 		var holdCovers:Array<String> = Mods.mergeAllTextsNamed('images/holdCover/list.txt');
 		if(holdCovers.length > 0)
 		{
@@ -322,6 +337,19 @@ class VisualsSettingsSubState extends BaseOptionsMenu
 		var option:Option = new Option('Difficulty Blocks',
 			"Show the clickable difficulty blocks in Freeplay",
 			'freeplayDiffCarousel',
+			BOOL);
+		addOption(option);
+
+		var option:Option = new Option('Background Transition',
+			"How the Freeplay background switches when you change mod folder",
+			'freeplayBgTransition',
+			STRING,
+			['fade', 'mosaic']);
+		addOption(option);
+
+		var option:Option = new Option('Inline Search Filter',
+			"Type into the Freeplay search bar to filter the song list in place instead of opening the search popup",
+			'freeplaySearchInline',
 			BOOL);
 		addOption(option);
 
