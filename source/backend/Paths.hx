@@ -1650,6 +1650,32 @@ class Paths
 	inline static public function mods(key:String = '')
 		return #if android StorageUtil.getExternalStorageDirectory() + #else Sys.getCwd() + #end 'mods/' + key;
 
+	/**
+	 * 从脚本 / 资源路径里取出它所属的 mod 目录名（`mods/<名字>/…` 的 `<名字>`）；不在 mods 下返回 null。
+	 *
+	 * 别再用 `path.split('/')[0] + '/' == Paths.mods()` 那套判定：移动版把 `mods()` 改成了绝对路径
+	 * （Android 的 SDL 只认绝对路径，见 `nativeSearchPath`），而 `Sys.getCwd()` 补的结尾是 `/`、
+	 * 盘符那段还是 `\`，于是 `D:\…\bin/mods/x/…` 按 `/` 切出来是
+	 * `['D:\…\bin', 'mods', 'x', …]` —— 老判定会拿 `[1] = 'mods'` 当 mod 名，永远对不上，
+	 * `modFolder` 恒为 null，不显式传 mod 名的 `getModSetting("tag")` 直接抛
+	 * “not inside a packed Mod folder”。主版 `mods()` 是相对路径，切出来正好 `['mods','x',…]`，
+	 * 所以桌面主版一直没暴露。
+	 */
+	public static function getModFolder(path:String):String
+	{
+		if (path == null || path.length == 0) return null;
+
+		var norm:String = path.replace('\\', '/');
+		var root:String = mods().replace('\\', '/');
+		if (root.length == 0 || norm.length <= root.length) return null;
+		if (norm.substr(0, root.length) != root) return null;
+
+		var rest:String = norm.substr(root.length);
+		var slash:Int = rest.indexOf('/');
+		if (slash > -1) rest = rest.substr(0, slash);
+		return rest.length > 0 ? rest : null;
+	}
+
 	inline static public function modsJson(key:String)
 		return modFolders('data/' + key + '.json');
 
