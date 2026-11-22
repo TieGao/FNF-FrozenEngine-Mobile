@@ -332,6 +332,22 @@ class GameOverSubstate extends MusicBeatSubstate
 		}
 	}
 
+	// 死亡画面期间节拍派发继续（NMV 官方 11-13 GameOverSubstate 同款）：
+	// 语料全局脚本 utils.hx（camTwist 甩镜）/ mom.hx（mom.onBeatHit）的 handler 在
+	// gameover 存活，NMV 引擎死亡时它们继续收节拍 —— 不派发的话甩镜/伴舞在死亡
+	// 画面静止，属包可见行为差。
+	override function beatHit()
+	{
+		PlayState.instance.callOnScripts('onBeatHit', []);
+		super.beatHit();
+	}
+
+	override function stepHit()
+	{
+		PlayState.instance.callOnScripts('onStepHit', []);
+		super.stepHit();
+	}
+
 	override function destroy()
 	{
 		instance = null;

@@ -252,6 +252,23 @@ jobs:
           echo "已缓存条目（前 20 个）："
           ls -A .haxelib | head -20
 
+      # NMV 分支专属（勿同步回 main）：flxanimate blend 补丁。setup/unix.sh 里也有一份，
+      # 但那只覆盖 install 模式 —— cached 模式 setup 不跑，而失败轮存下的缓存里 flxanimate
+      # 是未打补丁的干净克隆，sentinel 只查 classpath 健康不查内容，不在这里补打编译必炸
+      # （PsychFlxAnimate blendNoBake，11-22 双 job 实录）。--check 先探保证幂等。
+      - name: Apply flxanimate nmv-blend patch (NMV branch only)
+        shell: bash
+        run: |
+          if [ -d source/nmv ] && [ -f setup/flxanimate-nmv-blend.patch ] && [ -d "$HAXELIB_REPO/flxanimate/git" ]; then
+            ( cd "$HAXELIB_REPO/flxanimate/git" \
+              && git apply --check ../../../setup/flxanimate-nmv-blend.patch \
+              && git apply ../../../setup/flxanimate-nmv-blend.patch \
+              && echo "flxanimate nmv-blend patch: applied" ) \
+              || echo "flxanimate nmv-blend patch: skip (already applied or layout drift)"
+          else
+            echo "flxanimate nmv-blend patch: not an NMV checkout or lib layout unexpected, skip"
+          fi
+
       # extension-document-picker 的 git fork 只带源码（project/），没有预编译的
       # ndll/iPhone/*.a —— lime 编 iOS 时会去 .haxelib/<ext>/ndll/iPhone/ 找
       # lib<name>.iphoneos*.a（候选：.iphoneos / -v7 / -v7s / -64），一个都没有就

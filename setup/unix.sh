@@ -36,4 +36,17 @@ haxelib git luahscript https://github.com/VapireMox/luahscript 122acb150ba5a55d0
 haxelib git funkin.vis https://github.com/FunkinCrew/funkVis 22b1ce089dd924f15cdc4632397ef3504d464e90 --always
 haxelib git grig.audio https://gitlab.com/haxe-grig/grig.audio.git cbf91e2180fd2e374924fe74844086aab7891666 --always
 haxelib set hxcpp git
+# NMV blend 语义需要 flxanimate 库补丁（blendNoBake + 绘制树实时混合 + 遮罩贴回混合，
+# 见 setup/flxanimate-nmv-blend.patch）。Dot-Stuff 上游没有 blendNoBake（全库 0 命中），
+# 该改动此前只存在于本地 E 仓检出的未提交状态——CI 干净检出编译必炸
+# （PsychFlxAnimate.hx blendNoBake，11-22 Android/iOS 双 job 实录）。
+# 双门控：source/nmv 存在（main 无消费端，blendNoBake 恒 false 行为不变，勿同步回 main）
+# + HAXELIB_REPO 设置（CI 场景；本地 E 仓补丁已在位，--check 失败即跳过）。
+if [ -d source/nmv ] && [ -f setup/flxanimate-nmv-blend.patch ] && [ -n "$HAXELIB_REPO" ] && [ -d "$HAXELIB_REPO/flxanimate/git" ]; then
+  ( cd "$HAXELIB_REPO/flxanimate/git" \
+    && git apply --check ../../../setup/flxanimate-nmv-blend.patch \
+    && git apply ../../../setup/flxanimate-nmv-blend.patch \
+    && echo "flxanimate nmv-blend patch: applied" ) \
+    || echo "flxanimate nmv-blend patch: skip (already applied or layout drift)"
+fi
 echo Finished!
