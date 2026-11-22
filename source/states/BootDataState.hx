@@ -470,10 +470,19 @@ class BootDataState extends MusicBeatState
 	{
 		var raw:String = entry.fileName;
 		if (raw.length == 0 || StringTools.endsWith(raw, '/'))
-			return true; // 目录条目
+		{
+			// 目录条目：数据段恒空，但流式打包器可能挂数据描述符——统一直播对齐
+			skipEntryData(entry, zipStream);
+			return true;
+		}
 		var name:String = normalizeEntryName(raw);
 		if (name.length == 0 || isJunkPath(name))
-			return true; // 规范化后为空 / macOS·Windows 垃圾条目：静默跳过
+		{
+			// ★垃圾条目（desktop.ini/.DS_Store…）可能带非空数据（ADOFAI 包 42B desktop.ini 实锤）：
+			//   不把数据从流里吃掉就错位下一头，后续全包报废 "Invalid Zip Data"
+			skipEntryData(entry, zipStream);
+			return true;
+		}
 		// 安全校验：拒绝绝对路径与 '..' 段（重映射在原始名上做，剥前缀不可能造出逃逸）
 		if (!safeRelativePath(name))
 			return false;
