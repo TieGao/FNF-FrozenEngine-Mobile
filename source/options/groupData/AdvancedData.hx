@@ -35,6 +35,9 @@ class AdvancedData
         legacy.add(new Option('Legacy Compact Lanes',
             'NMV multi-lane songs: draw the extra lanes\' notes on the visible lanes (white, auto, never hittable) and hide the extra strumlines. Off = reference behaviour (extra lanes pushed offscreen, notes fully transparent)',
             'legacyCompactLanes', BOOL));
+        legacy.add(new Option('NMV Rating Popup Compat',
+            'Let NMV global scripts (utils.hx) restyle and reposition the rating popup (onPopUpScore hooks). Off = stock popup, those hooks are not called',
+            'nmvRatingPopupCompat', BOOL));
 
         // 脚本诊断与日志输出单独一页。选项一律挂在自己的 section 上：用 cat.add 直挂主分类会
         // 多出一个排在最前的同名页（navPages() 把主分类自己也算一页），和已有的 'Advanced' 页重复。

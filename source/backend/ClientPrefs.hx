@@ -359,6 +359,23 @@ import states.TitleState;
 	public var songText:Bool = true;
 	public var songInfoTextSize:Float = 1.0;
 
+	// NMV 剧情解锁链（Legacy ClientPrefs @saveVar 段，78 号 P1-4）：随主档持久化。
+	// completion.hx 系写 finaleState、CreditsRoll 写 doubletrouble、MainMenu 读 forceUnlock 系；
+	// subtitles 在每歌加载的 utils.hx 里读。值语义与 Legacy 相同（finaleState 取值见
+	// nmv.data.FinaleState，NMV 原版是 enum、这里按存档可读性存 String）。
+	public var subtitles:Bool = true;
+	public var finaleState:String = 'INACTIVE';
+	public var forceUnlock:Bool = false;
+	public var forceUnlockReq:Bool = false;
+	public var doubletrouble:Bool = false;
+	public var unlockedSongs:Array<String> = [];
+	public var cosmicubeUnlocks:Array<String> = [];
+
+	// NMV 评分弹窗自定义兼容（Advanced→Legacy）：开=popUpScore 广播 onPopUpScore(Post) 并向
+	// 脚本注入 ratingGraphic/ratingNumGroup（utils.hx 的弹窗改色+重定位生效，NMV 同款观感）；
+	// 关=钩子不广播、全局不注入，FE 原生弹窗
+	public var nmvRatingPopupCompat:Bool = true;
+
 	public var showHC:Bool = true;
 	public var showCB:Bool = true;
 	public var showMiss:Bool = true;
@@ -488,6 +505,37 @@ class ClientPrefs {
 	public static var gfSkin(get, set):String;
 	public static var pet(get, set):String;
 	public static var colorText:String = 'Enabled';
+
+	// NMV 剧情解锁链静态别名（78 号 P1-4，Legacy @saveVar 段 → data.*）：
+	// 语料在用 subtitles×2（utils.hx 每歌全局脚本）/ finaleState×6 / forceUnlock×4 /
+	// forceUnlockReq×3 / doubletrouble×3 / unlockedSongs×1 / cosmicubeUnlocks×1
+	public static var subtitles(get, set):Bool;
+	static function get_subtitles():Bool return data.subtitles;
+	static function set_subtitles(v:Bool):Bool { data.subtitles = v; return v; }
+
+	public static var finaleState(get, set):String;
+	static function get_finaleState():String return data.finaleState;
+	static function set_finaleState(v:String):String { data.finaleState = v; return v; }
+
+	public static var forceUnlock(get, set):Bool;
+	static function get_forceUnlock():Bool return data.forceUnlock;
+	static function set_forceUnlock(v:Bool):Bool { data.forceUnlock = v; return v; }
+
+	public static var forceUnlockReq(get, set):Bool;
+	static function get_forceUnlockReq():Bool return data.forceUnlockReq;
+	static function set_forceUnlockReq(v:Bool):Bool { data.forceUnlockReq = v; return v; }
+
+	public static var doubletrouble(get, set):Bool;
+	static function get_doubletrouble():Bool return data.doubletrouble;
+	static function set_doubletrouble(v:Bool):Bool { data.doubletrouble = v; return v; }
+
+	public static var unlockedSongs(get, set):Array<String>;
+	static function get_unlockedSongs():Array<String> return data.unlockedSongs;
+	static function set_unlockedSongs(v:Array<String>):Array<String> { data.unlockedSongs = v; return v; }
+
+	public static var cosmicubeUnlocks(get, set):Array<String>;
+	static function get_cosmicubeUnlocks():Array<String> return data.cosmicubeUnlocks;
+	static function set_cosmicubeUnlocks(v:Array<String>):Array<String> { data.cosmicubeUnlocks = v; return v; }
 
 	static function get_bfSkin():String return equipment.get('playerSkin') ?? 'default';
 	static function get_gfSkin():String return equipment.get('speakerSkin') ?? 'default';

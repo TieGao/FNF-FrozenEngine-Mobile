@@ -238,6 +238,31 @@ class InterpEx extends crowplexus.hscript.Interp #if flixel implements flixel.ut
 			return spr;
 		}
 
+		// flixel 6.2 fork 的 SoundFrontEnd.playMusic / FlxSound.setup 是 overload inline
+		// extern——编译期展开、运行时没有可反射的方法体，hscript 调 FlxG.sound.playMusic
+		// 必 Unknown function（dialogue.hx:350 实锤）。按 fork 的链式实现复刻：
+		// recycleMusic(group) → loadHelper(asset) → setup(volume,loop) → play()；
+		// 参数序按 fork 现行重载 (asset, ?group, volume=1, loop=true, ?onComplete)。
+		if (f == 'playMusic' && Std.isOfType(o, flixel.system.frontEnds.SoundFrontEnd))
+		{
+			final front:flixel.system.frontEnds.SoundFrontEnd = cast o;
+			final group:Dynamic = args.length > 1 && args[1] != null ? args[1] : front.defaultMusicGroup;
+			final volume:Float = args.length > 2 ? args[2] : 1.0;
+			final loop:Bool = args.length > 3 ? args[3] : true;
+			final onComplete:Dynamic = args.length > 4 ? args[4] : null;
+
+			if (front.music == null) front.music = new flixel.sound.FlxSound();
+			else if (front.music.active) front.music.stop();
+			front.music.persist = true;
+			group.add(front.music);
+
+			Reflect.callMethod(front.music, Reflect.field(front.music, 'loadHelper'), [args.length > 0 ? args[0] : null]);
+			front.music.volume = volume;
+			front.music.loopUntil = -1;
+			Reflect.callMethod(front.music, Reflect.field(front.music, 'init'), [loop, false, onComplete]);
+			return Reflect.callMethod(front.music, Reflect.field(front.music, 'play'), []);
+		}
+
 		for (_using in usings)
 		{
 			var v = _using.call(o, f, args);

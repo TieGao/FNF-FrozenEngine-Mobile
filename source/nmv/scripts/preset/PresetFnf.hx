@@ -62,8 +62,13 @@ class PresetFnf
 		script.set('SnowEmitter', nmv.objects.SnowEmitter);
 		script.set('CustomEmitter', nmv.objects.CustomEmitter);
 		script.set('AmongWalker', nmv.objects.AmongWalker);
+		// RGBSprite 最小移植（uniform 通道重映射，见类注释）：dialogue.hx 对话框用
+		script.set('RGBSprite', nmv.objects.RGBSprite);
 		script.set('Lang', nmv.data.Lang);
 		script.set('GameFlags', nmv.data.GameFlags);
+		// NMV 剧情推进旗标（Legacy 是 enum，移植端按 GameFlags 模式做成静态值类）：
+		// completion.hx 系 `ClientPrefs.finaleState = FinaleState.COMPLETE` 解锁链
+		script.set('FinaleState', nmv.data.FinaleState);
 		script.set('ProgressionUtil', nmv.data.ProgressionUtil);
 		script.set('FunkinAssets', nmv.FunkinAssets);
 		script.set('DebugDisplay', nmv.backend.DebugDisplay);
@@ -115,8 +120,12 @@ class PresetFnf
 
 		// 通用工具（Psych 系 preset 也有，脚本常直接调）
 		script.set('buildTarget', psychlua.LuaUtils.getBuildTarget());
-		script.set('Function_Stop', psychlua.LuaUtils.Function_Stop);
-		script.set('Function_Continue', psychlua.LuaUtils.Function_Continue);
+		// Function_Stop/Continue 必须用 NMV 语义（ScriptConstants Int），不能用 psychlua
+		// 字符串——ScriptGroup.call/nmvNoteCall 只认 Int 返回（78 号 P1-1）。
+		// 本 preset 只服务 nmv FunkinScript（psychlua.HScript 走 FE 自家 preset），不冲突。
+		// Function_StopLua/StopHScript/StopAll 是 Psych 专有，NMV 语料 0 用，保留字符串无害。
+		script.set('Function_Stop', ScriptConstants.STOP_FUNC);
+		script.set('Function_Continue', ScriptConstants.CONTINUE_FUNC);
 		script.set('Function_StopLua', psychlua.LuaUtils.Function_StopLua);
 		script.set('Function_StopHScript', psychlua.LuaUtils.Function_StopHScript);
 		script.set('Function_StopAll', psychlua.LuaUtils.Function_StopAll);
@@ -230,11 +239,11 @@ class PresetFnf
 		Iris.addProxyImport('funkin.objects.Pet', nmv.objects.PetStub);
 		// modManager 的 FQ 名也接兼容面（`new funkin.game.modchart.ModManager()` 类引用）
 		Iris.addProxyImport('funkin.game.modchart.ModManager', ModManagerCompat);
-		missingProxyImport('funkin.data.FinaleState', 'finale 周剧情收尾，未移植。');
+		Iris.addProxyImport('funkin.data.FinaleState', nmv.data.FinaleState);
 		missingProxyImport('funkin.states.substates.CreditsRollSubState', '制作人员滚动（剧情系统），未移植。');
 		missingProxyImport('funkin.states.HenryState', '剧情状态机，未移植。');
 		missingProxyImport('funkin.states.substates.MissCounterSubstate', 'NMV 特有 substate，未移植。');
-		missingProxyImport('funkin.objects.RGBSprite', '依赖 NMV RGBGraphics 渲染管线，未移植。');
+		Iris.addProxyImport('funkin.objects.RGBSprite', nmv.objects.RGBSprite);
 	}
 
 	/** FQ 类名 → "调用即抛"桩：全限定 new/静态访问撞桩时给带原因的异常。 */

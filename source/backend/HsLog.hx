@@ -15,8 +15,18 @@ class HsLog
 	public static function record(level:String, msg:String):Void
 	{
 		final n:Int = seen.get(msg) ?? 0;
-		if (n >= MAX_REPEATS) return;
 		seen.set(msg, n + 1);
-		Bread.write('HS $level $msg${n + 1 == MAX_REPEATS ? " （后续重复省略）" : ""}');
+		// 前 MAX_REPEATS 次照记；之后只在 10/50/100 与之后的每个整千补一行累计计数
+		//（屏显同款 (x N)，见 PlayState.addTextToDebug）——文件里看得出错误规模，又不刷屏
+		if (n < MAX_REPEATS)
+		{
+			Bread.write('HS $level $msg${n + 1 == MAX_REPEATS ? " （后续重复按阈值记 (x N)）" : ""}');
+		}
+		else
+		{
+			final c:Int = n + 1;
+			if (c == 10 || c == 50 || c == 100 || c % 1000 == 0)
+				Bread.write('HS $level $msg (x$c)');
+		}
 	}
 }

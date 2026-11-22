@@ -47,6 +47,7 @@ import psychlua.*;
 import psychlua.LuaUtils;
 import psychlua.HScript;
 #end
+import nmv.scripting.ScriptConstants;
 
 #if HSCRIPT_ALLOWED
 import psychlua.HScript.HScriptInfos;
@@ -728,6 +729,13 @@ class PlayState extends MusicBeatState
 
 	#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
 	private var luaDebugGroup:FlxTypedGroup<psychlua.DebugLuaText>;
+	// 屏显脚本报错去重（(x N)，对齐 debug.ScreenLog 会话 log 行为）：最近一条的实例与基底文本
+	var lastDebugText:psychlua.DebugLuaText;
+	var lastDebugTextBase:String;
+	var lastDebugTextCount:Int = 0;
+	// NMV 评分弹窗自定义兼容的 ratingNumGroup 裸名顶位：FE 弹窗无数字组，常驻空组，
+	// 脚本（utils.hx onPopUpScorePost）的重定位循环对空组自然 no-op
+	var nmvRatingNumGroup:FlxTypedGroup<FlxSprite> = new FlxTypedGroup<FlxSprite>();
 	#end
 	public var introSoundsSuffix:String = '';
 
@@ -1680,6 +1688,17 @@ class PlayState extends MusicBeatState
 		// 否则"报错打印"本身把游戏炸了（2026-10-28 实测崩溃点）。
 		if (luaDebugGroup == null || !ClientPrefs.data.luadebugPrint) return;
 
+		// 脚本报错重复 (x N)（对齐 debug.ScreenLog 的会话 log 行为）：与上一条基底相同且
+		// 还活着时只涨计数+刷新存活时间，不再推新行——每帧报错不再把屏面刷成瀑布
+		if (lastDebugText != null && lastDebugText.exists && lastDebugTextBase == text)
+		{
+			lastDebugTextCount++;
+			lastDebugText.text = '$text (x$lastDebugTextCount)';
+			lastDebugText.disableTime = 6;
+			lastDebugText.alpha = 1;
+			return;
+		}
+
 		var newText:psychlua.DebugLuaText = luaDebugGroup.recycle(psychlua.DebugLuaText);
 		newText.text = text;
 		newText.color = color;
@@ -1691,6 +1710,9 @@ class PlayState extends MusicBeatState
 			spr.y += newText.height + 2;
 		});
 		luaDebugGroup.add(newText);
+		lastDebugText = newText;
+		lastDebugTextBase = text;
+		lastDebugTextCount = 1;
 	}
 	#end
 
@@ -2251,6 +2273,9 @@ class PlayState extends MusicBeatState
 			doScoreBop();
 
 		callOnScripts('onUpdateScore', [miss]);
+		// NMV onUpdateScorePost（Legacy updateScoreBar 内、Post 于 onUpdateScore 之后；
+		// 语料 victory.hx:138 / sigh.hx:163 覆写计分文本）
+		callOnScripts('onUpdateScorePost', [miss]);
 	}
 
 	public dynamic function updateScoreText()
@@ -2811,8 +2836,10 @@ public function reloadCounterColors()
 	}
 
 	function eventEarlyTrigger(event:EventNote):Float {
-		var returnedValue:Null<Float> = callOnScripts('eventEarlyTrigger', [event.event, event.value1, event.value2, event.strumTime], true);
-		if(returnedValue != null && returnedValue != 0) {
+		var returnedValue:Dynamic = callOnScripts('eventEarlyTrigger', [event.event, event.value1, event.value2, event.strumTime], true);
+		// 归一化后 NMV 容器的 Int 0 会变成 Function_Continue 字符串，这里只认数字语义
+		//（语料 0 用 eventEarlyTrigger，防 NMV 返回值被当 ms 提前量）
+		if(returnedValue != null && returnedValue != 0 && returnedValue != LuaUtils.Function_Continue && returnedValue != LuaUtils.Function_Stop) {
 			return returnedValue;
 		}
 
@@ -4696,6 +4723,12 @@ public function reloadCounterColors()
 
 	public function proceedToNextState():Void
 	{
+		// NMV postEndSong（Legacy popUpEndCallback 位：story 收尾/story 下一首/freeplay 三条
+		// 转场路径统一在切 State 前广播；语料 finale/completion.hx:28 播完 credits 后
+		// return Function_Stop 拦截切换、自行 resetGame——归一化后 Int STOP 走同一比对）
+		var postEndRet:Dynamic = callOnScripts('postEndSong', null, true);
+		if (postEndRet == LuaUtils.Function_Stop) return;
+
 		// 确保游戏音乐已经停止
 		if (vocals != null) vocals.stop();
 		if (opponentVocals != null) opponentVocals.stop();
@@ -4974,6 +5007,12 @@ public function reloadCounterColors()
         var ratingImageToUse:String = foreverLogic.imageName;
         var useGoldenNumbers:Bool = foreverLogic.useGoldenNumbers;
         
+        // NMV onPopUpScore（Legacy popUpScore：评分入账后、弹窗视觉生成前；
+        // 语料 scripts/utils.hx:182。rating 传 backend.Rating，对齐 Legacy funkin.Rating 面）。
+        // 评分弹窗自定义兼容开关（Advanced→Legacy）：关=钩子不广播，FE 原生弹窗
+        if (ClientPrefs.data.nmvRatingPopupCompat)
+            callOnScripts('onPopUpScore', [note, daRating]);
+
         // ========== 创建或复用评级精灵 ==========
         var rating:FlxSprite;
         
@@ -5017,6 +5056,21 @@ public function reloadCounterColors()
 			applyStageVelocity(rating);}
         rating.visible = (!ClientPrefs.data.hideHud && showRating);
         rating.antialiasing = antialias;
+
+        // NMV onPopUpScorePost（Legacy 弹窗视觉生成后；utils.hx 在此改色+重定位弹窗）。
+        // NMV 是 PsychHUD 构造时把私有的 ratingGraphic/ratingNumGroup 注入脚本组
+        // （PsychHUD.hx:113-114），utils.hx 靠这两个裸名干活——缺了报 Unknown variable
+        //（15:18 bread.log 实锤）。FE 的弹窗精灵是本函数局部量且无数字组：每次弹出前
+        // 把全局重设为当前实例；ratingNumGroup 用常驻空组顶位（重定位循环对空组 no-op）。
+        #if HSCRIPT_ALLOWED
+        if (nmvScripts != null && ClientPrefs.data.nmvRatingPopupCompat)
+        {
+            nmvScripts.set('ratingGraphic', rating);
+            nmvScripts.set('ratingNumGroup', nmvRatingNumGroup);
+        }
+        #end
+        if (ClientPrefs.data.nmvRatingPopupCompat)
+            callOnScripts('onPopUpScorePost', [note, daRating]);
 
 		var earlyLateSpr:FlxSprite = null;
 		if (!ClientPrefs.data.hideHud && daRating.name != "marvelous" && daRating.name != "sick" && ClientPrefs.data.customUI.toLowerCase().contains("forever") && ClientPrefs.data.showEarlyLate)
@@ -5835,10 +5889,15 @@ public function reloadCounterColors()
 	{
 		if(ClientPrefs.data.ghostTapping) return; //fuck it
 
+		// NMV noteMissPress 是门禁回调（Legacy PlayState:3176 stopping() 拦默认 miss 惩罚；
+		// 语料 sigh.hx:92 自管血量/音效后 return Function_Stop）。广播前移到处理前，
+		// 返回 Function_Stop（psychlua 串或 NMV Int 归一化后）= 跳过整套默认处理。
+		var missPressRet:Dynamic = callOnScripts('noteMissPress', [direction], true);
+		if (missPressRet == LuaUtils.Function_Stop) return;
+
 		noteMissCommon(direction);
 		FlxG.sound.play(Paths.soundRandom('missnote', 1, 3), FlxG.random.float(0.1, 0.2));
 		stagesFunc(function(stage:BaseStage) stage.noteMissPress(direction));
-		callOnScripts('noteMissPress', [direction]);
 	}
 
 	function noteMissCommon(direction:Int, note:Note = null)
@@ -6275,6 +6334,8 @@ public function reloadCounterColors()
 		splash.babyArrow = strum;
 		splash.lane = lane; // 必须在 spawnSplashNote 之前记录：它会随机化 noteData
 		splash.spawnSplashNote(x, y, data, note);
+		// NMV onSpawnNoteSplash（Legacy PlayField.spawnSplash；语料 sigh.hx:155 调 timeScale）
+		if (note != null) callOnScripts('onSpawnNoteSplash', [splash, note], true);
 	}
 
 	override function destroy() {
@@ -6566,7 +6627,14 @@ public function reloadCounterColors()
 		// NMV 脚本 API 容器与 lua/hscript 同一入口广播，事件名保持一套
 		#if HSCRIPT_ALLOWED
 		if (nmvScripts != null && (result == null || excludeValues.contains(result)))
+		{
 			result = nmvScripts.call(funcToCall, args ?? [], ignoreStops, exclusions ?? []);
+			// NMV 返回语义归一化（78 号 P1-1）：NMV 常量是 Int（STOP=1/CONTINUE=0），
+			// 本函数的调用方（onEndSong/onGameOver/preUpdateScore 等 gate 点）统一比对
+			// psychlua 字符串——Int 非零即停（对齐 NMV ScriptConstants.stopping 语义）。
+			// nmvScripts.call 直调点（nmvNoteCall 等）不经过这里，Int 语义不受影响。
+			if (result is Int) result = (result == ScriptConstants.CONTINUE_FUNC) ? LuaUtils.Function_Continue : LuaUtils.Function_Stop;
+		}
 		#end
 		return result;
 	}

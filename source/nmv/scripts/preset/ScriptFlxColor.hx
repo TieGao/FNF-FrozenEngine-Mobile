@@ -41,7 +41,73 @@ class ScriptFlxColor
 	public static inline function getBlue(color:Int):Int
 		return cast FlxColor.fromInt(color).blue;
 
-	public static inline function interpolate(a:Int, b:Int, factor:Float = 1):Int
+	public static inline function getRedFloat(color:Int):Float
+		return FlxColor.fromInt(color).redFloat;
+
+	public static inline function getGreenFloat(color:Int):Float
+		return FlxColor.fromInt(color).greenFloat;
+
+	public static inline function getBlueFloat(color:Int):Float
+		return FlxColor.fromInt(color).blueFloat;
+
+	// 78 号 P1-2：以下为 Legacy ScriptedFlxColor 有而本封装缺的静态面。
+	// 实锤用例 finaleUI.hx:121-129（finale 歌 HUD 染色）getHue/getSaturation/
+	// getBrightness/getYellow/getCyan/getMagenta/getGreenFloat/getBlueFloat/subtract ×12。
+	public static inline function getHue(color:Int):Float
+		return FlxColor.fromInt(color).hue;
+
+	public static inline function getSaturation(color:Int):Float
+		return FlxColor.fromInt(color).saturation;
+
+	public static inline function getBrightness(color:Int):Float
+		return FlxColor.fromInt(color).brightness;
+
+	public static inline function getLightness(color:Int):Float
+		return FlxColor.fromInt(color).lightness;
+
+	public static inline function getCyan(color:Int):Float
+		return FlxColor.fromInt(color).cyan;
+
+	public static inline function getMagenta(color:Int):Float
+		return FlxColor.fromInt(color).magenta;
+
+	public static inline function getYellow(color:Int):Float
+		return FlxColor.fromInt(color).yellow;
+
+	public static inline function getBlack(color:Int):Float
+		return FlxColor.fromInt(color).black;
+
+	public static inline function getLightened(color:Int, factor:Float = 0.2):Int
+		return cast FlxColor.fromInt(color).getLightened(factor);
+
+	public static inline function getDarkened(color:Int, factor:Float = 0.2):Int
+		return cast FlxColor.fromInt(color).getDarkened(factor);
+
+	public static inline function getInverted(color:Int):Int
+		return cast FlxColor.fromInt(color).getInverted();
+
+	public static inline function multiply(colorA:Int, colorB:Int):Int
+		return cast(FlxColor.fromInt(colorA) * FlxColor.fromInt(colorB));
+
+	public static inline function subtract(colorA:Int, colorB:Int):Int
+		return cast(FlxColor.fromInt(colorA) - FlxColor.fromInt(colorB));
+
+	public static inline function add(colorA:Int, colorB:Int):Int
+		return cast(FlxColor.fromInt(colorA) + FlxColor.fromInt(colorB));
+
+	public static inline function toRGBA(color:Int):Array<Int>
+	{
+		final c:FlxColor = FlxColor.fromInt(color);
+		return [c.red, c.green, c.blue, c.alpha];
+	}
+
+	public static function getHSBColorWheel(alpha:Int = 255):Array<Int>
+		return cast FlxColor.getHSBColorWheel(alpha);
+
+	public static function gradient(color1:Int, color2:Int, steps:Int, ?ease:Float->Float):Array<Int>
+		return cast FlxColor.gradient(FlxColor.fromInt(color1), FlxColor.fromInt(color2), steps, ease);
+
+	public static inline function interpolate(a:Int, b:Int, factor:Float = 0.5):Int
 	{
 		var ca:FlxColor = FlxColor.fromInt(a);
 		var cb:FlxColor = FlxColor.fromInt(b);

@@ -1610,6 +1610,10 @@ class KEOptionsMenu extends MusicBeatState
 			//KEOption.create("Replay Manager", "Manage and view ur Replays", "", "action"),
 			KEOption.create("Options Style", "Choose which options menu style to use", "optionstype", "string", ["new", "psych", "ke"]),
 			KEOption.create("Lua Script Parser", "Parse lua scripts before a song loads: native (off), check syntax only, or preload their assets", "luaScriptParser", "string", ["native", "check", "preload"]),
+			// NMV / Impostor Legacy 兼容项（psych 风格在 AdvancedData 的 Legacy 段；
+			// legacyCompactLanes 此前只加了 psych 风格，这里补齐双写）
+			KEOption.create("Legacy Compact Lanes", "NMV multi-lane songs: draw the extra lanes' notes on the visible lanes (white, auto, never hittable) and hide the extra strumlines. Off = reference behaviour (extra lanes pushed offscreen, notes fully transparent)", "legacyCompactLanes", "bool"),
+			KEOption.create("NMV Rating Popup Compat", "Let NMV global scripts (utils.hx) restyle and reposition the rating popup (onPopUpScore hooks). Off = stock popup, those hooks are not called", "nmvRatingPopupCompat", "bool"),
 			KEOption.createResetOption("Reset Settings", "settings"),
 			KEOption.createResetOption("Reset Scores", "scores"),
 			KEOption.create("About", "View information about the game", "", "action"),
