@@ -28,10 +28,10 @@ class PresetStubs
 			return new shaders.ErrorHandledShader.ErrorHandledRuntimeShader(name, source);
 		});
 
-		// modchart 族：ModManager 已换记录式兼容面（nmv.utils.ModManagerCompat，PresetFnf 注册）；
+		// modchart 族：ModManager 已换记录式兼容面（nmv.utils.ModManagerCompat，PresetFnf 注册），
+		// Modifier/NoteModifier/SubModifier 已注册真类（PresetFnf，2026-11-23 P2）；
 		// 其余子件仍显式失败
-		for (name in ['SubModifier', 'NoteModifier', 'ScriptedModifier', 'EventTimeline', 'Modifier',
-			'StepCallbackEvent', 'CallbackEvent', 'ModEvent', 'EaseEvent', 'SetEvent'])
+		for (name in ['ScriptedModifier', 'EventTimeline', 'StepCallbackEvent', 'CallbackEvent', 'ModEvent', 'EaseEvent', 'SetEvent'])
 		{
 			missing(script, name, 'NMV modchart 未移植（FE 无 modchart 体系）。');
 		}

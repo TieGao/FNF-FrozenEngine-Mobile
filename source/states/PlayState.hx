@@ -1521,6 +1521,9 @@ class PlayState extends MusicBeatState
 					? Paths.currentContentRoot + '/songs/' + Paths.formatToSongPath(SONG.song)
 					: null);
 			nmvScripts.loadDir(nmvScriptDir, Mods.currentModDirectory);
+			// NMV 歌曲脚本二级目录（Legacy PlayState:824-825：songs/<歌>/ 根 + /scripts/ 子目录）；
+			// 语料 0 实例，loadDir 自带存在性守卫，加包有实例时自动生效
+			nmvScripts.loadDir(nmvScriptDir + '/scripts', Mods.currentModDirectory);
 			nmvScripts.loadStateScript('PlayState', Mods.currentModDirectory);
 		}
 		#end
@@ -4017,7 +4020,11 @@ public function reloadCounterColors()
 			// 这些名字只出现在 NMVMODS 包的事件里，FE 谱面不会用到；
 			// 落进 switch 让末尾的 stagesFunc/onEvent 广播与 NMV 原版一致（原生处理后仍广播脚本）。
 			case 'Set Cam Zoom': // NMV：defaultCamZoom 绝对值直设（注意与 Psych 'Set Camera Zoom' 乘数语义不同）
-				if(!Math.isNaN(flValue1)) defaultCamZoom = flValue1;
+				// 守卫必须用 != null：triggerEvent 头部已把 NaN 归一成 null，CPP 上
+				// Math.isNaN(null) 会把 null 强转 0.0 判 false，原写法对每个非数字 value1
+				// （psych 包的 'cur,+0.05' 相对缩放事件）都把 defaultCamZoom 强写成 0，
+				// 模组 Lua 随后读到 0 → 镜头塌缩/负值（Sonic.exe 2.5 Triple Trouble 实锤）。
+				if(flValue1 != null) defaultCamZoom = flValue1;
 
 			case 'Camera Zoom': // NMV：defaultCamZoom 乘数 + 可选 '时长,ease' 补间（NMV 硬编码 circOut）
 				FlxTween.cancelTweensOf(FlxG.camera, ['zoom']);

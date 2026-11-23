@@ -296,7 +296,7 @@
 		     数据根 /storage/emulated/0/.FrozenEngine/ 能建出来但写不进去，复制和 zip 解压会全量失败。
 		     Android 11+ 会忽略这个属性，权限走 MANAGE_EXTERNAL_STORAGE。 -->
 		<config:android>
-			<application android:requestLegacyExternalStorage="true" />
+			<application android:appCategory="game" android:isGame="true" android:requestLegacyExternalStorage="true" />
 		</config:android>
 		<!-- 权限 12 条 = lime 原默认基础 4 + 媒体/存储 8。
 		     注意 getArrayString 是替换语义：声明任意权限会把 lime 默认的基础 4 条挤掉——

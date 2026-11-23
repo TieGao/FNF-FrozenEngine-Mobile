@@ -114,9 +114,19 @@ class PresetFnf
 		script.set('audio', new nmv.objects.NmvAudioShim());
 
 		// NMV 的 modManager（modchart 引擎）：完整体系未移植，用记录式兼容面
-		// （setValue/getValue 真存值，时间线/定位 API 记录式 no-op + 一次性面包屑），
-		// 否则 attack/defeat/sigh 的 onCreatePost 撞"调用即抛"桩直接断链
+		// （setValue/getValue 真存值，queue 系列/registerMod 已对齐 Legacy 形状，时间线/定位
+		// API 记录式 no-op + 一次性面包屑），否则 attack/defeat/sigh 的 onCreatePost
+		// 撞"调用即抛"桩直接断链
 		script.set('modManager', sharedModManager);
+
+		// modchart 真类（引擎侧已移植的三个基类；语料 `new SubModifier('rollSize', modManager)`
+		// CreditsRollSubState:281 走这条）。ScriptedModifier/EventTimeline/事件件仍未移植，
+		// 维持 PresetStubs 抛桩。真类构造器收的 modMgr 形参是 nmv.modchart.ModManager，
+		// 脚本传进来的实际是兼容面实例（hscript 无类型检查，仅记录），内部 mgr.* 触点
+		// 若用到兼容面没有的成员会炸——登记进内核后由 core 驱动，属已知限制。
+		script.set('Modifier', nmv.modchart.Modifier);
+		script.set('NoteModifier', nmv.modchart.NoteModifier);
+		script.set('SubModifier', nmv.modchart.SubModifier);
 
 		// 通用工具（Psych 系 preset 也有，脚本常直接调）
 		script.set('buildTarget', psychlua.LuaUtils.getBuildTarget());

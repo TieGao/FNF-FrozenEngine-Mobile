@@ -29,6 +29,14 @@ class PresetCore
 		script.set("Assets", lime.utils.Assets);
 		script.set("OpenFlAssets", openfl.utils.Assets);
 
+		// Legacy 引擎显式注册的全局（Legacy FunkinScript.hx:236-249）：Date/Sys/Lib/Main。
+		// Date 语料虽靠脚本自带 import 也能拿到，但 NMV 是 preset 注入（脚本不 import 就能用）；
+		// Main 是最小面（nmv.backend.LegacyMain，LEGACY_VERSION 同 Legacy 引擎值 1.1.3）。
+		script.set("Date", Date);
+		script.set("Sys", Sys);
+		script.set("Lib", openfl.Lib);
+		script.set("Main", nmv.backend.LegacyMain);
+
 		#if sys
 		script.set('File', sys.io.File);
 		script.set('FileSystem', sys.FileSystem);

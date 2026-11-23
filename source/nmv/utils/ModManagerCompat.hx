@@ -12,11 +12,12 @@ import objects.Note;
  * onCreatePost——它们 setValue 完才会继续做正事（attack 的 noteType 路由、defeat 的
  * opponentSwap），连锁把"切换角色唱歌"的歌曲搞坏。
  *
- * 语义分级：
- * - setValue/getValue：真存值（per 车道），脚本回读一致；
- * - registerMod：接受并记录名字；
- * - queueEase/queueFuncOnce/updateObject/getPos/updateTimeline/update：记录式 no-op
- *   + 每个修改器名只打一次面包屑（视觉效果退化但有迹可查）。
+ * 语义分级（2026-11-23 P2：queue 系列/registerMod/percent 族已对齐 Legacy 形状，见 78 号 §九）：
+ * - setValue/getValue/getPercent/setPercent：真存值（per 车道；player=-1 风扇出全 lanes），脚本回读一致；
+ * - registerMod(modName, mod, registerSubmods)：真 Modifier 实例登记进内核，其余记名放行；
+ * - queueEase/queueSet/queueEaseP/queueSetP：Legacy 形状，target 立即落值（无时间线调度）；
+ * - queueFunc/queueFuncOnce(step, callback)：Legacy 形状，回调立即执行一次；
+ * - updateObject/getPos/updateTimeline/update：记录式 no-op + 面包屑（视觉退化但有迹可查）。
  */
 class ModManagerCompat
 {
@@ -45,12 +46,17 @@ class ModManagerCompat
 	 */
 	public var core:nmv.modchart.ModManager = new nmv.modchart.ModManager();
 
-	public function new(?lanes:Int = 1, ?keys:Int = 4)
+	/**
+	 * 第一参容忍任意对象：NMV 语料是 `new ModManager(game)`（CreditsRollSubState:280，
+	 * 传 PlayState）——Legacy 构造器收 state，这里按 Legacy 形状收 Dynamic，非数值一律
+	 * 走默认（否则 CPP 上 Dynamic→Int 强转直接抛异常，脚本在构造处就断）。
+	 */
+	public function new(?lanes:Dynamic = null, ?keys:Dynamic = null)
 	{
-		this.lanes = lanes;
-		this.keys = keys;
-		core.lanes = lanes;
-		core.keys = keys;
+		if (Std.isOfType(lanes, Int) || Std.isOfType(lanes, Float)) this.lanes = Std.int(lanes);
+		if (Std.isOfType(keys, Int) || Std.isOfType(keys, Float)) this.keys = Std.int(keys);
+		core.lanes = this.lanes;
+		core.keys = this.keys;
 	}
 
 	// ---- 位置函数（NMV ModManager 原式，供多人唱排布与 modchart delta 使用）----
@@ -110,9 +116,21 @@ class ModManagerCompat
 		backend.Bread.crumb('nmv modchart no-op: ' + what + '(\'' + field + '\')（modchart 体系未移植，视觉退化）');
 	}
 
-	public function setValue(field:String, value:Dynamic, ?playFieldIndex:Int = 0):Dynamic
+	/**
+	 * Legacy 形状 `setValue(modName, val, player=-1)`：player=-1（默认）**风扇出全部 lanes**
+	 * （Legacy ModManager.hx:123），不是只写 lane 0。
+	 */
+	public function setValue(field:String, value:Dynamic, ?player:Int = -1):Dynamic
 	{
-		bucket(field).set(playFieldIndex ?? 0, value);
+		if (player == null || player < 0)
+		{
+			for (p in 0...lanes)
+				bucket(field).set(p, value);
+		}
+		else
+		{
+			bucket(field).set(player, value);
+		}
 		warnOnce('setValue', field);
 		return value;
 	}
@@ -121,6 +139,20 @@ class ModManagerCompat
 	{
 		final b:Map<Int, Dynamic> = values.get(field);
 		return (b != null && b.exists(playFieldIndex ?? 0)) ? b.get(playFieldIndex ?? 0) : 0;
+	}
+
+	/** Legacy 形状：percent = 存储值 ×100（setPercent 存 val/100 的逆运算，Legacy ModManager.hx:117）。 */
+	public function getPercent(field:String, ?playFieldIndex:Int = 0):Float
+	{
+		final v:Dynamic = getValue(field, playFieldIndex);
+		final f:Float = Std.isOfType(v, Float) || Std.isOfType(v, Int) ? v : 0;
+		return f * 100;
+	}
+
+	/** Legacy 形状 `setPercent(modName, val, player=-1)`：存 val/100（Legacy ModManager.hx:121）。 */
+	public function setPercent(field:String, val:Float, ?player:Int = -1):Void
+	{
+		setValue(field, val * 0.01, player);
 	}
 
 	/**
@@ -221,46 +253,105 @@ class ModManagerCompat
 		return mult;
 	}
 
-	public function registerMod(mod:Dynamic, ?subMod:Dynamic = null, ?save:Bool = true):Dynamic
+	/**
+	 * Legacy 形状 `registerMod(modName, mod, registerSubmods=true)`（Legacy ModManager.hx:88）。
+	 *
+	 * 真 `Modifier` 实例转登记进内核（core.registerMod 以 modName 为键）——P2 把子类搬齐后
+	 * getPosDelta 会自己开始出量，脚本侧不用改；非 Modifier 只记名放行（记录式语义）。
+	 * 本仓旧形状是 `(mod, ?subMod, ?save)`（78 号 P2 表：语料 `(name, new SubModifier(...))`
+	 * 会把名字当 mod），语料与引擎侧均无旧序调用，直接换序不设兼容分支。
+	 */
+	public function registerMod(modName:String, mod:Dynamic, ?registerSubmods:Bool = true):Dynamic
 	{
-		final name:String = (mod != null && Reflect.hasField(mod, 'name')) ? Reflect.field(mod, 'name') : Std.string(Type.typeof(mod));
+		final name:String = (modName != null && modName.length > 0) ? modName
+			: ((mod != null && Reflect.hasField(mod, 'name')) ? Reflect.field(mod, 'name') : 'unnamed');
 		warnOnce('registerMod', name);
-		// 真的 Modifier 实例转登记进内核：P2 把子类搬齐后，getPosDelta 会自己开始出量，
-		// 脚本侧（仍走本兼容面）不用改一行。
-		if (Std.isOfType(mod, nmv.modchart.Modifier)) core.registerMod(cast mod);
+		if (Std.isOfType(mod, nmv.modchart.Modifier)) core.registerMod(cast mod, name);
 		return mod;
 	}
 
+	/** Legacy 形状 quickRegister(mod)：registerMod(mod.getName(), mod)（Legacy ModManager.hx:86）。 */
 	public function quickRegister(mod:Dynamic):Dynamic
 	{
-		return registerMod(mod);
+		final name:String = Std.isOfType(mod, nmv.modchart.Modifier) ? cast(mod, nmv.modchart.Modifier).getName() : 'unnamed';
+		return registerMod(name, mod);
 	}
 
 	// ---- 时间线/对象操作：记录式 no-op（完整时间线引擎未移植）
+	// Legacy 形状对照 ModManager.hx:305-345：player=-1 风扇出全部 lanes；target 立即落值
+	// （无 EventTimeline 调度，语义 = step 0 就到位；语料 setValue 也是立即语义，视觉一致）。
 
-	public function queueEase(playFieldIndex:Int, startTime:Float, endTime:Float, value:Dynamic, field:String, ?ease:String = 'linear'):Void
+	public function queueEase(step:Float, endStep:Float, modName:String, target:Float, ?style:String = 'linear', ?player:Int = -1,
+			?startVal:Float):Void
 	{
-		bucket(field).set(playFieldIndex, value);
-		warnOnce('queueEase', field);
+		if (player == null || player < 0)
+		{
+			for (p in 0...lanes)
+				bucket(modName).set(p, target);
+		}
+		else
+		{
+			bucket(modName).set(player, target);
+		}
+		warnOnce('queueEase', modName);
 	}
 
-	public function queueFuncOnce(func:Dynamic, timestamp:Float, ?playFieldIndex:Int = 0):Void
+	/** Legacy 形状（percent 版，×0.01 后走 queueEase；Legacy ModManager.hx:305）。 */
+	public function queueEaseP(step:Float, endStep:Float, modName:String, percent:Float, ?style:String = 'linear', ?player:Int = -1,
+			?startVal:Float):Void
 	{
-		// 一次性回调推迟执行会破坏时序语义，直接执行保逻辑正确（如 defeat 的 UI 切换）
+		queueEase(step, endStep, modName, percent * 0.01, style, player, startVal == null ? null : startVal * 0.01);
+	}
+
+	public function queueSet(step:Float, modName:String, target:Float, ?player:Int = -1):Void
+	{
+		if (player == null || player < 0)
+		{
+			for (p in 0...lanes)
+				bucket(modName).set(p, target);
+		}
+		else
+		{
+			bucket(modName).set(player, target);
+		}
+		warnOnce('queueSet', modName);
+	}
+
+	/** Legacy 形状（percent 版；Legacy ModManager.hx:308）。 */
+	public function queueSetP(step:Float, modName:String, percent:Float, ?player:Int = -1):Void
+	{
+		queueSet(step, modName, percent * 0.01, player);
+	}
+
+	/**
+	 * Legacy 形状 `queueFunc(step, endStep, callback)`（StepCallbackEvent，Legacy ModManager.hx:339）。
+	 * 无时间线：立即执行一次（同 queueFuncOnce 的既有决策）。
+	 */
+	public function queueFunc(step:Float, endStep:Float, callback:Dynamic):Void
+	{
+		runCallbackNow(callback, 'queueFunc');
+	}
+
+	/**
+	 * Legacy 形状 `queueFuncOnce(step, callback)`——**参数序修正**：本仓旧形状是
+	 * `(func, timestamp)`（78 号 P2 表：语料 `(timestamp, func)` 调用时 func=数字被静默跳过）。
+	 * 语料回调全用 `function(_)` 忽略实参（CreditsRollSubState:339 等 ~20 处），无参调用即可。
+	 */
+	public function queueFuncOnce(step:Float, callback:Dynamic):Void
+	{
+		runCallbackNow(callback, 'queueFuncOnce');
+	}
+
+	function runCallbackNow(callback:Dynamic, what:String):Void
+	{
 		try
 		{
-			if (Reflect.isFunction(func)) Reflect.callMethod(null, func, []);
+			if (Reflect.isFunction(callback)) Reflect.callMethod(null, callback, []);
 		}
 		catch (e:Dynamic)
 		{
-			backend.Bread.crumb('nmv modchart queueFuncOnce exec failed: ' + e);
+			backend.Bread.crumb('nmv modchart ' + what + ' exec failed: ' + e);
 		}
-	}
-
-	public function queueSet(playFieldIndex:Int, timestamp:Float, field:String, value:Dynamic):Void
-	{
-		bucket(field).set(playFieldIndex, value);
-		warnOnce('queueSet', field);
 	}
 
 	public function updateObject(beat:Float, obj:FlxSprite, pos:Dynamic, ?playFieldIndex:Int = 0):Void
@@ -268,7 +359,10 @@ class ModManagerCompat
 		warnOnce('updateObject', 'objects');
 	}
 
-	public function getPos(playFieldIndex:Int, beat:Float, time:Float, height:Float, column:Int, ?player:Int = 0, ?data:Dynamic = null):Dynamic
+	/** Legacy 形状 `getPos(time, diff, tDiff, beat, data, player, obj)`（Legacy ModManager.hx:280）。
+	 *  记录式 no-op：完整定位引擎未移植，返回 null。 */
+	public function getPos(time:Float, diff:Float, tDiff:Float, beat:Float, data:Int, ?player:Int = 0, ?obj:FlxSprite = null,
+			?exclusions:Array<String> = null, ?pos:Dynamic = null):Dynamic
 	{
 		warnOnce('getPos', 'pos');
 		return null;

@@ -48,6 +48,12 @@ class MainMenuState extends MusicBeatState
 	var camFollow:FlxObject;
 
 	static var showOutdatedWarning:Bool = true;
+
+	#if HSCRIPT_ALLOWED
+	/** NMV 状态脚本容器：scripts/states/MainMenuState.hx（Legacy 包里是 inDevMode 调试面板，挂上无害）。 */
+	public var nmvScripts:nmv.scripts.NMVSciptHolder = null;
+	#end
+
 	override function create()
 	{
 		super.create();
@@ -58,6 +64,14 @@ class MainMenuState extends MusicBeatState
 		Mods.pushGlobalMods();
 		#end
 		Mods.loadTopMod();
+
+		// NMV 状态脚本挂载（76 号 #11 修正：Legacy MainMenuState.hx 实为 inDevMode 调试面板
+		// 而非"自绘菜单"，挂上无害；早退分支只加载不显示）。FreeplayState 同款模式。
+		#if HSCRIPT_ALLOWED
+		nmvScripts = new nmv.scripts.NMVSciptHolder(this);
+		if (nmvScripts.loadStateScript('MainMenuState', backend.NMVContentData.currentMod))
+			nmvScripts.call('onCreate');
+		#end
 
 		#if mobile
 		showDataNotice();
@@ -215,6 +229,19 @@ class MainMenuState extends MusicBeatState
 	}
 	#end
 
+	#if HSCRIPT_ALLOWED
+	override function destroy()
+	{
+		if (nmvScripts != null)
+		{
+			nmvScripts.group.call('onDestroy');
+			nmvScripts.destroy();
+			nmvScripts = null;
+		}
+		super.destroy();
+	}
+	#end
+
 	function createMenuItem(name:String, x:Float, y:Float):FlxSprite
 	{
 		var menuItem:FlxSprite = new FlxSprite(x, y);
@@ -235,6 +262,14 @@ class MainMenuState extends MusicBeatState
 	var timeNotMoving:Float = 0;
 	override function update(elapsed:Float)
 	{
+		#if HSCRIPT_ALLOWED
+		if (nmvScripts != null)
+		{
+			nmvScripts.call('onUpdate', [elapsed]);
+			nmvScripts.call('onUpdatePost', [elapsed]);
+		}
+		#end
+
 		starsBG.x -= 0.05;
         starsFG.x -= 0.15;
         
