@@ -1,6 +1,8 @@
 package states;
 
 #if BOOT_DATA_ALLOWED
+
+
 #if mobile
 import extension.documentpicker.DocumentPicker;
 #else
@@ -43,6 +45,12 @@ import sys.io.File;
  * mod 合集等民间打包自动重映射进 mods/（裸内容用 zip 文件名当 mod 名）；
  * 垃圾条目（__MACOSX/.DS_Store/Thumbs.db 等）静默跳过。
  */
+#if cpp
+// 原生解码层的 C 符号声明（rar/7z）。@:cppFileCode 只进本类的 .cpp，而调用都发生在 BootDataState.cpp，所以必须挂在这里，不能挂在 NativeArchive 上。
+@:cppFileCode('
+#include "fnf_archive.h"
+')
+#end
 class BootDataState extends MusicBeatState
 {
 	/** 原版数据（base_game）就绪标记：数据包必带、APK 内嵌没有的目录（week2 谱面数据）。 */
@@ -56,15 +64,28 @@ class BootDataState extends MusicBeatState
 	/** 识别为垃圾的用户压缩附带条目（小写文件名）。 */
 	static final JUNK_FILES:Array<String> = ['.ds_store', 'thumbs.db', 'desktop.ini'];
 	/** iOS 文档选择器的 zip UTI（Android 端忽略类型参数）。 */
-	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip', 'application/x-zip-compressed'];
+	/** 数据包可选容器：zip 走引擎自己的流式路径，rar/7z 走原生解码层（backend.NativeArchive）。
+	 *  Android 的 ACTION_OPEN_DOCUMENT 按 MIME 过滤，所以 rar/7z 的几种注册写法都要列上。 */
+	public static final ZIP_UTIS:Array<String> = ['com.pkware.zip-archive', 'public.zip-archive', 'application/zip',
+		'application/x-zip-compressed', 'application/vnd.rar', 'application/x-rar-compressed', 'application/x-rar',
+		'application/x-7z-compressed', 'application/x-7z'];
 	/** 每帧处理时间片（秒），迁移/拷贝/解压共用。移动端保持小片（MIUI 内存墙+发热）；桌面端解压已是原生
 	 *  zlib，放宽到 30ms 换吞吐（导入期间 UI 掉到 ~30fps，全程仅几秒）。 */
 	static inline final FRAME_BUDGET:Float = #if mobile 0.012 #else 0.030 #end;
+	/** 流式解压的输入窗口（= 每次原生 inflate 调用喂进去的压缩字节数）。窗口越小，调用次数与
+	 *  局部缓冲搬移越多：64KB → 256KB 让大条目（ogg/图集）少掉 3/4 的调用开销。 */
+	static inline final STREAM_IN_BUF:Int = 262144; // 256KB
+	/** 流式解压的输出块：一次 writeBytes 落盘的量。256KB → 1MB 减少 3/4 的写调用（移动端 FUSE 写慢，减半）。 */
+	static inline final STREAM_OUT_BUF:Int = #if mobile 524288 #else 1048576 #end;
 	/** DEFLATE 条目整条读入走一次性原生 inflate 的 compressed 尺寸上限（整条驻留内存）。
 	 *  超限/描述符条目（dataSize 未知）退回流式解压。移动端维持 32MB（MIUI 内存墙），桌面放宽到 256MB。 */
 	static inline final NATIVE_INFLATE_MAX:Int = #if mobile 33554432 #else 268435456 #end;
 	/** 一次性解压的解压后尺寸上限（防 zip 炸弹把整块输出吃进内存）。超出走流式。 */
 	static inline final ONESHOT_OUT_MAX:Int = #if mobile 67108864 #else 536870912 #end; // 64MB / 512MB
+	/** 压缩数据 slab 的常驻上限：超过就临时分配（不留常驻），避免单个巨型条目把水位顶住。 */
+	static inline final RAW_BUF_KEEP_MAX:Int = #if mobile 8388608 #else 33554432 #end; // 8MB / 32MB
+	/** 解压输出 slab 的常驻上限。 */
+	static inline final ONESHOT_BUF_KEEP_MAX:Int = #if mobile 16777216 #else 67108864 #end; // 16MB / 64MB
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
@@ -85,15 +106,24 @@ class BootDataState extends MusicBeatState
 	var jobDone:Int = 0;
 
 	// ---- zip 导入（流式）----
-	var tmpBuf:Bytes; // 64KB 分块缓冲，全流程复用（native 内存曲线恒定，防 GC 峰值撞 MIUI 内存墙）
-	var inflateOutBuf:Bytes; // 流式原生解压的 256KB 输出块（全流程复用）
+	var tmpBuf:Bytes; // 256KB 分块缓冲，全流程复用（native 内存曲线恒定，防 GC 峰值撞 MIUI 内存墙）
+	var inflateOutBuf:Bytes; // 流式原生解压的输出块（全流程复用）
+	var rawBuf:Bytes; // 一次性解压的压缩数据 slab（复用，省掉每条目 malloc + 首触页）
+	var oneshotBuf:Bytes; // 一次性解压的输出 slab（同上）
 	var ensuredDirs:Map<String, Bool> = new Map(); // 已确保存在的父目录缓存（免逐段 exists 的 stat 风暴）
+	var absRoot:String = ''; // 数据根绝对路径（带尾斜杠）；懒算一次后缓存，免每条目过 JNI
 	var pendingZipPath:String; // DocumentPicker 回调跑在 JNI 线程：只写这个标记，update() 在 GL 线程消费
 	var zipInput:FileInput;
 	var zipReader:Reader;
 	var zipStream:haxe.io.Input; // @:privateAccess 取自 zipReader
 	var zipEntries:Int = 0;
 	var importedAssetsEntries:Bool = false;
+	var nativeArchive:Bool = false; // 当前导入走原生 rar/7z 路径
+	var nativeTotalEntries:Int = 0; // 预扫拿到的条目数（原生路径按条目数出进度）
+	var nativeDoneEntries:Int = 0;
+	var nativeFailedEntries:Int = 0; // 写入失败的条目数：>0 时不能再报「导入成功」
+	var nativeFailSamples:Array<String> = []; // 失败样本（只留前几条，日志别刷屏）
+	var skippedRootFiles:Array<String> = []; // 官方包根级的多余文件（README 等）：跳过不装，也不再整包报错
 
 	// ---- zip 结构自适应（预扫头解析出的重映射规则，解压阶段逐条套用）----
 	var zipStrip:Int = 0; // 每条路径先剥掉的公共外层段数
@@ -102,12 +132,13 @@ class BootDataState extends MusicBeatState
 	var zipBarePrefix:String = ''; // mods 裸内容模式：统一前缀 mods/<zip名>/
 
 	// ---- zip 导入计时取证（慢导入排查：时间在解压 CPU / 写盘 I/O / 头解析，汇总落盘 logs/）----
+	var tScan:Float = 0; // 预扫（读中央目录）
 	var tHeader:Float = 0;
 	var tInflate:Float = 0;
 	var tCopy:Float = 0;
 	var tWrite:Float = 0;
 	var tPrep:Float = 0; // exists/delete/open/ensureDirs
-	var bytesOut:Int = 0;
+	var bytesOut:Float = 0; // 累计解压字节：3GB 级数据包会撑爆 Int（旧实现记成负数）
 	var zipTotalBytes:Float = 0;
 	var zipStartedAt:Float = 0;
 	var zipPathUsed:String = '';
@@ -140,7 +171,10 @@ class BootDataState extends MusicBeatState
 				processWorkSlice();
 
 			case Extracting:
-				processExtractSlice();
+				if (nativeArchive)
+					processArchiveSlice();
+				else
+					processExtractSlice();
 
 			case PickingZip:
 				if (pendingZipPath != null)
@@ -382,15 +416,41 @@ class BootDataState extends MusicBeatState
 		{
 			pendingZipPath = ''; // 取消：空串 sentinel
 		});
-		dialog.browse(FileDialogType.OPEN, 'zip', null,
-			Language.getPhrase('data.boot.zip.pick.title', 'Select a data pack or mod zip'));
+		dialog.browse(FileDialogType.OPEN, 'zip,rar,7z', null,
+			Language.getPhrase('data.boot.zip.pick.title', 'Select a data pack or mod zip / rar / 7z'));
 		#end
 	}
 
 	function openZip(zipPath:String):Void
 	{
+		// rar/7z 交给原生解码层（libarchive）：它不是 zip 流，条目头/数据描述符那套逻辑全不适用
+		if (isNativeArchivePath(zipPath))
+			openNativeArchive(zipPath);
+		else
+			openZipByStream(zipPath);
+	}
+
+	/** 扩展名路由：rar/7z 走原生层；其余（含被改名成 .rar 的 zip，原生层打不开会回退）走 zip 流式路径。 */
+	static function isNativeArchivePath(path:String):Bool
+	{
+		var p:String = path.toLowerCase();
+		return StringTools.endsWith(p, '.rar') || StringTools.endsWith(p, '.7z');
+	}
+
+	/** zip 分支主体（中央目录预扫 + 流式解压）。 */
+	function openZipByStream(zipPath:String):Void
+	{
+		// rar/7z 交给原生解码层（libarchive）：它不是 zip 流，条目头/数据描述符那套逻辑全不适用
+		if (isNativeArchivePath(zipPath))
+		{
+			openNativeArchive(zipPath);
+			return;
+		}
 		// 预扫定结构：官方包原样落数据根；套层/裸 mod 包重映射进 mods/；识别不出=拒收
-		switch (scanZipRule(zipPath))
+		var tScan0:Float = Sys.time();
+		var outcome:ZipScanOutcome = scanZipRule(zipPath);
+		tScan = Sys.time() - tScan0;
+		switch (outcome)
 		{
 			case ScanReject:
 				MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
@@ -407,11 +467,15 @@ class BootDataState extends MusicBeatState
 			@:privateAccess zipStream = zipReader.i;
 			zipEntries = 0;
 			importedAssetsEntries = false;
+			skippedRootFiles = [];
+			nativeFailedEntries = 0;
+			nativeFailSamples = [];
 			// 计时取证初始化
 			tHeader = tInflate = tCopy = tWrite = tPrep = 0;
 			bytesOut = 0;
-			zipStartedAt = Sys.time();
+			zipStartedAt = Sys.time() - tScan; // wall 含预扫，便于和用户感知的总时长对齐
 			zipPathUsed = zipPath;
+			dataRootAbs(); // 先把数据根算好（Android 上是 JNI 调用，不能每条目问一遍）
 			try zipTotalBytes = FileSystem.stat(zipPath).size
 			catch (e:Dynamic)
 				zipTotalBytes = 0;
@@ -424,6 +488,190 @@ class BootDataState extends MusicBeatState
 				Language.getPhrase('data.boot.zip.openfail', 'Cannot read zip file:\n{1}', [e.message]), MessageBoxType.MESSAGE, null, 8.0);
 			phase = Missing;
 		}
+	}
+
+	// ================= rar / 7z 导入（原生解码层，libarchive） =================
+
+	/** rar/7z 导入：先只读索引拿条目名定重映射规则，再重新打开逐条流式解压。
+	 *  7z/rar5 的索引在文件头/尾，遍历时跳数据是纯算术，所以第一遍不解码
+	 *  （950MB 的 solid 7z 实测 61ms 走完 1469 条）；真正的解码只发生在第二遍。 */
+	function openNativeArchive(path:String):Void
+	{
+		#if cpp
+		var t0:Float = Sys.time();
+		if (backend.NativeArchive.archOpen(path) != 0)
+		{
+			// 打不开：可能是被改名成 .rar 的 zip —— 交还给 zip 路径，让它给出准确报错
+			trace('[BootData] 原生解码打不开，回退 zip 路径: ' + backend.NativeArchive.archError());
+			backend.NativeArchive.archClose();
+			openZipByStream(path);
+			return;
+		}
+
+		var names:Array<String> = [];
+		var failed:Bool = false;
+		while (true)
+		{
+			var r:Int = backend.NativeArchive.archNext();
+			if (r == 0) break;
+			if (r < 0) { failed = true; break; }
+			if (backend.NativeArchive.archIsDir() == 1) continue; // 目录条目没数据，落地目录由 ensureParentDirs 建
+			var name:String = normalizeEntryName(backend.NativeArchive.archName());
+			if (name.length == 0 || isJunkPath(name)) continue;
+			if (!safeRelativePath(name)) continue;
+			names.push(name);
+		}
+		var errMsg:String = failed ? backend.NativeArchive.archError() : '';
+		backend.NativeArchive.archClose();
+		tScan = Sys.time() - t0;
+
+		if (failed || names.length == 0)
+		{
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				failed ? Language.getPhrase('data.boot.arch.readfail', 'Cannot read archive:\n{1}', [errMsg])
+				: Language.getPhrase('data.boot.zip.notmod', 'Cannot recognize a mod or data pack structure in this archive.\nPlease check its contents.'),
+				MessageBoxType.MESSAGE, null, 8.0);
+			phase = Missing;
+			return;
+		}
+
+		// 与 zip 路径共用同一套结构判定：官方包原样落数据根；套层/裸 mod 包重映射进 mods/
+		var outcome:ZipScanOutcome = classifyZip(names, path);
+		if (outcome == ScanReject)
+		{
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				Language.getPhrase('data.boot.zip.notmod', 'Cannot recognize a mod or data pack structure in this archive.\nPlease check its contents.'),
+				MessageBoxType.MESSAGE, null, 8.0);
+			phase = Missing;
+			return;
+		}
+
+		// 第二遍：真正解码。solid 包在这里才展开。
+		if (backend.NativeArchive.archOpen(path) != 0)
+		{
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				Language.getPhrase('data.boot.arch.readfail', 'Cannot read archive:\n{1}', [backend.NativeArchive.archError()]),
+				MessageBoxType.MESSAGE, null, 8.0);
+			phase = Missing;
+			return;
+		}
+		nativeArchive = true;
+		nativeTotalEntries = names.length;
+		nativeDoneEntries = 0;
+		zipEntries = 0;
+		importedAssetsEntries = false;
+		skippedRootFiles = [];
+		nativeFailedEntries = 0;
+		nativeFailSamples = [];
+		tHeader = tInflate = tCopy = tWrite = tPrep = 0;
+		bytesOut = 0;
+		zipStartedAt = Sys.time() - tScan;
+		zipPathUsed = path;
+		dataRootAbs();
+		try zipTotalBytes = FileSystem.stat(path).size catch (e:Dynamic) zipTotalBytes = 0;
+		trace('[BootData] 原生预扫: ${names.length} 条目');
+		showProgressUI();
+		phase = Extracting;
+		#else
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				Language.getPhrase('data.boot.arch.unsupported', 'rar/7z data packs are not supported on this platform.'),
+				MessageBoxType.MESSAGE, null, 8.0);
+			phase = Missing;
+		#end
+	}
+
+	/** 原生路径的每帧解压片：逐条 next -> 重映射 -> 流式落盘。 */
+	function processArchiveSlice():Void
+	{
+		#if cpp
+		var budget:Float = Sys.time() + FRAME_BUDGET;
+		while (Sys.time() < budget)
+		{
+			var t0:Float = Sys.time();
+			var r:Int = backend.NativeArchive.archNext();
+			tHeader += Sys.time() - t0;
+			if (r == 0)
+			{
+				zipDone();
+				return;
+			}
+			if (r < 0)
+			{
+				zipFail(Language.getPhrase('data.boot.zip.fail', 'Extraction failed: {1}', [backend.NativeArchive.archError()]));
+				return;
+			}
+			// ★目录条目必须跳过：7z/rar 的目录条目是「空流」记录，filetype 已经是 AE_IFDIR，
+			// 但名字里不一定带尾斜杠——漏了这一判就会把它当 0 字节文件写出来，
+			// 之后同目录下的真实文件全部 "cannot open destination file"（2026-11-23 Hypno 包实锤）。
+			var rawEntryName:String = backend.NativeArchive.archName();
+			if (backend.NativeArchive.archIsDir() == 1 || StringTools.endsWith(rawEntryName, '/'))
+			{
+				backend.NativeArchive.archSkip();
+				continue;
+			}
+			var name:String = normalizeEntryName(rawEntryName);
+			if (name.length == 0 || isJunkPath(name) || !safeRelativePath(name))
+			{
+				// 垃圾条目/危险路径：数据必须吃掉，否则下一条对不上
+				backend.NativeArchive.archSkip();
+				continue;
+			}
+			var mapped:String = remapEntryPath(name);
+			if (zipOfficialMode && !startsWithOfficialPrefix(mapped))
+			{
+				// 与 zip 路径同规则：根级多余文件（README 等）跳过，未知目录按坏包处理
+				if (mapped.indexOf('/') < 0)
+				{
+					backend.NativeArchive.archSkip();
+					skippedRootFiles.push(mapped);
+					nativeDoneEntries++; // 预扫把它算进总数了，进度要跟着走
+					continue;
+				}
+				zipFail(Language.getPhrase('data.boot.zip.badentry', 'Unexpected file in data pack:\n{1}\nPlease use the official data pack.', [name]));
+				return;
+			}
+			if (zipOfficialMode && StringTools.startsWith(mapped, 'assets/'))
+				importedAssetsEntries = true;
+
+			var te:Float = Sys.time();
+			try
+			{
+				var t1:Float = Sys.time();
+				ensureParentDirs(mapped);
+				tPrep += Sys.time() - t1;
+				t1 = Sys.time();
+				var rc:Int = backend.NativeArchive.archExtract(absRoot + mapped);
+				tWrite += Sys.time() - t1;
+				if (rc != 0)
+				{
+					nativeFailedEntries++;
+					if (nativeFailSamples.length < 5) nativeFailSamples.push(name);
+					if (nativeFailedEntries <= 8) // 失败上千条时别把日志刷爆
+						trace('[BootData] 原生解压写入失败: ' + name + ' (' + backend.NativeArchive.archError() + ')');
+				}
+				else
+					bytesOut += backend.NativeArchive.archSize();
+			}
+			catch (e:Dynamic)
+			{
+				// 抛出来的是 String/文件系统错误，没有 .message（旧写法打成 (null)）
+				nativeFailedEntries++;
+				if (nativeFailSamples.length < 5) nativeFailSamples.push(name);
+				if (nativeFailedEntries <= 8)
+					trace('[BootData] 原生解压异常: ' + name + ' (' + Std.string(e) + ')');
+			}
+			var dt:Float = Sys.time() - te;
+			if (dt > 0.3)
+				trace('[BootData] slow entry: ' + name + ' ' + Math.round(dt * 1000) + 'ms');
+			zipEntries++;
+			nativeDoneEntries++;
+		}
+		statusText.text = Language.getPhrase('data.boot.extracted', 'Extracted {1} files...', [zipEntries]);
+		if (nativeTotalEntries > 0)
+			progressBar.percent = Math.min(nativeDoneEntries / nativeTotalEntries * 100, 100);
+		else
+			progressBar.percent = (Sys.time() * 40) % 100;
+		#end
 	}
 
 	function processExtractSlice():Void
@@ -490,7 +738,17 @@ class BootDataState extends MusicBeatState
 		if (zipOfficialMode)
 		{
 			if (!startsWithOfficialPrefix(mapped))
+			{
+				// 官方数据包根目录常夹 README/license/说明.txt：为它整包报错对用户毫无意义。
+				// 只放过「根级单个文件」；未知目录仍然严格报错（那通常意味着结构判断错了，装下去就是坏包）。
+				if (mapped.indexOf('/') < 0)
+				{
+					skipEntryData(entry, zipStream); // 数据必须吃掉，否则下一头错位
+					skippedRootFiles.push(mapped);
+					return true;
+				}
 				return false;
+			}
 			if (StringTools.startsWith(mapped, 'assets/'))
 				importedAssetsEntries = true;
 		}
@@ -501,11 +759,7 @@ class BootDataState extends MusicBeatState
 			var t0:Float = Sys.time();
 			ensureParentDirs(mapped);
 			tPrep += Sys.time() - t0;
-			#if android
-			writeEntryData(entry, StorageUtil.getStorageDirectory() + mapped);
-			#else
-			writeEntryData(entry, mapped);
-			#end
+			writeEntryData(entry, absRoot + mapped);
 		}
 		catch (e:Dynamic)
 		{
@@ -519,11 +773,11 @@ class BootDataState extends MusicBeatState
 
 	/** 从 zip 流读取一个条目的数据写入目标文件。
 	 *  cpp：DEFLATE 已知尺寸整条读入一次性原生 zlib 解压（≤NATIVE_INFLATE_MAX/ONESHOT_OUT_MAX），
-	 *  超限/描述符走流式原生（64KB 窗口 + 256KB 输出块常驻复用）；移动端整条路径维持小上限防内存峰值。 */
+	 *  超限/描述符走流式原生（STREAM_IN_BUF 窗口 + STREAM_OUT_BUF 输出块常驻复用）；移动端整条路径维持小上限防内存峰值。 */
 	function writeEntryData(entry:Entry, dstPath:String):Void
 	{
 		if (tmpBuf == null)
-			tmpBuf = Bytes.alloc(65536);
+			tmpBuf = Bytes.alloc(STREAM_IN_BUF);
 		// 先删后写：覆盖旧安装（不同 uid）的遗留文件时，删+建能拿到当前 uid 的属主（FUSE 语义，仅移动端）
 		var t0:Float = Sys.time();
 		#if android
@@ -594,14 +848,42 @@ class BootDataState extends MusicBeatState
 				#if cpp
 				if (entry.dataSize > 0 && entry.dataSize <= NATIVE_INFLATE_MAX && entry.fileSize > 0 && entry.fileSize <= ONESHOT_OUT_MAX)
 				{
+					// 输入/输出都取常驻 slab 的尾部切片：CFFI 按 (buf.length - pos) 算视图长度，
+					// 所以切片长度天然精确 == 本条目的尺寸，既省掉每条目两次大 Bytes 分配
+					// （3GB 级数据包 = 数 GB 的 malloc + 首触页），又不改变一次性解压的语义。
+					var src:Bytes = growSlab(rawBuf, entry.dataSize, RAW_BUF_KEEP_MAX);
+					var srcPos:Int;
+					if (src != null)
+					{
+						rawBuf = src;
+						srcPos = src.length - entry.dataSize;
+					}
+					else
+					{
+						src = Bytes.alloc(entry.dataSize);
+						srcPos = 0;
+					}
+					var dst:Bytes = growSlab(oneshotBuf, entry.fileSize, ONESHOT_BUF_KEEP_MAX);
+					var dstPos:Int;
+					if (dst != null)
+					{
+						oneshotBuf = dst;
+						dstPos = dst.length - entry.fileSize;
+					}
+					else
+					{
+						dst = Bytes.alloc(entry.fileSize);
+						dstPos = 0;
+					}
 					t0 = Sys.time();
-					var raw:Bytes = zipStream.read(entry.dataSize);
+					readFully(zipStream, src, srcPos, entry.dataSize);
 					tCopy += Sys.time() - t0;
 					t0 = Sys.time();
-					var data:Bytes = nativeDecompressOneShot(raw, entry.fileSize, out);
-					if (data == null)
+					var w:Int = nativeDecompressOneShot(src, srcPos, entry.dataSize, dst, dstPos, entry.fileSize, out);
+					tInflate += Sys.time() - t0;
+					if (w < 0)
 					{
-						// 声明尺寸装不下整个流（尺寸不可信）：前 entry.fileSize 字节已由 one-shot 落盘，流式续解余量
+						// 声明尺寸装不下整个流（尺寸不可信）：前 fileSize 字节已由 one-shot 落盘，流式续解余量
 						t0 = Sys.time();
 						var n:Int = nativeInflateStream(zipStream, out, false);
 						tInflate += Sys.time() - t0;
@@ -609,13 +891,9 @@ class BootDataState extends MusicBeatState
 					}
 					else
 					{
-						tInflate += Sys.time() - t0;
-						if (data.length != entry.fileSize)
-							trace('[BootData] 解压长度异常: $dstPath 期待 ${entry.fileSize} 实得 ${data.length}');
-						t0 = Sys.time();
-						out.writeBytes(data, 0, data.length);
-						tWrite += Sys.time() - t0;
-						bytesOut += data.length;
+						if (w != entry.fileSize)
+							trace('[BootData] 解压长度异常: $dstPath 期待 ${entry.fileSize} 实得 $w');
+						bytesOut += w;
 					}
 				}
 				else
@@ -676,31 +954,48 @@ class BootDataState extends MusicBeatState
 	}
 
 	#if cpp
-	/** 原生 zlib 一次性解压（hxcpp 内置 zlib，预分配 expectSize 输出，实测 ~210MB/s）。
-	 *  ★fresh stream 的 execute 返回值累计==单次，官方 hxcpp 与 TieGao fork 语义一致。
-	 *  返回 null = 声明尺寸装不下整个流（尺寸不可信）：前 expectSize 字节已写入 out、流已回卷到未消费处，
-	 *  调用方退 nativeInflateStream 续解余量（bytesOut 记 expectSize）。 */
-	function nativeDecompressOneShot(raw:Bytes, expectSize:Int, out:FileOutput):Bytes
+	/** 常驻 slab 按需增长（只在不够大时重分配，且一次翻倍）。
+	 *  返回 null = 需求超过常驻上限，调用方自己临时 alloc（别让单个巨型条目把常驻内存顶起来）。 */
+	static function growSlab(cur:Bytes, need:Int, cap:Int):Bytes
 	{
-		var z = new haxe.zip.Uncompress(-15); // 负 windowBits = raw deflate（zip 条目无 zlib 头）
-		var outBuf = Bytes.alloc(expectSize);
-		var r = z.execute(raw, 0, outBuf, 0);
-		z.close();
-		// deflate 流比 header csize 短的"撒谎" zip：把多读的字节回卷，防下一头错位
-		var over:Int = raw.length - r.read;
-		if (over > 0)
-			(cast zipStream:FileInput).seek(-over, sys.io.FileSeek.SeekCur);
-		if (!r.done)
-		{
-			// 输出缓冲写满仍未到流尾：已解出的部分先落盘，避免流式续解漏掉开头
-			if (r.write > 0)
-				out.writeBytes(outBuf, 0, r.write);
+		if (cur != null && cur.length >= need)
+			return cur;
+		var want:Int = need;
+		if (cur != null && cur.length * 2 > want)
+			want = cur.length * 2;
+		if (want > cap)
 			return null;
-		}
-		return (r.write == expectSize) ? outBuf : outBuf.sub(0, r.write);
+		return Bytes.alloc(want);
 	}
 
-	/** 原生 zlib 流式解压：边喂边解（窗口 64KB/输出块 256KB 常驻复用，内存恒定）。
+	/** 原生 zlib 一次性解压（hxcpp 内置 zlib，实测 ~210MB/s 出）。
+	 *  ★fresh stream 的 execute 返回值累计==单次，官方 hxcpp 与 TieGao fork 语义一致。
+	 *  src/dst 都是 slab 尾部切片（视图长度精确 == 该条目尺寸），解完直接落盘，不再产生每条目临时 Bytes。
+	 *  返回 -1 = 声明尺寸装不下整个流（尺寸不可信）：已解出的部分已写入 out、流已回卷到未消费处，
+	 *  调用方退 nativeInflateStream 续解余量（bytesOut 记 fileSize）。 */
+	function nativeDecompressOneShot(src:Bytes, srcPos:Int, srcLen:Int, dst:Bytes, dstPos:Int, expectSize:Int,
+		out:FileOutput):Int
+	{
+		var z = new haxe.zip.Uncompress(-15); // 负 windowBits = raw deflate（zip 条目无 zlib 头）
+		var r = z.execute(src, srcPos, dst, dstPos);
+		z.close();
+		// deflate 流比 header csize 短的"撒谎" zip：把多读的字节回卷，防下一头错位
+		var over:Int = srcLen - r.read;
+		if (over > 0)
+			(cast zipStream:FileInput).seek(-over, sys.io.FileSeek.SeekCur);
+		// 先落盘已解出的部分：尺寸不可信时流式续解要从这里接着写，不能漏掉开头
+		if (r.write > 0)
+		{
+			var tw:Float = Sys.time();
+			out.writeBytes(dst, dstPos, r.write);
+			tWrite += Sys.time() - tw;
+		}
+		if (!r.done)
+			return -1;
+		return r.write;
+	}
+
+	/** 原生 zlib 流式解压：边喂边解（STREAM_IN_BUF 输入窗口 / STREAM_OUT_BUF 输出块常驻复用，内存恒定）。
 	 *  out=null 时纯丢弃（预扫跳数据用）。结束后把 st 回卷到 deflate 流末尾，
 	 *  描述符/下一头紧随其后可直接读。
 	 *  ★TieGao hxcpp fork 的 _hx_inflate_buffer 返回累计 total_in/total_out（官方 hxcpp 4.3.2 是单次增量），
@@ -708,9 +1003,9 @@ class BootDataState extends MusicBeatState
 	function nativeInflateStream(st:haxe.io.Input, out:FileOutput, discard:Bool):Int
 	{
 		if (tmpBuf == null)
-			tmpBuf = Bytes.alloc(65536);
+			tmpBuf = Bytes.alloc(STREAM_IN_BUF);
 		if (inflateOutBuf == null)
-			inflateOutBuf = Bytes.alloc(262144);
+			inflateOutBuf = Bytes.alloc(STREAM_OUT_BUF);
 		var inBuf:Bytes = tmpBuf;
 		var outBuf:Bytes = inflateOutBuf;
 		var z = new haxe.zip.Uncompress(-15);
@@ -787,6 +1082,16 @@ class BootDataState extends MusicBeatState
 			showReadyUI(true);
 			return;
 		}
+		// 原生路径写盘失败过：绝不能报「导入成功」（2026-11-23 Hypno 包就是 1600+ 条静默失败）
+		if (nativeFailedEntries > 0)
+		{
+			MessageBox.show(Language.getPhrase('mobile_error', 'Error!'),
+				Language.getPhrase('data.boot.arch.partial', 'Import incomplete: {1} file(s) failed to write.\nFirst ones:\n{2}', [nativeFailedEntries, nativeFailSamples.join('\n')]),
+				MessageBoxType.MESSAGE, null, 10.0);
+			showMissingUI();
+			return;
+		}
+
 		// 没有标记但导入成功：可选内容分类包（只含 content/mods，无 assets）——
 		// 用引擎内 toast 提示（不弹原生对话框，Android 上有卡死前科），停留在导入界面可继续导
 		MessageBox.show(Language.getPhrase('data.boot.zip.done.title', 'Import finished'),
@@ -810,13 +1115,15 @@ class BootDataState extends MusicBeatState
 	{
 		var total:Float = Sys.time() - zipStartedAt;
 		var msg:String = '[$how] path=$zipPathUsed\n'
-			+ 'entries=$zipEntries bytesOut=$bytesOut zipTotal=${Math.round(zipTotalBytes)}\n'
+			+ 'entries=$zipEntries bytesOut=${Math.round(bytesOut)} zipTotal=${Math.round(zipTotalBytes)}\n'
 			+ 'wall=' + Math.round(total * 1000) + 'ms'
+			+ ' scan=' + Math.round(tScan * 1000)
 			+ ' header=' + Math.round(tHeader * 1000)
 			+ ' inflate=' + Math.round(tInflate * 1000)
 			+ ' copy=' + Math.round(tCopy * 1000)
 			+ ' write=' + Math.round(tWrite * 1000)
-			+ ' prep=' + Math.round(tPrep * 1000) + '\n';
+			+ ' prep=' + Math.round(tPrep * 1000) + '\n'
+			+ (skippedRootFiles.length > 0 ? 'skippedRoot=' + skippedRootFiles.join(',') + '\n' : '');
 		trace('[BootData] ' + StringTools.replace(msg, '\n', ' | '));
 		try
 		{
@@ -829,6 +1136,15 @@ class BootDataState extends MusicBeatState
 
 	function closeZip():Void
 	{
+		#if (cpp && BOOT_DATA_ALLOWED)
+		if (nativeArchive)
+		{
+			nativeArchive = false;
+			try
+				backend.NativeArchive.archClose()
+			catch (e:Dynamic) {}
+		}
+		#end
 		try
 			zipInput.close()
 		catch (e:Dynamic) {}
@@ -839,7 +1155,9 @@ class BootDataState extends MusicBeatState
 
 	// ================= zip 预扫（结构自适应） =================
 
-	/** 预扫：只解析全部条目头并跳过数据，识别 zip 结构定重映射规则。
+	/** 预扫：识别 zip 结构定重映射规则。
+	 *  快路径只读中央目录（末尾目录区）——不碰任何条目数据；读不出来再退回旧的整包流式走一遍
+	 *  （旧路径对带数据描述符的包等于把全部数据 inflate 两遍，且这段时间不计入任何计时项）。
 	 *  支持民间打包：套外层文件夹（下载目录/版本号包一层）、裸 mod 内容（zip 的是文件夹里面的东西）、
 	 *  mod 合集（多个 mod 文件夹平铺）。ScanReject=识别不出任何 mod/数据包结构；ScanStrict=退回旧行为。 */
 	function scanZipRule(zipPath:String):ZipScanOutcome
@@ -850,6 +1168,144 @@ class BootDataState extends MusicBeatState
 		zipBarePrefix = '';
 		zipPrefixMap = new Map();
 
+		var names:Array<String> = readCentralDirectory(zipPath);
+		if (names != null)
+		{
+			if (names.length == 0)
+				return ScanReject; // 空包/全垃圾条目
+			var out:ZipScanOutcome = classifyZip(names, zipPath);
+			trace('[BootData] 中央目录预扫: ${names.length} 条目 -> $out');
+			return out;
+		}
+		trace('[BootData] 中央目录不可用，退回流式预扫');
+		return scanZipStreaming(zipPath);
+	}
+
+	/** 读中央目录拿全部条目名（只读文件末尾的目录区）。
+	 *  返回 null = 读不出来（ZIP64/自解压/损坏/结构异常），调用方退回流式预扫。 */
+	function readCentralDirectory(zipPath:String):Array<String>
+	{
+		var inp:FileInput = null;
+		try
+			inp = File.read(zipPath, true)
+		catch (e:Dynamic)
+			return null;
+		try
+		{
+			// 大小用 stat（Float）而不是 tell（Int）：>2GB 的包直接退回流式预扫，
+			// 免得 Int 溢出成负数误判（zip 流的位置全靠 Int，超 2GB 本来也 seek 不动）
+			var fsz:Float = 0;
+			try
+				fsz = FileSystem.stat(zipPath).size
+			catch (e:Dynamic)
+				return null;
+			if (fsz < 22 || fsz > 2147483000)
+				return null;
+			var fileSize:Int = Math.round(fsz);
+			// EOCD = 22 字节定长尾 + 最多 64KB 注释，从尾部向前找签名
+			var tailLen:Int = fileSize < 65557 ? fileSize : 65557;
+			inp.seek(fileSize - tailLen, sys.io.FileSeek.SeekBegin);
+			var tail:Bytes = Bytes.alloc(tailLen);
+			readFully(inp, tail, 0, tailLen);
+			var eocd:Int = -1;
+			var i:Int = tailLen - 22;
+			while (i >= 0)
+			{
+				if (tail.get(i) == 0x50 && tail.get(i + 1) == 0x4B && tail.get(i + 2) == 0x05 && tail.get(i + 3) == 0x06)
+				{
+					eocd = i;
+					break;
+				}
+				i--;
+			}
+			if (eocd < 0)
+				return null;
+			var entriesTotal:Int = u16le(tail, eocd + 10);
+			var cdSize:Int = u32le(tail, eocd + 12);
+			var cdOffset:Int = u32le(tail, eocd + 16);
+			// ZIP64（计数/尺寸溢出标记）：直接退回流式预扫，别在这里啃 64 位结构
+			if (entriesTotal == 0xFFFF || cdSize < 0 || cdOffset < 0 || cdSize == 0)
+				return null;
+			if (cdSize > 33554432)
+				return null; // 32MB 目录区 = 万级以上条目或损坏，不值得为它开大缓冲
+			var eocdAbs:Int = fileSize - tailLen + eocd;
+			// 目录区紧邻 EOCD，位置用 eocdAbs - cdSize 反推而不是信 header 的 cdOffset：
+			// SFX 自解压包的 offset 是相对归档起点（前面还有 stub），不是文件起点
+			var cdStart:Int = eocdAbs - cdSize;
+			if (cdStart < 0)
+				return null;
+			inp.seek(cdStart, sys.io.FileSeek.SeekBegin);
+			var cd:Bytes = Bytes.alloc(cdSize);
+			readFully(inp, cd, 0, cdSize);
+			inp.close();
+
+			var raw:Array<String> = [];
+			var p:Int = 0;
+			while (p + 46 <= cdSize)
+			{
+				if (u32le(cd, p) != 0x02014B50)
+					return null; // 目录区结构对不上：不信这份数据
+				var nameLen:Int = u16le(cd, p + 28);
+				var extraLen:Int = u16le(cd, p + 30);
+				var commentLen:Int = u16le(cd, p + 32);
+				var nameEnd:Int = p + 46 + nameLen;
+				if (nameEnd > cdSize)
+					return null;
+				// 与 Reader.readEntryHeader 完全同一条解码链（readString -> Bytes.getString）
+				raw.push(cd.getString(p + 46, nameLen));
+				p = nameEnd + extraLen + commentLen;
+			}
+			if (raw.length != entriesTotal)
+				return null; // 条目数对不上：目录区被截断/有假记录
+			// 过滤成「有效文件条目」，与旧流式预扫喂给 classifyZip 的列表逐条对齐：
+			// 目录条目/垃圾条目/危险路径都不参与结构分类（否则 __MACOSX 会顶掉公共前缀判定）
+			var names:Array<String> = [];
+			for (rawName in raw)
+			{
+				if (StringTools.endsWith(rawName, '/'))
+					continue;
+				var name:String = normalizeEntryName(rawName);
+				if (name.length == 0 || isJunkPath(name))
+					continue;
+				if (!safeRelativePath(name))
+					continue;
+				names.push(name);
+			}
+			return names;
+		}
+		catch (e:Dynamic)
+		{
+			trace('[BootData] 中央目录解析异常: ' + e.message);
+			try
+				inp.close()
+			catch (e2:Dynamic) {}
+			return null;
+		}
+	}
+
+	/** 续读满缓冲区（FileInput.readBytes 单次可能短读）。 */
+	static function readFully(inp:haxe.io.Input, buf:Bytes, pos:Int, len:Int):Void
+	{
+		var done:Int = 0;
+		while (done < len)
+		{
+			var n:Int = inp.readBytes(buf, pos + done, len - done);
+			if (n <= 0)
+				throw 'unexpected end of file';
+			done += n;
+		}
+	}
+
+	/** zip 结构一律小端；haxe.io.Bytes 只给 getInt32（且不保证 endianness），这里自己拼。 */
+	static inline function u16le(b:Bytes, p:Int):Int
+		return b.get(p) | (b.get(p + 1) << 8);
+
+	static inline function u32le(b:Bytes, p:Int):Int
+		return b.get(p) | (b.get(p + 1) << 8) | (b.get(p + 2) << 16) | (b.get(p + 3) << 24);
+
+	/** 旧路径：流式走一遍所有条目头并跳过数据（中央目录不可用时的兜底）。 */
+	function scanZipStreaming(zipPath:String):ZipScanOutcome
+	{
 		var names:Array<String> = [];
 		var inp:FileInput = null;
 		try
@@ -862,7 +1318,7 @@ class BootDataState extends MusicBeatState
 			var st:haxe.io.Input = null;
 			@:privateAccess st = r.i;
 			if (tmpBuf == null)
-				tmpBuf = Bytes.alloc(65536);
+				tmpBuf = Bytes.alloc(STREAM_IN_BUF);
 			while (true)
 			{
 				var e:Entry = r.readEntryHeader();
@@ -1124,17 +1580,27 @@ class BootDataState extends MusicBeatState
 
 	// ================= 文件工具 =================
 
+	/** 数据根绝对路径（带尾斜杠）。桌面端恒为空串（继续用相对路径），Android/iOS 是绝对路径。
+	 *  懒初始化：迁移队列（Working 相位）不经过 openZip，不能指望那边先算好。 */
+	function dataRootAbs():String
+	{
+		if (absRoot.length == 0)
+		{
+			absRoot = #if android StorageUtil.getStorageDirectory() #else '' #end;
+			if (absRoot.length > 0 && !absRoot.endsWith('/'))
+				absRoot += '/';
+		}
+		return absRoot;
+	}
+
 	function ensureParentDirs(relPath:String):Void
 	{
 		var parts:Array<String> = relPath.split('/');
 		parts.pop(); // 最后一段是文件名
 		// 从数据根拼绝对路径，和 CopyState 一致：不依赖进程 CWD，chdir 没生效也不会写错位置
-		#if android
-		var cur:String = StorageUtil.getStorageDirectory();
-		if (cur.endsWith('/')) cur = cur.substr(0, cur.length - 1);
-		#else
-		var cur:String = '';
-		#end
+		var cur:String = dataRootAbs();
+		if (cur.endsWith('/'))
+			cur = cur.substr(0, cur.length - 1);
 		for (p in parts)
 		{
 			cur += (cur.length == 0 ? '' : '/') + p;
@@ -1143,6 +1609,13 @@ class BootDataState extends MusicBeatState
 			{
 				if (!FileSystem.exists(cur))
 					FileSystem.createDirectory(cur);
+				else if (!FileSystem.isDirectory(cur))
+				{
+					// 同名文件占位（历史 bug 把目录条目写成了 0 字节文件，见 2026-11-23 Hypno 包）：
+					// 不删掉重建的话，下面所有条目都会 "cannot open destination file"，重导也救不回来
+					try FileSystem.deleteFile(cur) catch (e:Dynamic) {}
+					FileSystem.createDirectory(cur);
+				}
 				ensuredDirs.set(cur, true);
 			}
 		}

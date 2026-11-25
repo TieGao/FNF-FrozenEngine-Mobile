@@ -52,6 +52,16 @@ class LogFile
 		#end
 	}
 
+	/** 日志文件是否已经打开：没开时 append() 会静默丢弃，调用方可以据此重试。 */
+	public static function isOpen():Bool
+	{
+		#if sys
+		return started && !broken && out != null;
+		#else
+		return false;
+		#end
+	}
+
 	/** 追加一段文本。带换行的会按行拆开，每行前面补时间戳。 */
 	public static function append(text:String):Void
 	{

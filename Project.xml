@@ -2,7 +2,7 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.6.12" company="IceAxe" />
+	<app title="Friday Night Funkin': Frozen Engine" file="FrozenEngine" packageName="com.tiegao.frozenengine" package="com.tiegao.frozenengine" main="Main" version="0.6.14" company="IceAxe" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
@@ -285,6 +285,10 @@
 
 	<!-- Mobile Android（android 条件项统一收进一个 section 框，子项不再逐行写 if）-->
 	<section if="android">
+		<!-- 自定义 Java 源：lime 会整目录递归拷进 gradle 产物的 app/src/main/java。
+		     目前只有 ADPF（org.frozenengine.adpf.Adpf）——PerformanceHintManager
+		     的 createHintSession(int[] tids, long) 要 int 数组，lime 的 JNI 传不了。 -->
+		<java path="android/java" />
 		<config:android gradle-version="8.14.5" />
 		<config:android layoutInDisplayCutoutMode="shortEdges" />
 		<!-- Gradle JVM 内存配置 -->
@@ -293,9 +297,11 @@
 		</config:android>
 		<!-- Android 10 及以下必须声明 legacy 外部存储，否则 scoped storage 只允许写 app 专属目录：
 		     数据根 /storage/emulated/0/.FrozenEngine/ 能建出来但写不进去，复制和 zip 解压会全量失败。
-		     Android 11+ 会忽略这个属性，权限走 MANAGE_EXTERNAL_STORAGE。 -->
+		     Android 11+ 会忽略这个属性，权限走 MANAGE_EXTERNAL_STORAGE。
+		     appCategory/isGame：Game Mode（GameManager）只认 category=game 的应用；
+		     之前的生成物里有这两个属性，但源码里没有（本地改完又撤了），干净构建会丢。 -->
 		<config:android>
-			<application android:requestLegacyExternalStorage="true" />
+			<application android:requestLegacyExternalStorage="true" android:appCategory="game" android:isGame="true" />
 		</config:android>
 		<!-- 权限 12 条 = lime 原默认基础 4 + 媒体/存储 8。
 		     注意 getArrayString 是替换语义：声明任意权限会把 lime 默认的基础 4 条挤掉——

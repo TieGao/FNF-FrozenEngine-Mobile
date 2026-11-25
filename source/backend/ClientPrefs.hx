@@ -1027,6 +1027,10 @@ class ClientPrefs {
 			}
 			else if (data.unlimitedFPS)
 			{
+				#if android
+				// 无限帧率：帧预算交给设备首选刷新间隔，别再按 60fps 报目标
+				mobile.backend.AndroidADPF.setTargetFps(0);
+				#end
 				app.configureFrameTiming(lime.app.FrameProfile.UNCAPPED,
 					{uncapMode: lime.app.UncapMode.SOFT}, lime.app.VSyncMode.OFF);
 				return;
@@ -1060,6 +1064,12 @@ class ClientPrefs {
 			: Std.int(FlxMath.bound(data.framerate, 30, 480));
 		FlxG.updateFramerate = fps;
 		FlxG.drawFramerate = fps;
+
+		#if android
+		// ADPF 的 target 跟实际帧预算走（含闲置降帧档）：改帧率的同时告诉调度器，
+		// 让它提前升/降频，而不是等下一帧上报才发现缺预算。
+		mobile.backend.AndroidADPF.setTargetFps(fps);
+		#end
 	}
 
 	/** GPU Caching 取值归一化：老存档是 Bool，现在只认 disabled / auto / full。 */

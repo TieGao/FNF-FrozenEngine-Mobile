@@ -292,6 +292,12 @@ class Main extends Sprite
 		// 闲置节能（FPS 减速器）：无输入一段时间后降帧省电，任意输入恢复（backend.IdleFPSManager）
 		IdleFPSManager.init();
 
+		#if (android && !ADPF_OFF)
+		// Android ADPF：每帧上报实际 CPU 耗时，让 CPU governor 提前升降频。
+		// 必须在游戏主线程初始化（tid 取的是调用线程）；-D ADPF_OFF 可整段关掉。
+		mobile.backend.AndroidADPF.init();
+		#end
+
 		#if CRASH_HANDLER
 		BlueScreenCrashHandler.install();
 		#end
