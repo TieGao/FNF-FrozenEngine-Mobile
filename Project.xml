@@ -268,10 +268,16 @@
 	     会判成 false，导致之后在设置里调高帧率依然卡 60。
 	     lime 8.4.0 的 haxelib 分支（2026-11-26 起）已实现该 config；CI 的 .haxelib
 	     缓存可能还停在旧 checkout（haxelib git 见到目录存在就不更新），因此打包脚本
-	     仍会用 PlistBuddy 兜底注入同一个键，两边不冲突。 -->
-	<config:ios category_type="public.app-category.music-games" high-frame-rate="true" />
+	     仍会用 PlistBuddy 兜底注入同一个键，两边不冲突。
 
-	<config:mac category_type="public.app-category.music-games" />
+	     category_type 注意：lime 8.4.0 的 IOSPlatform 只读取 ios.* 白名单里的键，
+	     这个属性没有任何代码消费，iOS 的 Info.plist 模板里也没有 LSApplicationCategoryType。
+	     真正生效的"这是游戏"声明在 CI 的 "Make IPA" 步骤（LSSupportsGameMode /
+	     GCSupportsGameMode / LSApplicationCategoryType，用于触发 iOS 18+ 游戏模式）。
+	     这里写 games 是为了语义正确 + 未来 lime 支持时可直接用。 -->
+	<config:ios category_type="public.app-category.games" high-frame-rate="true" />
+
+	<config:mac category_type="public.app-category.games" />
 
 	<!-- Allow Access to Engine Files in iOS -->
 	<haxedef name="SHARE_MOBILE_FILES" if="ios" />
