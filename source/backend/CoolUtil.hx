@@ -23,7 +23,7 @@ class CoolUtil
 	static var updateLoader:URLLoader = null;
 
 	/**
-	 * 检查更新，返回本地版本号；线上版本若不同则通过 `onResult` 异步回调。
+	 * 检查更新，返回本地版本号；线上版本严格新于本地时才通过 `onResult` 异步回调。
 	 *
 	 * 走 lime 的 URLLoader 而不是 `haxe.Http`：后者在 cpp 上是同步阻塞的，
 	 * 会卡住调用帧（进主菜单时明显顿一下）；URLLoader 在原生平台由线程池里的
@@ -48,12 +48,17 @@ class CoolUtil
 			updateLoader = null;
 			var data:String = Std.string(loader.data);
 			var newVersion:String = data.split('\n')[0].trim();
+			// gitVersion.txt 若带 UTF-8 BOM，trim 不掉 BOM 字符
+			if (newVersion.length > 0 && newVersion.charCodeAt(0) == 0xFEFF)
+				newVersion = newVersion.substr(1).trim();
 			trace('version online: $newVersion, your version: $version');
-			if (newVersion != version)
+			if (isNewerVersion(newVersion, version))
 			{
-				trace('versions arent matching! please update');
+				trace('online version is newer, please update');
 				if (onResult != null) onResult(newVersion);
 			}
+			else
+				trace('local version is same or ahead, skip update prompt');
 		});
 		loader.addEventListener(IOErrorEvent.IO_ERROR, function(e) {
 			updateLoader = null;
@@ -66,6 +71,18 @@ class CoolUtil
 
 		loader.load(new URLRequest(url));
 		return version;
+	}
+
+	/**
+	 * 只有线上返回合法版本号且严格新于本地时才提示更新。
+	 * 数字段比较交给 `ContentPacks.compareVersions`，'0.6.12P' / 'v0.6.13-beta'
+	 * 这类带后缀的号按数字段比；404 页面等非版本文本直接忽略。
+	 */
+	static function isNewerVersion(online:String, local:String):Bool
+	{
+		if (online == null || local == null) return false;
+		if (!~/^[vV]?\d+\.\d+(\.\d+)*[0-9A-Za-z._+-]*$/.match(online)) return false;
+		return ContentPacks.compareVersions(online, local) > 0;
 	}
 	inline public static function quantize(f:Float, snap:Float){
 		// changed so this actually works lol
