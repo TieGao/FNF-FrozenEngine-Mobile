@@ -85,12 +85,12 @@ fi
 TMP_PATCH="${TMPDIR:-/tmp}/fnf-flxanimate-nmv-blend.$$.patch"
 trap 'rm -f "$TMP_PATCH"' EXIT INT TERM
 if ! tr -d '\r' < "$PATCH" > "$TMP_PATCH"; then
-  echo "flxanimate nmv-blend patch: 生成临时补丁失败（$TMP_PATCH）" >&2
+  echo "flxanimate nmv-blend patch: 生成临时补丁失败（${TMP_PATCH}）" >&2
   exit 1
 fi
 
 if git -C "$LIB" apply --reverse --check "$TMP_PATCH" >/dev/null 2>&1; then
-  echo "flxanimate nmv-blend patch: 已打过，跳过（$LIB）"
+  echo "flxanimate nmv-blend patch: 已打过，跳过（${LIB}）"
   exit 0
 fi
 
@@ -99,7 +99,7 @@ if git -C "$LIB" apply --ignore-whitespace "$TMP_PATCH"; then
   exit 0
 fi
 
-echo "flxanimate nmv-blend patch: 应用失败（$LIB）" >&2
+echo "flxanimate nmv-blend patch: 应用失败（${LIB}）" >&2
 echo "  多半是 flxanimate 版本漂移：setup/unix.sh、setup/windows.bat 里 pin 的 commit" >&2
 echo "  与 setup/flxanimate-nmv-blend.patch 的上下文对不上了 —— 需要按新 commit 重做补丁。" >&2
 exit 1
