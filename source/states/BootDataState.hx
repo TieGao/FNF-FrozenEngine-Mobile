@@ -42,7 +42,8 @@ import sys.io.File;
  *
  * 数据包 zip 约定：官方包条目顶层只允许 assets/ content/ mods/ 前缀（与数据根同构，解压即安装）。
  * 结构自适应（解压前预扫全部条目头）：官方前缀包原样落数据根；套外层文件夹、裸 mod 内容、
- * mod 合集等民间打包自动重映射进 mods/（裸内容用 zip 文件名当 mod 名）；
+ * mod 合集等民间打包自动重映射进 mods/（裸内容的 mod 目录名按 pack.json 的 name → 压缩包文件名
+ * 依次取，压缩包名常是中文，只能当兜底）；
  * 垃圾条目（__MACOSX/.DS_Store/Thumbs.db 等）静默跳过。
  */
 #if cpp
@@ -86,6 +87,11 @@ class BootDataState extends MusicBeatState
 	static inline final RAW_BUF_KEEP_MAX:Int = #if mobile 8388608 #else 33554432 #end; // 8MB / 32MB
 	/** 解压输出 slab 的常驻上限。 */
 	static inline final ONESHOT_BUF_KEEP_MAX:Int = #if mobile 16777216 #else 67108864 #end; // 16MB / 64MB
+	/** pack.json 这类配置文件的定向读取上限：超了就不读，目录名退回压缩包名兜底。 */
+	static inline final PACK_JSON_MAX:Int = 1048576; // 1MB
+	/** 原生包预扫里提前解「包根 pack.json」的累计字节上限：solid 包解一个条目要把前面的全解掉，
+	 *  配置出现在很后面时宁可退回压缩包名，也不能为它多解几十 MB。 */
+	static inline final ARCHIVE_PACKJSON_SCAN_MAX:Int = 33554432; // 32MB
 
 	/** 导入/返回后的去向；null = 回主菜单。Advanced 入口设为回 KEOptionsMenu。 */
 	public static var onExit:Void->Void = null;
@@ -129,7 +135,11 @@ class BootDataState extends MusicBeatState
 	var zipStrip:Int = 0; // 每条路径先剥掉的公共外层段数
 	var zipOfficialMode:Bool = true; // true=官方前缀白名单（原行为）；false=重映射进 mods/
 	var zipPrefixMap:Map<String, String> = new Map(); // mods 合集模式：剥后首段（mod 名）-> mods/<改名>/
-	var zipBarePrefix:String = ''; // mods 裸内容模式：统一前缀 mods/<zip名>/
+	var zipBarePrefix:String = ''; // mods 裸内容模式：统一前缀 mods/<目录名>/
+	var zipScanNames:Array<String> = []; // 预扫得到的条目名（裸内容定名时找包根 pack.json）
+	var zipPackLocs:Map<String, {header:Int, method:Int, csize:Int, usize:Int}> = new Map(); // 中央目录里的 pack.json 定位
+	var archivePackJson:String = null; // 原生包预扫时接住的包根 pack.json 内容
+	var archivePackJsonName:String = null; // 上面那条 pack.json 的条目名（校验它确实是包根那条）
 
 	// ---- zip 导入计时取证（慢导入排查：时间在解压 CPU / 写盘 I/O / 头解析，汇总落盘 logs/）----
 	var tScan:Float = 0; // 预扫（读中央目录）
@@ -460,6 +470,11 @@ class BootDataState extends MusicBeatState
 				return;
 			default: // ScanOk 用规则；ScanStrict 保持旧行为
 		}
+
+		// 裸 mod 包定名：包根 pack.json 的 name 优先，压缩包文件名只作兜底（见 applyBareModName）
+		if (zipBarePrefix.length > 0)
+			applyBareModName(readZipSmallText(zipPath, barePackJsonEntry()));
+
 		try
 		{
 			zipInput = File.read(zipPath, true);
@@ -510,6 +525,12 @@ class BootDataState extends MusicBeatState
 
 		var names:Array<String> = [];
 		var failed:Bool = false;
+		// 裸 mod 包要靠包根 pack.json 定目录名（中文压缩包名不能当目录名）。solid 包解一个条目
+		// 要把前面全解掉，所以只在它出现在前 ARCHIVE_PACKJSON_SCAN_MAX 字节内时才提前接住。
+		archivePackJson = null;
+		archivePackJsonName = null;
+		var scannedBytes:Float = 0;
+		var packJsonDepth:Int = 0x7FFFFFFF;
 		while (true)
 		{
 			var r:Int = backend.NativeArchive.archNext();
@@ -520,6 +541,20 @@ class BootDataState extends MusicBeatState
 			if (name.length == 0 || isJunkPath(name)) continue;
 			if (!safeRelativePath(name)) continue;
 			names.push(name);
+			var rawSize:Float = backend.NativeArchive.archSize();
+			if (isPackJsonPath(name))
+			{
+				// 只认层级最浅的那条：子目录里的 pack.json 属于别的 mod，先到先得会拿错名字
+				var depth:Int = name.split('/').length;
+				if (depth < packJsonDepth && rawSize > 0 && rawSize <= PACK_JSON_MAX && scannedBytes <= ARCHIVE_PACKJSON_SCAN_MAX)
+				{
+					packJsonDepth = depth;
+					archivePackJsonName = name;
+					archivePackJson = extractArchiveSmallText();
+				}
+			}
+			if (rawSize > 0)
+				scannedBytes += rawSize;
 		}
 		var errMsg:String = failed ? backend.NativeArchive.archError() : '';
 		backend.NativeArchive.archClose();
@@ -545,6 +580,12 @@ class BootDataState extends MusicBeatState
 			phase = Missing;
 			return;
 		}
+
+		// 裸 mod 包定名：与 zip 路径同一套优先级（pack.json > 压缩包名）。
+		// 命中的那条 pack.json 剥掉公共前缀后必须正好是包根 pack.json，否则是子目录里别人的配置。
+		if (zipBarePrefix.length > 0 && archivePackJson != null && archivePackJsonName != null
+			&& stripSegments(archivePackJsonName, zipStrip).toLowerCase() == 'pack.json')
+			applyBareModName(archivePackJson);
 
 		// 第二遍：真正解码。solid 包在这里才展开。
 		if (backend.NativeArchive.archOpen(path) != 0)
@@ -1167,12 +1208,15 @@ class BootDataState extends MusicBeatState
 		zipOfficialMode = true;
 		zipBarePrefix = '';
 		zipPrefixMap = new Map();
+		zipScanNames = [];
+		zipPackLocs = new Map();
 
 		var names:Array<String> = readCentralDirectory(zipPath);
 		if (names != null)
 		{
 			if (names.length == 0)
 				return ScanReject; // 空包/全垃圾条目
+			zipScanNames = names;
 			var out:ZipScanOutcome = classifyZip(names, zipPath);
 			trace('[BootData] 中央目录预扫: ${names.length} 条目 -> $out');
 			return out;
@@ -1181,7 +1225,7 @@ class BootDataState extends MusicBeatState
 		return scanZipStreaming(zipPath);
 	}
 
-	/** 读中央目录拿全部条目名（只读文件末尾的目录区）。
+	/** 读中央目录拿全部条目名（只读文件末尾的目录区）；顺带记下 pack.json 的本地头定位。
 	 *  返回 null = 读不出来（ZIP64/自解压/损坏/结构异常），调用方退回流式预扫。 */
 	function readCentralDirectory(zipPath:String):Array<String>
 	{
@@ -1234,12 +1278,15 @@ class BootDataState extends MusicBeatState
 			var cdStart:Int = eocdAbs - cdSize;
 			if (cdStart < 0)
 				return null;
+			// 本地头 offset 是相对「归档起点」的：SFX 包前面有 stub，要加上这段偏移才对得上文件位置
+			var localBase:Int = cdStart - cdOffset;
 			inp.seek(cdStart, sys.io.FileSeek.SeekBegin);
 			var cd:Bytes = Bytes.alloc(cdSize);
 			readFully(inp, cd, 0, cdSize);
 			inp.close();
 
 			var raw:Array<String> = [];
+			var rawLocs:Array<{header:Int, method:Int, csize:Int, usize:Int}> = [];
 			var p:Int = 0;
 			while (p + 46 <= cdSize)
 			{
@@ -1253,6 +1300,12 @@ class BootDataState extends MusicBeatState
 					return null;
 				// 与 Reader.readEntryHeader 完全同一条解码链（readString -> Bytes.getString）
 				raw.push(cd.getString(p + 46, nameLen));
+				rawLocs.push({
+					header: u32le(cd, p + 42) + localBase,
+					method: u16le(cd, p + 10),
+					csize: u32le(cd, p + 20),
+					usize: u32le(cd, p + 24)
+				});
 				p = nameEnd + extraLen + commentLen;
 			}
 			if (raw.length != entriesTotal)
@@ -1260,8 +1313,9 @@ class BootDataState extends MusicBeatState
 			// 过滤成「有效文件条目」，与旧流式预扫喂给 classifyZip 的列表逐条对齐：
 			// 目录条目/垃圾条目/危险路径都不参与结构分类（否则 __MACOSX 会顶掉公共前缀判定）
 			var names:Array<String> = [];
-			for (rawName in raw)
+			for (k in 0...raw.length)
 			{
+				var rawName:String = raw[k];
 				if (StringTools.endsWith(rawName, '/'))
 					continue;
 				var name:String = normalizeEntryName(rawName);
@@ -1270,6 +1324,13 @@ class BootDataState extends MusicBeatState
 				if (!safeRelativePath(name))
 					continue;
 				names.push(name);
+				// pack.json 的本地头定位：裸 mod 包定名要读它，只收小文件（别为巨型配置开缓冲）
+				if (isPackJsonPath(name))
+				{
+					var loc = rawLocs[k];
+					if (loc.usize > 0 && loc.usize <= PACK_JSON_MAX && loc.csize > 0 && loc.csize <= PACK_JSON_MAX)
+						zipPackLocs.set(name, loc);
+				}
 			}
 			return names;
 		}
@@ -1346,6 +1407,7 @@ class BootDataState extends MusicBeatState
 		try
 			inp.close()
 		catch (e:Dynamic) {}
+		zipScanNames = names;
 		return classifyZip(names, zipPath);
 	}
 
@@ -1383,6 +1445,9 @@ class BootDataState extends MusicBeatState
 	/** 从预扫收集的路径定规则（names 已去掉垃圾条目与危险条目）。 */
 	function classifyZip(names:Array<String>, zipPath:String):ZipScanOutcome
 	{
+		// 规则一律从零算：原生路径不经过 scanZipRule，不能残留上一次导入的重映射规则
+		zipBarePrefix = '';
+		zipPrefixMap = new Map();
 		if (names.length == 0)
 			return ScanReject; // 空包/全垃圾条目
 
@@ -1430,7 +1495,7 @@ class BootDataState extends MusicBeatState
 			}
 		}
 
-		// 3) mod 分类：剥满公共前缀后，裸内容（根级文件或类别目录开头）→mods/<zip名>/；
+		// 3) mod 分类：剥满公共前缀后，裸内容（根级文件或类别目录开头）→mods/<名>/；
 		//    mod 文件夹/合集→mods/<名>/
 		var stripped:Array<String> = [for (n in names) stripSegments(n, common)];
 		if (!looksLikeModContent(stripped))
@@ -1449,8 +1514,9 @@ class BootDataState extends MusicBeatState
 		zipStrip = common;
 		if (bare)
 		{
+			// 先按压缩包名兜底落位，真正的名字由 applyBareModName 用包根 pack.json 覆盖
 			zipBarePrefix = 'mods/' + sanitizeModFolderName(zipDisplayName(zipPath)) + '/';
-			trace('[BootData] zip 预扫: 裸 mod 内容，整体映射到 ' + zipBarePrefix);
+			trace('[BootData] zip 预扫: 裸 mod 内容，先按压缩包名落位 ' + zipBarePrefix);
 		}
 		else
 		{
@@ -1480,6 +1546,162 @@ class BootDataState extends MusicBeatState
 		if (prefix == null)
 			prefix = 'mods/' + sanitizeModFolderName(first) + '/'; // 预扫漏网段兜底
 		return prefix + segs.join('/');
+	}
+
+	// ================= mod 目录定名（压缩包名只作兜底） =================
+
+	/** 裸 mod 包落点定名：包内 pack.json 的 name/id 优先，压缩包文件名排最后。
+	 *  ★压缩包名在中文环境里经常就是中文（网盘下载名 / 「新建压缩文件 (2).zip」），拿它当
+	 *    mod 目录名会让脚本里按目录拼出来的路径失效（中文目录 + UTF-16 封送），所以它只能是兜底。 */
+	function applyBareModName(packText:String):Void
+	{
+		if (zipBarePrefix.length == 0)
+			return; // 官方包 / mod 合集：压缩包名本来就没参与定名
+		var fromPack:String = packJsonFolderName(packText);
+		if (fromPack == null)
+		{
+			trace('[BootData] 裸 mod 包没有可用 pack.json，退回压缩包名: ' + zipBarePrefix);
+			return;
+		}
+		zipBarePrefix = 'mods/' + sanitizeModFolderName(fromPack) + '/';
+		trace('[BootData] 裸 mod 包按 pack.json 定名: ' + zipBarePrefix);
+	}
+
+	/** 从 pack.json 文本取 mod 目录名：name > id；解析不出来返回 null（调用方退回压缩包名）。
+	 *  解析器必须与 Mods.getPack 一致（TJSON 允许注释/尾逗号，haxe.Json 会直接拒收）。 */
+	static function packJsonFolderName(text:String):String
+	{
+		if (text == null)
+			return null;
+		var t:String = StringTools.trim(text);
+		if (t.length > 0 && t.charCodeAt(0) == 0xFEFF)
+			t = t.substr(1); // UTF-8 BOM
+		if (t.length == 0)
+			return null;
+		try
+		{
+			var pack:Dynamic = tjson.TJSON.parse(t);
+			if (pack == null)
+				return null;
+			var v:Dynamic = Reflect.field(pack, 'name');
+			if (v == null)
+				v = Reflect.field(pack, 'id');
+			if (v == null || !Std.isOfType(v, String))
+				return null;
+			var s:String = StringTools.trim(cast v);
+			return s.length > 0 ? s : null;
+		}
+		catch (e:Dynamic)
+			return null;
+	}
+
+	/** 裸内容模式要读的那条 pack.json（剥掉公共外层前缀后正好是 pack.json）。 */
+	function barePackJsonEntry():String
+	{
+		for (n in zipScanNames)
+			if (stripSegments(n, zipStrip).toLowerCase() == 'pack.json')
+				return n;
+		return null;
+	}
+
+	/** 条目名是不是 pack.json（只看文件名，不看深度）。 */
+	static function isPackJsonPath(name:String):Bool
+	{
+		var lower:String = name.toLowerCase();
+		return lower == 'pack.json' || StringTools.endsWith(lower, '/pack.json');
+	}
+
+	/** 从 zip 定向读一个条目（目前只给 pack.json 用）：只碰它的本地头 + 数据段，不解压其他条目。
+	 *  读不到 / 加密 / 方法不支持都返回 null。 */
+	function readZipSmallText(zipPath:String, entryName:String):String
+	{
+		if (entryName == null)
+			return null;
+		var loc = zipPackLocs.get(entryName);
+		if (loc == null)
+			return null;
+
+		var inp:FileInput = null;
+		var raw:Bytes = null;
+		try
+		{
+			inp = File.read(zipPath, true);
+			inp.seek(loc.header, sys.io.FileSeek.SeekBegin);
+			var hdr:Bytes = Bytes.alloc(30);
+			readFully(inp, hdr, 0, 30);
+			if (u32le(hdr, 0) == 0x04034B50)
+			{
+				var nameLen:Int = u16le(hdr, 26);
+				var extraLen:Int = u16le(hdr, 28);
+				inp.seek(loc.header + 30 + nameLen + extraLen, sys.io.FileSeek.SeekBegin);
+				var buf:Bytes = Bytes.alloc(loc.csize);
+				readFully(inp, buf, 0, loc.csize);
+				raw = buf;
+			}
+		}
+		catch (e:Dynamic)
+			trace('[BootData] 读 pack.json 失败: ' + Std.string(e));
+		// Haxe 没有 finally：句柄在这里统一关，别为几百字节漏 fd
+		if (inp != null)
+			try inp.close() catch (e:Dynamic) {};
+		if (raw == null)
+			return null;
+
+		var txt:Bytes = raw;
+		if (loc.method == 8)
+		{
+			// 配置只有几百字节，走纯 Haxe inflate 就够，不打扰原生 slab 那条大条目路径
+			try
+			{
+				var z = new haxe.zip.InflateImpl(new haxe.io.BytesInput(raw), false, false);
+				var sb:haxe.io.BytesBuffer = new haxe.io.BytesBuffer();
+				var chunk:Bytes = Bytes.alloc(4096);
+				while (true)
+				{
+					var n:Int = 0;
+					try
+						n = z.readBytes(chunk, 0, chunk.length)
+					catch (e:haxe.io.Eof)
+						n = 0;
+					if (n > 0)
+						sb.addBytes(chunk, 0, n);
+					if (n < chunk.length || sb.length >= PACK_JSON_MAX)
+						break; // 解完 / 尺寸撒谎的包（申明 100 字节实际几百 MB）：别把内存吃穿
+				}
+				txt = sb.getBytes();
+			}
+			catch (e:Dynamic)
+			{
+				trace('[BootData] pack.json 解压失败: ' + Std.string(e));
+				return null;
+			}
+		}
+		else if (loc.method != 0)
+			return null; // 加密 / 不支持的方法
+		return txt.getString(0, txt.length);
+	}
+
+	/** 原生包（rar/7z）：把当前条目解到临时文件再读成文本（只用于几百字节的 pack.json）。 */
+	function extractArchiveSmallText():String
+	{
+		#if cpp
+		var tmp:String = haxe.io.Path.addTrailingSlash(StorageUtil.getPrivateStorageDirectory()) + '.bootdata_packjson.tmp';
+		var txt:String = null;
+		try
+		{
+			if (backend.NativeArchive.archExtract(tmp) == 0 && FileSystem.exists(tmp))
+				txt = File.getContent(tmp);
+		}
+		catch (e:Dynamic)
+			trace('[BootData] 原生读 pack.json 失败: ' + Std.string(e));
+		try
+			if (FileSystem.exists(tmp))
+				FileSystem.deleteFile(tmp)
+		catch (e:Dynamic) {}
+		return txt;
+		#else
+		return null;
+		#end
 	}
 
 	static function startsWithOfficialPrefix(name:String):Bool
@@ -1559,20 +1781,30 @@ class BootDataState extends MusicBeatState
 		return Path.withoutExtension(Path.withoutDirectory(zipPath));
 	}
 
-	/** mod 文件夹名清洗：modsList.txt 用 '|' 分列、换行会断行，路径分隔符也不能混进来。 */
+	/** mod 文件夹名清洗：modsList.txt 用 '|' 分列、换行会断行；Windows 非法字符（<>:"?*）
+	 *  会让建目录直接失败；结尾点/空格在 Windows 上会被系统悄悄吃掉。 */
 	static function sanitizeModFolderName(s:String):String
 	{
 		var buf:StringBuf = new StringBuf();
 		for (i in 0...s.length)
 		{
 			var c:Int = s.charCodeAt(i);
-			if (c == 0x7C /*|*/ || c == 0x2F /*/*/ || c == 0x5C /*\*/ || c < 0x20)
+			if (c == 0x7C /*|*/ || c == 0x2F /*/*/ || c == 0x5C /*\*/ || c < 0x20
+				|| c == 0x3C /*<*/ || c == 0x3E /*>*/ || c == 0x3A /*:*/ || c == 0x22 /*"*/
+				|| c == 0x3F /*?*/ || c == 0x2A /**/)
 				c = 0x5F; // '_'
 			buf.addChar(c);
 		}
 		var r:String = StringTools.trim(buf.toString());
+		// 结尾点/空格：Windows 建目录时会被吃掉，导致落点与预期不一致
+		while (r.length > 0 && (r.charCodeAt(r.length - 1) == 0x2E /*.*/ || r.charCodeAt(r.length - 1) == 0x20 /* */))
+			r = r.substr(0, r.length - 1);
 		if (r.length == 0 || r == '.' || r == '..')
 			r = 'ImportedMod';
+		// 撞上 mods/ 下的类别目录名（data/songs/music…）会被 Mods.getModDirectories 当资源目录过滤掉，
+		// 装完在 mod 列表里根本看不到：加后缀躲开（pack.json 的名字完全可能叫 "Songs"）
+		if (isCategoryFolder(r))
+			r += '_mod';
 		if (r.length > 64)
 			r = r.substr(0, 64);
 		return r;

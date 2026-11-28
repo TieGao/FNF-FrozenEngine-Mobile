@@ -10,8 +10,8 @@ export/*
 .vscode/*
 HaxeToolkit/
 #.github/
-.workbuddy-ai/*
-.workbuddy/*
+.workbuddy-ai/
+.workbuddy/
 .agents/*
 .zcode/*
 *.code-workspace
@@ -54,3 +54,6 @@ FrozenEngine-mobile-content-BFMix.zip
 docs/updates/0.6.10-announcement.md
 tools/convert_cne_chart.py
 .tmp_modtest/
+# 构建日志（lime/hxcpp 输出，体积大且无版本意义）
+build-android.log
+*.build.log

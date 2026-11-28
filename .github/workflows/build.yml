@@ -77,6 +77,10 @@ jobs:
           
           # 允许在 Files 应用中直接打开和修改文档
           /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Info.plist
+
+          # ProMotion：iOS 15+ 没这个键时 CADisplayLink 最多 60Hz，
+          # 游戏内帧率 / 无限帧率形同虚设。写入后 ProMotion 机型可到 120。
+          /usr/libexec/PlistBuddy -c "Add :CADisableMinimumFrameDurationOnPhone bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CADisableMinimumFrameDurationOnPhone true" Info.plist
           # ===== 添加结束 =====
           
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}

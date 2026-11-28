@@ -1,0 +1,20 @@
+{
+  // android/java 不是 Gradle 工程，只是 lime 构建时会被拷进
+  // android/app/src/main/java 的附加源码。这里手工把依赖喂给 Java 语言服务器，
+  // 否则 android.* 和 org.haxe.extension.Extension 全被标红。
+  "java.project.sourcePaths": ["android/java"],
+  "java.project.outputPath": ".vscode/java-out",
+  "java.project.referencedLibraries": [
+    // android.*（platforms 目录按本机 SDK 实际装的版本改）
+    "C:/Users/Ice_Axe/AppData/Local/Android/Sdk/platforms/android-36/android.jar",
+    // org.haxe.extension.*：由 lime 的 dependencies/extension-api 源码 javac 打出，
+    // lime 升级后重跑 .vscode/java-libs/build-extension-api.sh
+    ".vscode/java-libs/*.jar"
+  ],
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "java.import.exclusions": [
+    "**/export/**",
+    "**/node_modules/**",
+    "**/.git/**"
+  ]
+}

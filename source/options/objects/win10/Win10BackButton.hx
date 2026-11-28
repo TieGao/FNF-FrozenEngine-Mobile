@@ -54,17 +54,25 @@ class Win10BackButton extends FlxSpriteGroup
 
         // ---------- 左箭头图标 ----------
         arrowSize = height * 0.42;
+        // ⚠ 局部坐标必须在这里先算好再写回 arrow：
+        // `add()` 时 FlxSpriteGroup.preAdd 会把组锚点直接加进成员坐标（sprite.x += group.x），
+        // 之后 arrow.x 就已经是屏幕坐标了。拿它去推文本位置 = 组 x 算两遍：
+        //   btnX = 0 时完全看不出来（桌面 / 移动端 16:9 都是 0）；
+        //   移动端宽屏按安全区内缩后 btnX 是几十~上百 px → 文本整体右移一倍 btnX、甩到框外，
+        //   同时 textW 被扣掉 btnX，窄到 0 以下 FlxText 就逐字换行（竖排）。
+        var arrowX:Float = width * 0.1;
         arrow = new FlxSprite();
         arrow.makeGraphic(Std.int(arrowSize), Std.int(arrowSize), 0x00000000, true);
         drawArrow(arrow, Std.int(arrowSize), accentColor);
         arrow.antialiasing = ClientPrefs.data.antialiasing;
-        arrow.x = width * 0.1;
+        arrow.x = arrowX;
         arrow.y = (height - arrowSize) * 0.5;
         add(arrow);
 
         // ---------- 文本 ----------
-        var textX = arrow.x + arrowSize + width * 0.06;
+        var textX = arrowX + arrowSize + width * 0.06;
         var textW = width - textX - width * 0.08;
+        if (textW < 8) textW = 8; // 兜底：别再把 fieldWidth 算成负数
 
         label = new FlxText(textX, 0, Std.int(textW), text, 14);
         label.setFormat(Paths.font('montserrat.ttf'), 14, UITheme.textPrimary, LEFT);

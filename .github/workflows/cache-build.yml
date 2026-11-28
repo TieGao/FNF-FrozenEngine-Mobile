@@ -381,17 +381,25 @@ jobs:
         run: |
           brew install ldid
           cd export/release/ios/build/Release-iphoneos/${{ env.PROJECT_NAME }}.app
-          # iOS 文件共享：仓里的 fileSharing-Info.plist（8-30 "ios folder fix" 加的）
-          # 一直没接线，lime 也不支持 infosection，打包前用 PlistBuddy 把两个 key
-          # 注进 Info.plist —— 否则 IPA 装上后在 文件/Finder 里看不到沙盒目录。
+          # iOS 打包前补 Info.plist 键：lime 不支持 infosection，只能在生成物上改。
           # key 已存在时 Add 会非零退出，用 Set 兜底；最后 Print 出来进日志留证。
+          #
+          # 1) 文件共享：否则 IPA 装上后在 文件/Finder 里看不到沙盒目录。
+          # 2) ProMotion：iOS 15+ 默认把 CADisplayLink 钉在 60Hz，没有这个键，
+          #    设置里的帧率/无限帧率全部无效；带上它，ProMotion 机型才允许 120。
+          #    等同 Project.xml 的 <config:ios high-frame-rate="true" />；lime 8.4.0 的
+          #    haxelib 分支已支持该 config，但 CI 的 .haxelib 缓存可能还是旧 checkout
+          #    （haxelib git 见到同名目录就不更新），所以这里再兜底注一次。
           /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Info.plist 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Info.plist
           /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Info.plist 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Info.plist
-          echo "--- Info.plist 文件共享 key ---"
+          /usr/libexec/PlistBuddy -c "Add :CADisableMinimumFrameDurationOnPhone bool true" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :CADisableMinimumFrameDurationOnPhone true" Info.plist
+          echo "--- Info.plist 注入的 key ---"
           /usr/libexec/PlistBuddy -c "Print :UIFileSharingEnabled" Info.plist
           /usr/libexec/PlistBuddy -c "Print :LSSupportsOpeningDocumentsInPlace" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CADisableMinimumFrameDurationOnPhone" Info.plist
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
           cd ..
           mkdir Payload

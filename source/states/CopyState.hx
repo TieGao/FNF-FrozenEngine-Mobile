@@ -26,6 +26,7 @@ package states;
 import states.TitleState;
 import lime.utils.Assets as LimeAssets;
 import openfl.utils.Assets as OpenFLAssets;
+import openfl.utils.AssetType;
 import openfl.utils.ByteArray;
 import haxe.io.Path;
 import haxe.io.Bytes;
@@ -83,13 +84,27 @@ class CopyState extends MusicBeatState
 		shouldCopy = true;
 		#end
 
-		add(new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, 0xffcaff4d));
+		// 加载背景只要城市图，不再叠 funkay；缺图退回原来的纯色底
+		if (Paths.fileExists('images/loading_screen/city.png', AssetType.IMAGE))
+		{
+			var city:FlxSprite = new FlxSprite().loadGraphic(Paths.image('loading_screen/city'));
+			var fit:Float = Math.max(FlxG.width / city.width, FlxG.height / city.height) * 1.01;
+			city.setGraphicSize(Std.int(city.width * fit), Std.int(city.height * fit));
+			city.updateHitbox();
+			city.screenCenter();
+			add(city);
+			loadingImage = city;
+		}
+		else
+		{
+			add(new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, 0xffcaff4d));
 
-		loadingImage = new FlxSprite(0, 0, Paths.image('funkay'));
-		loadingImage.setGraphicSize(0, FlxG.height);
-		loadingImage.updateHitbox();
-		loadingImage.screenCenter();
-		add(loadingImage);
+			loadingImage = new FlxSprite(0, 0, Paths.image('funkay'));
+			loadingImage.setGraphicSize(0, FlxG.height);
+			loadingImage.updateHitbox();
+			loadingImage.screenCenter();
+			add(loadingImage);
+		}
 
 		loadingBar = new FlxBar(0, FlxG.height - 26, FlxBarFillDirection.LEFT_TO_RIGHT, FlxG.width, 26);
 		loadingBar.setRange(0, maxLoopTimes);

@@ -261,7 +261,15 @@
 
 	<!-- Category Type for Apple Systems -->
 	<!-- iOS 配置 -->
-	<config:ios category_type="public.app-category.music-games" />
+	<!-- high-frame-rate = Info.plist 的 CADisableMinimumFrameDurationOnPhone。
+	     iOS 15+ 默认把 App 的 CADisplayLink 钉在 60Hz，只有带这个键，ProMotion 机型
+	     （iPhone 13 Pro 起 / iPad Pro）才允许请求 120。游戏内帧率是运行时可改的，
+	     必须无条件写死 true —— lime 的 auto 判定只看构建时 <window fps>（这里是 60），
+	     会判成 false，导致之后在设置里调高帧率依然卡 60。
+	     lime 8.4.0 的 haxelib 分支（2026-11-26 起）已实现该 config；CI 的 .haxelib
+	     缓存可能还停在旧 checkout（haxelib git 见到目录存在就不更新），因此打包脚本
+	     仍会用 PlistBuddy 兜底注入同一个键，两边不冲突。 -->
+	<config:ios category_type="public.app-category.music-games" high-frame-rate="true" />
 
 	<config:mac category_type="public.app-category.music-games" />
 
