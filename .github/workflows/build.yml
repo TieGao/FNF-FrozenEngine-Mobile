@@ -82,6 +82,20 @@ jobs:
           # 游戏内帧率 / 无限帧率形同虚设。写入后 ProMotion 机型可到 120。
           /usr/libexec/PlistBuddy -c "Add :CADisableMinimumFrameDurationOnPhone bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CADisableMinimumFrameDurationOnPhone true" Info.plist
           # ===== 添加结束 =====
+
+          # ===== 游戏模式（Game Mode）=====
+          # LSSupportsGameMode（iOS 18.6+）声明"这是游戏"，让系统自动开启 Game Mode；
+          # GCSupportsGameMode 是 18.0~18.5 的旧键，保留兼容；LSApplicationCategoryType
+          # 是系统最初的判定依据，侧载 IPA 没有 App Store 元数据，必须写在 Info.plist。
+          # lime 8.4.0 的 iOS 模板不产出这几个键，只能在打包前注入。
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsGameMode bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :GCSupportsGameMode bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :GCSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.games" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.games" Info.plist
+          echo "--- Info.plist 游戏模式 key ---"
+          /usr/libexec/PlistBuddy -c "Print :LSSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :GCSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :LSApplicationCategoryType" Info.plist
+          # ===== 游戏模式添加结束 =====
           
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
           cd ..
