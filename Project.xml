@@ -82,6 +82,9 @@
 	<set name="BUILD_DIR" value="export/debug" if="debug" />
 	<set name="BUILD_DIR" value="export/release" unless="debug" />
 	<set name="BUILD_DIR" value="export/32bit" if="32bits" />
+	<!-- NMV 构建整树隔离到 export/NMV/release（含 obj/haxe/bin）：与主分支共用
+	     export/release 会让 hxcpp 产物和拷贝的 ndll/dll 相互覆盖。用 -D NMV_BUILD 开启。 -->
+	<set name="BUILD_DIR" value="export/NMV/release" if="NMV_BUILD" />
 
 	<classpath name="source" />
 
@@ -261,10 +264,13 @@
 	<certificate path="key.keystore" password="psychengine" alias="psychport" alias-password="psychengine" if="android" unless="debug" />
 
 	<!-- Category Type for Apple Systems -->
-	<!-- iOS 配置 -->
-	<config:ios category_type="public.app-category.music-games" />
+	<!-- 注意：lime 8.4.0 的 IOSPlatform 只读取 ios.* 白名单里的键，category_type 没被任何代码消费，
+	     iOS 的 Info.plist 模板里也没有 LSApplicationCategoryType —— 真正生效的注入在 CI 的
+	     "Make IPA" 步骤（LSSupportsGameMode / GCSupportsGameMode / LSApplicationCategoryType，
+	     用于触发 iOS 18+ 的游戏模式）。这里保留 games 是为了语义正确 + 未来 lime 支持时可直接用。 -->
+	<config:ios category_type="public.app-category.games" />
 
-	<config:mac category_type="public.app-category.music-games" />
+	<config:mac category_type="public.app-category.games" />
 
 	<!-- Allow Access to Engine Files in iOS -->
 	<haxedef name="SHARE_MOBILE_FILES" if="ios" />

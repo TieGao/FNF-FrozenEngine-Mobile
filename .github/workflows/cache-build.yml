@@ -409,6 +409,23 @@ jobs:
           echo "--- Info.plist 文件共享 key ---"
           /usr/libexec/PlistBuddy -c "Print :UIFileSharingEnabled" Info.plist
           /usr/libexec/PlistBuddy -c "Print :LSSupportsOpeningDocumentsInPlace" Info.plist
+          # iOS 游戏模式（Game Mode）：
+          #   LSSupportsGameMode  —— iOS 18.6+ 官方键（WWDC25 "Level up your games" 指定写法）
+          #   GCSupportsGameMode  —— iOS 18.0~18.5 时代的旧键，已标记 deprecated，留着兼容老系统
+          #   LSApplicationCategoryType —— 系统最原始的"这是不是游戏"判据（mac 模板里也是这个值），
+          #     侧载 IPA 没有 App Store 元数据，只能靠 Info.plist 里的它
+          # 三者都写，覆盖 18.0 → 26 的全部判定路径。lime 8.4.0 的 iOS 模板不生成这些键，
+          # Project.xml 里的 <config:ios category_type> 平台代码根本没读取，只能打包前注入。
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsGameMode bool true" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :LSSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :GCSupportsGameMode bool true" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :GCSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.games" Info.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.games" Info.plist
+          echo "--- Info.plist 游戏模式 key ---"
+          /usr/libexec/PlistBuddy -c "Print :LSSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :GCSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :LSApplicationCategoryType" Info.plist
           ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
           cd ..
           mkdir Payload

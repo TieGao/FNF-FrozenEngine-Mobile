@@ -1,0 +1,343 @@
+name: NMV Everything + Release
+
+# NMV-Features 分支专用全平台发版：8 个目标（Android / iOS / Windows x64+arm64 /
+# Linux x64+arm64 / macOS x64+arm64）→ 同一个 release，外加数据 zip。
+#
+# 与 everything-release.yml 的三处结构性差异：
+#   1. 所有目标都传 -D NMV_BUILD：构建树整棵隔离到 export/NMV/...，
+#      不与 main 分支的 export/release 抢 hxcpp obj / ndll / dll。
+#   2. 所有目标都用 Mobile 包体：二进制只内嵌基础 assets，base_game 与
+#      content/VanillaSongs 四类数据全部外置，由 extra-content.yml 把
+#      FrozenEngine-mobile-base.zip / -customcharts.zip / -<分类>-extra.zip
+#      挂到同一个 release，用户进游戏后由 BootDataState 导入。
+#      （BOOT_DATA_ALLOWED 是无条件 define，桌面端同样有导入入口。）
+#   3. Build 步骤内联而不是 uses build.yml —— build.yml 的 Make IPA 把
+#      export/release/ios/... 写死了，NMV 的 iOS 产物在 export/NMV/release/ios/...。
+#      其余步骤（NDK / libVLC / setup / Compile / Upload）与 build.yml 同构。
+#
+# 产物命名统一 FrozenEngine-NMV-*，tag 默认 nmv-devbuild-<sha>，
+# 避免与 main / mobile-release 的 devbuild-<sha> 撞车。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发版 tag（留空 = nmv-devbuild-<commit-hash>；填了就整套流程都用它，可复用已存在的 tag）'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  discussions: write
+
+env:
+  HAXE_VERSION: 4.3.7
+  PROJECT_NAME: FrozenEngine
+  RELEASE_NAME: FrozenEngine-NMV
+  REPO_PATH: TieGao/FNF-FrozenEngine-Mobile
+  # NMV 分支 + Mobile 薄包，固定传给所有平台
+  NMV_ARGS: >-
+    -D NMV_BUILD
+    -D NO_BASE_GAME_FILES
+    -D NO_BASE_GAME_ERECT_CONTENT -D NO_BASE_GAME_PICO -D NO_BASE_GAME_BF -D NO_BASE_GAME_COLLAB
+
+jobs:
+  get-commit-hash:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_hash: ${{ steps.get_commit_hash.outputs.COMMIT_HASH }}
+    steps:
+      - name: Check Repository
+        run: |
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "REPO_PATH: ${{ env.REPO_PATH }}"
+          if [[ "$GITHUB_REPOSITORY" != "${{ env.REPO_PATH }}" ]]; then
+            echo "Doesn't seem to be correct, returning SIGABRT..."
+            exit 6
+          else
+            echo "Seems to be correct..."
+          fi
+
+      - name: Get latest commit hash
+        id: get_commit_hash
+        run: |
+          commit_hash=${GITHUB_SHA::7}
+          echo "Latest commit hash is $commit_hash"
+          echo "COMMIT_HASH=$commit_hash" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: get-commit-hash
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ================= Android =================
+          - name: Android
+            os: macos-latest
+            buildArgs: "android -final"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvAndroidBuild
+            artifactPath: "export/NMV/release/android/bin/app/build/outputs/apk/release/*.apk"
+
+          # ================= iOS =================
+          - name: iOS
+            os: macos-latest
+            buildArgs: "ios -final -nosign"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvIOSBuild
+            artifactPath: "export/NMV/release/ios/build/Release-iphoneos/*.ipa"
+
+          # ================= Windows x86_64 =================
+          - name: Windows
+            os: windows-latest
+            buildArgs: windows
+            setupCommand: .\"setup/windows.bat"
+            artifactName: nmvWindowsBuild-x86_64
+            artifactPath: export\NMV\release\windows\bin\*
+
+          # ================= Windows ARM64 =================
+          # 与 mobile-release.yml 同一条 arm64 路线：TieGao/lime 库形态 +
+          # TieGao/hxcpp fork 自带 WindowsArm64 工具链，VS2022 自带 ARM64 生成工具。
+          - name: Windows ARM64
+            os: windows-2022
+            buildArgs: "windows -arm64 -D HXCPP_ARM64"
+            setupCommand: .\"setup/windows.bat"
+            artifactName: nmvWindowsBuild-arm64
+            artifactPath: export\NMV\release\windows\bin\*
+
+          # ================= Linux x86_64 =================
+          - name: Linux
+            os: ubuntu-latest
+            buildArgs: linux
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvLinuxBuild-x86_64
+            artifactPath: export/NMV/release/linux/bin/*
+
+          # ================= Linux ARM64 =================
+          - name: Linux ARM64
+            os: ubuntu-latest
+            buildArgs: "linux -arm64 -D HXCPP_ARM64"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvLinuxBuild-arm64
+            artifactPath: export/NMV/release/linux/bin/*
+
+          # ================= macOS x86_64 =================
+          - name: macOS x86_64
+            os: macos-26
+            buildArgs: "mac -64 -D HXCPP_M64"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvMacOSBuild-x86_64
+            artifactPath: export/NMV/release/macos/bin/*
+
+          # ================= macOS ARM64 =================
+          - name: macOS ARM64
+            os: macos-latest
+            buildArgs: "mac -arm64 -D HXCPP_ARM64"
+            setupCommand: sh ./setup/unix.sh
+            artifactName: nmvMacOSBuild-arm64
+            artifactPath: export/NMV/release/macos/bin/*
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@master
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Setup Android NDK
+        if: matrix.name == 'Android'
+        id: setup-ndk
+        uses: nttld/setup-ndk@main
+        with:
+          ndk-version: r28c
+          add-to-path: false
+
+      - name: Install libVLC
+        if: contains(matrix.name, 'Linux')
+        run: sudo apt install libvlc-dev libvlccore-dev
+
+      - name: Install Libraries
+        run: ${{ matrix.setupCommand }}
+
+      - name: Configure Android
+        if: matrix.name == 'Android'
+        run: |
+          haxelib run lime config ANDROID_SDK $ANDROID_HOME
+          haxelib run lime config ANDROID_NDK_ROOT ${{ steps.setup-ndk.outputs.ndk-path }}
+          haxelib run lime config JAVA_HOME $JAVA_HOME_17_arm64
+          haxelib run lime config ANDROID_SETUP true
+
+      - name: Compile
+        run: haxelib run lime build ${{ matrix.buildArgs }} ${{ env.NMV_ARGS }} -always
+
+      - name: Make IPA
+        if: matrix.name == 'iOS'
+        run: |
+          brew install ldid
+          cd export/NMV/release/ios/build/Release-iphoneos/${{ env.PROJECT_NAME }}.app
+
+          # 文件共享：iTunes 可见应用文件夹 + Files 应用可打开修改文档
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Info.plist
+
+          # Game Mode：LSSupportsGameMode(18.6+) / GCSupportsGameMode(18.0~18.5) /
+          # LSApplicationCategoryType（侧载 IPA 无 App Store 元数据时的类别判据）
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsGameMode bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :GCSupportsGameMode bool true" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :GCSupportsGameMode true" Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.games" Info.plist 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.games" Info.plist
+          echo "--- Info.plist 游戏模式 key ---"
+          /usr/libexec/PlistBuddy -c "Print :LSSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :GCSupportsGameMode" Info.plist
+          /usr/libexec/PlistBuddy -c "Print :LSApplicationCategoryType" Info.plist
+
+          ldid -S../../../${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}.entitlements ${{ env.PROJECT_NAME }}
+          cd ..
+          mkdir Payload
+          mv ${{ env.PROJECT_NAME }}.app Payload
+          zip -r ${{ env.PROJECT_NAME }}.ipa Payload
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ matrix.artifactName }}
+          path: ${{ matrix.artifactPath }}
+          if-no-files-found: error
+
+  Releaser:
+    needs: [get-commit-hash, build]
+    runs-on: ubuntu-latest
+    permissions: write-all
+    outputs:
+      tag: ${{ steps.resolve_tag.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: resolve_tag
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="nmv-devbuild-${{ needs.get-commit-hash.outputs.commit_hash }}"
+          fi
+          name="${{ inputs.tag }}"
+          if [ -z "$name" ]; then
+            name="NMV DevBuild ${{ needs.get-commit-hash.outputs.commit_hash }}"
+          fi
+          echo "Release tag:  $tag"
+          echo "Release name: $name"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      # ---------------- Android ----------------
+      - name: Download Android Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvAndroidBuild
+          path: /home/runner
+      - name: Move Android File
+        run: mv /home/runner/${{ env.PROJECT_NAME }}-release.apk /home/runner/${{ env.RELEASE_NAME }}-Android.apk
+
+      # ---------------- iOS ----------------
+      - name: Download iOS Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvIOSBuild
+          path: ${{ github.workspace }}
+      - name: Move iOS File
+        run: mv ${{ github.workspace }}/${{ env.PROJECT_NAME }}.ipa /home/runner/${{ env.RELEASE_NAME }}-iOS.ipa
+
+      # ---------------- Windows x86_64 ----------------
+      - name: Download Windows x86_64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvWindowsBuild-x86_64
+          path: ${{ github.workspace }}/WindowsBuild-x86_64
+      - name: Pack Windows x86_64 Build
+        run: |
+          cd "${{ github.workspace }}/WindowsBuild-x86_64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-Windows.zip .
+
+      # ---------------- Windows ARM64 ----------------
+      - name: Download Windows ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvWindowsBuild-arm64
+          path: ${{ github.workspace }}/WindowsBuild-arm64
+      - name: Pack Windows ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/WindowsBuild-arm64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-Windows-arm64.zip .
+
+      # ---------------- Linux x86_64 ----------------
+      - name: Download Linux x86_64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvLinuxBuild-x86_64
+          path: ${{ github.workspace }}/LinuxBuild-x86_64
+      - name: Pack Linux x86_64 Build
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild-x86_64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-Linux.zip .
+
+      # ---------------- Linux ARM64 ----------------
+      - name: Download Linux ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvLinuxBuild-arm64
+          path: ${{ github.workspace }}/LinuxBuild-arm64
+      - name: Pack Linux ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/LinuxBuild-arm64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-Linux-arm64.zip .
+
+      # ---------------- macOS x86_64 ----------------
+      - name: Download macOS x86_64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvMacOSBuild-x86_64
+          path: ${{ github.workspace }}/MacOSBuild-x86_64
+      - name: Pack macOS x86_64 Build
+        run: |
+          cd "${{ github.workspace }}/MacOSBuild-x86_64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-macOS-x86_64.zip .
+
+      # ---------------- macOS ARM64 ----------------
+      - name: Download macOS ARM64 Build
+        uses: actions/download-artifact@main
+        with:
+          name: nmvMacOSBuild-arm64
+          path: ${{ github.workspace }}/MacOSBuild-arm64
+      - name: Pack macOS ARM64 Build
+        run: |
+          cd "${{ github.workspace }}/MacOSBuild-arm64"
+          zip -r /home/runner/${{ env.RELEASE_NAME }}-macOS-arm64.zip .
+
+      # ---------------- Publish ----------------
+      - name: Publish The Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.resolve_tag.outputs.name }}
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          prerelease: true
+          body: |
+            NMV-Features 分支全平台构建（Mobile 薄包体）。
+            二进制只含基础 assets；首次运行请在主菜单提示或 Advanced → Import Data Pack 导入同 release 的数据包：
+            FrozenEngine-mobile-base.zip（原版周数据）、FrozenEngine-mobile-customcharts.zip（自定义曲/模板）、
+            FrozenEngine-<分类>-extra.zip（Erect / PicoMix / BFMix / Collab，按需）。
+          files: |
+            /home/runner/*.apk
+            /home/runner/*.ipa
+            /home/runner/*.zip
+
+  # ---------------- Mobile 数据包（所有平台共用） ----------------
+  extra-content:
+    needs: Releaser
+    permissions:
+      contents: write
+    uses: ./.github/workflows/extra-content.yml
+    with:
+      tag: ${{ needs.Releaser.outputs.tag }}
+      exclude_base: false

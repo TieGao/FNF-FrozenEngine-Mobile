@@ -16,8 +16,9 @@ import flixel.FlxObject;
 #end
 class CoolUtil
 {
-	static inline var UPDATE_URL:String = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitVersion.txt";
-	static inline var UPDATE_URL_BETA:String = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/main/gitBeta.txt";
+	// NMV 版只跟 NMV-Features 分支的版本文件比对，避免被 main 的发布号误报更新
+	static inline var UPDATE_URL:String = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/NMV-Features/gitVersion.txt";
+	static inline var UPDATE_URL_BETA:String = "https://raw.githubusercontent.com/TieGao/FNF-FrozenEngine-Mobile/NMV-Features/gitBeta.txt";
 
 	/** 正在进行的更新请求。持住引用，避免加载途中被 GC 回收 */
 	static var updateLoader:URLLoader = null;

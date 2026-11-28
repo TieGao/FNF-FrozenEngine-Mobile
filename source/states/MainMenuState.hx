@@ -223,7 +223,7 @@ class MainMenuState extends MusicBeatState
 			Language.getPhrase('update.available.title', 'Update Available'),
 			Language.getPhrase('update.available.body', 'A new version ({1}) is available.\nClick to open the downloads page.', [newVersion]),
 			ACTION,
-			function() CoolUtil.browserLoad('https://github.com/TieGao/FNF-FrozenEngine/releases'),
+			function() CoolUtil.browserLoad('https://github.com/TieGao/FNF-FrozenEngine-Mobile/tree/NMV-Features'),
 			8.0
 		);
 	}
