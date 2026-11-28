@@ -24,6 +24,12 @@
 `export/<build>/<target>/obj`、两个库各自的 `config.h` 靠分组 `-I` 区分、
 C 符号声明要挂在调用方 TU 的 `@:cppFileCode` 上并带 `extern "C"`）。
 
+⚠️ **相对路径基准随平台而变**：hxcpp 的 C++ 工作目录在 Windows / Android 是
+`export/<build>/<target>/obj`，而 iOS 的 Xcode `Build Haxe` 外部构建会再 cd 进
+`export/release/ios/<App>/haxe/build/Release-iphoneos-64`（深 3 级）。所以
+`NativeArchive.hx` 的 `@:buildXml` 统一用 `${FNF_NATIVE_DIR}`（`<section if="ios">`
+改成 7 级 `../`）；新增 C 源文件时只写 `${FNF_NATIVE_DIR}/...`，别写死 `../../../../native`。
+
 ⚠️ **hxcpp 不跟踪 C 头文件依赖**：改了 `config.h` / `fnf_archive.h` 之后，相关的 .obj 不会自动
 重编，得手动删掉对应 obj（或 touch 对应的 .c）再构建，否则会拿到旧符号/旧配置。
 
