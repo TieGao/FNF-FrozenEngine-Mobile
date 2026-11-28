@@ -64,7 +64,7 @@ class Paths
 	//
 	// 旧实现是「硬销毁 + 只增不减的本地记账表」：销毁不看 useCount，存活判定又永远为真
 	// （该表只在 clearStoredMemory 末尾清空），所以只能在 PlayState 里整个禁用（见
-	// docs/memory-optimization-handover.md §4）。现在拆成三件事：
+	// docs/DevelopDocs/memory-optimization-handover.md §4）。现在拆成三件事：
 	//   1. 记账 = key -> 代际（哪一代被请求过），每次 clearStoredMemory 递增；
 	//   2. 释放 = releaseGraphic()：useCount 归零才真销毁，否则排队等下一次 flush；
 	//   3. 销毁 = destroyGraphic()：唯一出口，先 dispose GL 纹理再摘缓存。
@@ -688,7 +688,6 @@ class Paths
 	public static function inst(song:String, ?modsAllowed:Bool = true, ?chartCategory:String = null):Sound
 	{
 		var songPath:String = formatToSongPath(song);
-		var candidates:Array<String> = [];
 
 		// 外部谱面声明的音轨优先于目录里的通用名候选。
 		if (currentChartInstPath != null && currentChartInstPath.length > 0)
@@ -700,6 +699,52 @@ class Paths
 				return declared;
 			}
 		}
+
+		for (candidate in instCandidates(songPath, modsAllowed, chartCategory))
+		{
+			var sound:Sound = loadSoundCandidate(candidate);
+			if (sound != null)
+			{
+				markAssetUsed(candidate);
+				return sound;
+			}
+		}
+
+		trace('SOUND NOT FOUND: $songPath');
+		FlxG.log.error('SOUND NOT FOUND: $songPath');
+		return FlxAssets.getSoundAddExtension('flixel/sounds/beep');
+	}
+
+	/**
+	 * 轻量探测「引擎按当前上下文能不能解析到 Inst」：候选顺序与 inst() 完全一致，
+	 * 但不建 Sound、不看 currentChartInstPath（那是谱面声明的覆盖项，由导入向导自己管）。
+	 * 用于「缺音频」拦截前的复核 —— 谱面目录里没有、不等于 mods/<mod>/songs/<歌>/ 里也没有。
+	 * @param chartDir 临时覆盖「当前谱面目录」做探测（如导入向导的落地目录），不污染全局状态
+	 */
+	public static function hasInst(song:String, ?modsAllowed:Bool = true, ?chartCategory:String = null, ?chartDir:String = null):Bool
+	{
+		if (song == null || song.length < 1) return false;
+		var songPath:String = formatToSongPath(song);
+		for (candidate in instCandidates(songPath, modsAllowed, chartCategory, chartDir))
+		{
+			if (candidate == null || candidate.length < 1) continue;
+			#if sys
+			if (FileSystem.exists(candidate)) return true;
+			#else
+			if (OpenFlAssets.exists(candidate, SOUND)) return true;
+			#end
+		}
+		return false;
+	}
+
+	/**
+	 * inst() 的候选文件顺序（不含 currentChartInstPath 声明覆盖）。
+	 * 抽出来给 hasInst() 复用：判定和实际播放必须是同一张表，否则会出现
+	 * 「判定说没有、播起来却有」或反过来的假报。
+	 */
+	static function instCandidates(songPath:String, ?modsAllowed:Bool = true, ?chartCategory:String = null, ?chartDirOverride:String = null):Array<String>
+	{
+		var candidates:Array<String> = [];
 
 		// 变体难度（Erect / Pico / …）的音轨在 songs/<歌>-<变体>/ 里，文件名不带变体后缀。
 		// ⚠️ 必须排在无后缀候选之前 —— 否则变体难度会命中原曲的 Inst.ogg。
@@ -724,15 +769,18 @@ class Paths
 		#if MODS_ALLOWED
 		// 只要有精确谱面目录就要走这段，分类名可以为空：编辑器从局内进来时只带目录不带分类，
 		// 少了这段就只能按歌名去猜路径，自定义谱面（歌名≠目录名）必然找不到音轨。
-		if ((chartCategory != null && chartCategory.length > 0) || (currentChartDirectory != null && currentChartDirectory.length > 0))
+		var hasOverride:Bool = (chartDirOverride != null && chartDirOverride.length > 0);
+		if (hasOverride || (chartCategory != null && chartCategory.length > 0) || (currentChartDirectory != null && currentChartDirectory.length > 0))
 		{
-			var chartDir:String = (currentChartDirectory != null && currentChartDirectory.length > 0)
-				? currentChartDirectory : '$CHART_ROOT/$chartCategory/$songPath';
+			var chartDir:String = hasOverride
+				? chartDirOverride
+				: ((currentChartDirectory != null && currentChartDirectory.length > 0)
+					? currentChartDirectory : '$CHART_ROOT/$chartCategory/$songPath');
 			#if sys
 			// 只有当前目录未知时才靠分类名去猜路径。已经有精确目录时再猜一次，
 			// 一旦分类名指向别的目录（例如浏览聚合分类 'custom' 时恰好存在同名文件夹），
 			// 就会把正确目录覆盖成错的。
-			if (currentChartDirectory == null || currentChartDirectory.length == 0)
+			if (!hasOverride && (currentChartDirectory == null || currentChartDirectory.length == 0))
 			{
 				var actualCategory:String = findCaseInsensitiveDirectory(CHART_ROOT, chartCategory);
 				if (actualCategory != null)
@@ -744,7 +792,7 @@ class Paths
 			#end
 			// 数据包布局（charts/ + song/）：从 charts/ 里直接打开谱面时，音轨在上一级目录
 			if (chartDir.endsWith('/charts')) chartDir = chartDir.substr(0, chartDir.length - 7);
-			chartDir += '/';
+			if (!chartDir.endsWith('/')) chartDir += '/';
 			if (currentChartHasVSliceMetadata && currentChartAudioSuffix != null && currentChartAudioSuffix.length > 0)
 			{
 				candidates.push(chartDir + 'Inst-' + currentChartAudioSuffix + '.ogg');
@@ -772,19 +820,7 @@ class Paths
 		}
 		#end
 
-		for (candidate in candidates)
-		{
-			var sound:Sound = loadSoundCandidate(candidate);
-			if (sound != null)
-			{
-				markAssetUsed(candidate);
-				return sound;
-			}
-		}
-
-		trace('SOUND NOT FOUND: $songPath');
-		FlxG.log.error('SOUND NOT FOUND: $songPath');
-		return FlxAssets.getSoundAddExtension('flixel/sounds/beep');
+		return candidates;
 	}
 
 	#if sys
@@ -848,6 +884,21 @@ class Paths
 
 	public static function voices(song:String, postfix:String = null, ?modsAllowed:Bool = true, ?chartCategory:String = null):Sound
 	{
+		// 导入时显式选中的人声优先（落不到规范名上时存成了 *-imported.*）
+		if (postfix != null && postfix.length > 0)
+		{
+			var picked:String = currentChartVocalsPaths.get(postfix.toLowerCase());
+			if (picked != null && picked.length > 0)
+			{
+				var pickedSound:Sound = loadSoundCandidate(picked);
+				if (pickedSound != null)
+				{
+					markAssetUsed(picked);
+					return pickedSound;
+				}
+			}
+		}
+
 		var songPath:String = formatToSongPath(song);
 		var voiceName:String = 'Voices';
 		if (postfix != null && postfix.length > 0) voiceName += '-$postfix';
@@ -1467,6 +1518,12 @@ class Paths
 	 * 不按通用名在同目录里猜 —— 下载目录里常有上一次导入留下的 Inst.ogg。
 	 */
 	public static var currentChartInstPath:Null<String> = null;
+	/**
+	 * 谱面显式指定的人声文件，键 = postfix 小写（'player' / 'opponent' / 角色 vocals_file）。
+	 * 导入时选中的文件落不到 voices() 候选名上（同名槽位被别的歌占着 → 存成 *-imported.*）时，
+	 * 靠这里直接指向用户真正选中的那一份；为空则走常规候选链。
+	 */
+	public static var currentChartVocalsPaths:Map<String, String> = new Map();
 	public static var currentChartAudioSuffix:String = null;
 	public static var currentChartHasVSliceMetadata:Bool = false;
 	/**
@@ -1522,6 +1579,7 @@ class Paths
 		currentChartCategory = (category != null && category.length > 0) ? category : null;
 		currentChartDirectory = (directory != null && directory.length > 0) ? directory : null;
 		currentChartInstPath = null;
+		currentChartVocalsPaths.clear();
 		currentChartHasVSliceMetadata = hasVSlice;
 		currentChartAudioSuffix = audioSuffix;
 		setContentRoot(contentRoot, variant);

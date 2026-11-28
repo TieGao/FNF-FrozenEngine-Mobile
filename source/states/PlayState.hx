@@ -320,6 +320,7 @@ class PlayState extends MusicBeatState
 	var healthTextObj:objects.HealthText;
 	var judgementCounterObj:objects.JudgementCounter;
 	var songInfoTextObj:objects.SongInfoText;
+	var chartHelperObj:objects.ChartHelper;
 
 	var timeTxt:FlxText;
 	var scoreTxtTween:FlxTween;
@@ -1012,6 +1013,7 @@ class PlayState extends MusicBeatState
 		// Instantiate modular UI objects (migrated to objects/)
 		healthTextObj = new objects.HealthText(this);
 		songInfoTextObj = new objects.SongInfoText(this);
+		chartHelperObj = new objects.ChartHelper(this);
 		if (isSplitCoopMode())
 		{
 			judgementCounterPlayer = new objects.JudgementCounter(this, "player");
@@ -1232,6 +1234,8 @@ class PlayState extends MusicBeatState
 		cacheCountdown();
 		cachePopUpScore();
 
+		syncJudgementPopupLayer();
+
 		if(eventNotes.length < 1) checkEventNote();
 	}
 
@@ -1276,8 +1280,8 @@ class PlayState extends MusicBeatState
 		Conductor.offset = Reflect.hasField(PlayState.SONG, 'offset') ? (PlayState.SONG.offset / value) : 0;
 		Conductor.safeZoneOffset = (ClientPrefs.data.safeFrames / 60) * 1000 * value;
 		#if VIDEOS_ALLOWED
-		if(videoCutscene != null && videoCutscene.videoSprite != null)
-			videoCutscene.videoSprite.bitmap.rate = value;
+		// 必须走 VideoSprite.setRate()：视频已销毁时底层 bitmap 为 null（歌曲结束时这里正好会被写一次）
+		if(videoCutscene != null) videoCutscene.setRate(value);
 		#end
 		setOnScripts('playbackRate', playbackRate);
 	#else
@@ -1474,6 +1478,8 @@ class PlayState extends MusicBeatState
 	}
 
 	public var videoCutscene:VideoSprite = null;
+	/** PlayState.destroy() 执行中：此时 videoGroup 正在遍历销毁成员，禁止再改它的 members */
+	public var isDestroyingState:Bool = false;
 
 	#if VIDEOS_ALLOWED
 	// 上一帧的暂停状态，用于检测 paused 边沿、同步视频播放
@@ -1495,7 +1501,9 @@ class PlayState extends MusicBeatState
 		if (foundFile)
 		{
 			videoCutscene = new VideoSprite(fileName, forMidSong, canSkip, loop);
-			if(forMidSong) videoCutscene.videoSprite.bitmap.rate = playbackRate;
+			if(forMidSong) videoCutscene.setRate(playbackRate);
+
+			var thisVideo:VideoSprite = videoCutscene;
 
 			// Finish callback
 			if (!forMidSong)
@@ -1507,7 +1515,8 @@ class PlayState extends MusicBeatState
 						moveCameraSection();
 						FlxG.camera.snapToTarget();
 					}
-					videoCutscene = null;
+					// 只在仍指向本实例时清空：连续播两个视频时，旧视频的回调不该抹掉新引用
+					if (videoCutscene == thisVideo) videoCutscene = null;
 					canPause = true;
 					inCutscene = false;
 					startAndEnd();
@@ -1515,6 +1524,17 @@ class PlayState extends MusicBeatState
 				videoCutscene.finishCallback = onVideoEnd;
 				videoCutscene.onSkip = onVideoEnd;
 			}
+
+			// 视频销毁后清掉宿主引用：mid-song 视频播完没有 finishCallback，
+			// 否则 videoCutscene 会一直指向已销毁实例（bitmap 已空）。
+			thisVideo.onDestroyed = function()
+			{
+				// state 正在销毁时 videoGroup 自己也在遍历销毁成员，此时改 members 会跳过元素
+				if(!isDestroyingState && videoGroup != null && videoGroup.members != null && videoGroup.members.contains(thisVideo))
+					videoGroup.remove(thisVideo, true);
+
+				if(videoCutscene == thisVideo) videoCutscene = null;
+			};
 			if (GameOverSubstate.instance != null && isDead) GameOverSubstate.instance.add(videoCutscene);
 			else if (group == "videoGroup")	
 			{
@@ -2502,6 +2522,17 @@ public function reloadCounterColors()
 	var freezeCamera:Bool = false;
 	var allowDebugKeys:Bool = true;
 
+	// Chart Helper / HScript 用：MusicBeatState 里的 curSection / curStep 是 private
+	public function getSectionIndex():Int
+	{
+		return curSection;
+	}
+
+	public function getStepIndex():Int
+	{
+		return curStep;
+	}
+
 	override public function update(elapsed:Float)
 	{
 	if(ClientPrefs.data.skipDeath&& health <=0)  
@@ -2740,6 +2771,8 @@ public function reloadCounterColors()
 			if (judgementCounterOpponent != null) judgementCounterOpponent.refresh();
 		}
 		else if (judgementCounterObj != null) judgementCounterObj.refresh();
+
+		if (chartHelperObj != null) chartHelperObj.refresh();
 
 		setOnScripts('botPlay', cpuControlled);
 		callOnScripts('onUpdatePost', [elapsed]);
@@ -3934,6 +3967,71 @@ public function reloadCounterColors()
 		}
 	}
 
+	/**
+	 * 判定弹窗画在哪台相机：'UI' = camHUD（固定屏幕），其余模式 = camGame（跟着镜头缩放 / 滚动）。
+	 */
+	private function resolveJudgementPopupCamera():FlxCamera
+	{
+		var mode:String = ClientPrefs.data.judgementPopupPos;
+		return (mode == 'BF' || mode == 'GF' || mode == 'Stage') ? camGame : camHUD;
+	}
+
+	/**
+	 * 同步判定弹窗组（comboGroup）的相机与绘制层级。
+	 *
+	 * 画在 camGame 时必须把整组提到 state 成员末尾：comboGroup 是在角色之前 add 的，
+	 * 不挪就会被 BF / GF 以及舞台 createPost() 加的前景道具盖住。
+	 * camHUD 与 camGame 是两台独立相机、绘制互不影响，UI 模式下挪不挪观感一致，所以不挪。
+	 */
+	private function syncJudgementPopupLayer(?cam:FlxCamera):Void
+	{
+		if (comboGroup == null || camHUD == null || camGame == null) return;
+		if (cam == null) cam = resolveJudgementPopupCamera();
+
+		var cams:Array<FlxCamera> = comboGroup.cameras;
+		// 目标相机变了才重设：FlxSpriteGroup.set_cameras 会逐个子元素传播（池里已 kill 的也一并同步）
+		if (cams == null || cams.length != 1 || cams[0] != cam) comboGroup.cameras = [cam];
+
+		if (cam == camGame && members != null)
+		{
+			var idx:Int = members.indexOf(comboGroup);
+			if (idx >= 0 && idx != members.length - 1)
+			{
+				// remove(x, true) + insert(length) 才是「挪到末尾」；直接 add 会被塞回原来的 null 空槽
+				remove(comboGroup, true);
+				insert(members.length, comboGroup);
+			}
+		}
+	}
+
+	/**
+	 * 判定弹窗的定位基准：x 对应原版的 placement，y 对应 screenCenter() 给出的纵向基准。
+	 *   'UI'      : camHUD，x = 屏幕 35%（双人分屏玩家侧 80%），y = 屏幕中线
+	 *   'BF'/'GF' : camGame，x / y = 角色世界中点（弹窗钉在场景里，随镜头滚动）
+	 *   'Stage'   : camGame，按 PE 0.4.2 的取法 —— FlxG.width * 0.55 + 屏幕中线（世界坐标）
+	 * 角色缺失（自定义谱面把 BF / GF 关掉）时退回 'Stage' 的基准，避免弹窗跑到 (0, 0)。
+	 */
+	private function getJudgementPopupBase(side:String):{x:Float, y:Float, cam:FlxCamera}
+	{
+		var mode:String = ClientPrefs.data.judgementPopupPos;
+
+		if (mode == 'BF' && boyfriend != null)
+		{
+			var mid:FlxPoint = boyfriend.getMidpoint();
+			return {x: mid.x, y: mid.y, cam: camGame};
+		}
+		if (mode == 'GF' && gf != null)
+		{
+			var gfMid:FlxPoint = gf.getMidpoint();
+			return {x: gfMid.x, y: gfMid.y, cam: camGame};
+		}
+		if (mode == 'Stage' || mode == 'BF' || mode == 'GF')
+			return {x: FlxG.width * 0.55, y: FlxG.height * 0.5, cam: camGame};
+
+		var uiX:Float = (side == "player" && isSplitCoopMode()) ? FlxG.width * 0.8 : FlxG.width * 0.35;
+		return {x: uiX, y: FlxG.height * 0.5, cam: camHUD};
+	}
+
     private function popUpScore(note:Note = null, rawNoteDiff:Null<Float> = null, ?side:String):Void 
 	{
         if (combo >= highestCombo) highestCombo = combo;
@@ -3996,7 +4094,10 @@ public function reloadCounterColors()
         }
         
         // 判定评级
-		var placement:Float = (side == "player" && isSplitCoopMode()) ? FlxG.width * 0.8 : FlxG.width * 0.35;
+		// 判定弹窗位置（UI / 跟随 BF·GF / 场景中心）：先定相机与基准点
+		var popupBase = getJudgementPopupBase(side);
+		syncJudgementPopupLayer(popupBase.cam);
+		var placement:Float = popupBase.x;
 		var daRating:Rating = Conductor.judgeNote(ratingsData, noteDiff / playbackRate);
 		if (!note.ratingDisabled)
 		{
@@ -4022,6 +4123,8 @@ public function reloadCounterColors()
             {
                 songHits++;
                 totalPlayed++;
+                // Chart Helper 的 NPS：记一次命中时间戳（同 Kade / NovaFlare 的 notesHitArray）
+                if(chartHelperObj != null) chartHelperObj.registerHit();
                 RecalculateRating(false);
             }
         }
@@ -4074,7 +4177,7 @@ public function reloadCounterColors()
         }
         
         rating.loadGraphic(Paths.image(ratingPath));
-        rating.screenCenter();
+        rating.y = popupBase.y - rating.height * 0.5;
         rating.x = placement - 40 + ClientPrefs.data.comboOffset[0];
 		rating.y -= 60 + ClientPrefs.data.comboOffset[1];
         if (ClientPrefs.data.comboStacking) {
@@ -4113,7 +4216,7 @@ public function reloadCounterColors()
 			}
 			
 			earlyLateSpr.loadGraphic(Paths.image(earlyLatePath));
-			earlyLateSpr.screenCenter();
+			earlyLateSpr.y = popupBase.y - earlyLateSpr.height * 0.5;
 			earlyLateSpr.visible = ClientPrefs.data.showEarlyLate;
 			
 			// 设置位置（在评级旁边）
@@ -4162,7 +4265,7 @@ public function reloadCounterColors()
                     case 'shit': msText.color = FlxColor.RED;
                 }
             }
-            msText.screenCenter();
+            msText.y = popupBase.y - msText.height * 0.5;
             msText.x = placement + ClientPrefs.data.comboOffset[0] + 175;
             msText.y -= ClientPrefs.data.comboOffset[1];
         }
@@ -4187,7 +4290,7 @@ public function reloadCounterColors()
                 comboPath = fallback + 'combo' + uiPostfix;
             }
             comboSpr.loadGraphic(Paths.image(comboPath));
-            comboSpr.screenCenter();
+            comboSpr.y = popupBase.y - comboSpr.height * 0.5;
             comboSpr.x = placement + ClientPrefs.data.comboOffset[0];
             comboSpr.y = comboSpr.y + 120 - ClientPrefs.data.comboOffset[1];
 			if (ClientPrefs.data.comboStacking) {
@@ -4261,7 +4364,7 @@ public function reloadCounterColors()
             }
             
             numScore.loadGraphic(Paths.image(numPath));
-            numScore.screenCenter();
+            numScore.y = popupBase.y - numScore.height * 0.5;
             numScore.x = placement + (43 * i) - 90 + ClientPrefs.data.comboOffset[2];
 			numScore.y = numScore.y + 80 - ClientPrefs.data.comboOffset[3]; 
 
@@ -5282,6 +5385,8 @@ public function reloadCounterColors()
 	}
 
 	override function destroy() {
+		isDestroyingState = true;
+
 		if (psychlua.CustomSubstate.instance != null)
 		{
 			closeSubState();
@@ -5347,6 +5452,12 @@ public function reloadCounterColors()
 
 		inReplay = false;
 		loadRep = false;
+
+		if (chartHelperObj != null)
+		{
+			chartHelperObj.destroy();
+			chartHelperObj = null;
+		}
 
 		if (modInfoBox != null)
 		{

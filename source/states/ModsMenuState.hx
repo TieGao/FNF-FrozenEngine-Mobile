@@ -42,6 +42,8 @@ class ModsMenuState extends MusicBeatState
 	var icon:FlxSprite;
 	var modName:Alphabet;
 	var modDesc:FlxText;
+	/** 标题面板右上角的版本标签（内容包 / 带 pack.json 的 mod）。 */
+	var modVersion:FlxText;
 	var modRestartText:FlxText;
 	var modsList:ModsList = null;
 	/** Content 体系（content/<大类>/<包>）的启用表，结构与 modsList 完全一致，切换页签只是换个指针。 */
@@ -201,6 +203,14 @@ class ModsMenuState extends MusicBeatState
 		modName = new Alphabet(icon.x + 165, modNameInitialY, "", true);
 		modName.scaleY = 0.8;
 		add(modName);
+
+		// 标题面板右上角的版本标签（v1.2.0 / engine >= v0.6.12），没声明版本的包不显示
+		modVersion = new FlxText(0, bgTitle.y + 16, 0, '', 20);
+		modVersion.setFormat(Paths.font("vcr.ttf"), 20, 0xFF9FE8FF, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		modVersion.borderSize = 2;
+		modVersion.antialiasing = ClientPrefs.data.antialiasing;
+		modVersion.visible = false;
+		add(modVersion);
 
 		bgDescription = FlxSpriteUtil.drawRoundRectComplex(new FlxSprite(panelX, descY).makeGraphic(panelW, descH, FlxColor.TRANSPARENT), 0, 0, panelW, descH, 0, 0, 15, 15, FlxColor.BLACK);
 		bgDescription.alpha = 0.6;
@@ -397,7 +407,7 @@ class ModsMenuState extends MusicBeatState
 	var scrollBar:FlxSprite = null;
 	var scrollBarTrack:FlxSprite = null;
 
-	static inline var ROW_H:Int = 86;
+	static inline var ROW_H:Int = ModItem.CARD_ROW_H;
 
 	var holdTime:Float = 0;
 
@@ -1008,6 +1018,26 @@ class ModsMenuState extends MusicBeatState
 
 		modDesc.text = curMod.desc;
 
+		// 版本标签：包 / mod 自带 pack.json 的 version 时显示，引擎要求不满足则标红
+		var versionLabel:String = curMod.versionDetailLabel();
+		modVersion.visible = versionLabel != null;
+		if(versionLabel != null)
+		{
+			modVersion.text = versionLabel;
+			modVersion.color = curMod.engineCompatible() ? 0xFF9FE8FF : 0xFFFF8A8A;
+			modVersion.updateHitbox();
+			modVersion.x = bgTitle.x + bgTitle.width - 20 - modVersion.width;
+			modVersion.y = bgTitle.y + 16;
+		}
+
+		// 引擎版本低于包要求时，描述区再写一句 —— 只靠标签变红容易被忽略
+		if(!curMod.engineCompatible())
+		{
+			modDesc.text += '\n\n' + Language.getPhrase('content_engine_mismatch',
+				'! This pack needs engine v{1} or newer, but you are running v{2}. Update the game, or use a matching version of the pack.',
+				[curMod.minEngineVersion, ContentPacks.engineVersion()]);
+		}
+
 		for (button in buttons) if(button.focusChangeCallback != null) button.focusChangeCallback(button.onFocus);
 		settingsButton.enabled = (curMod.settings != null && curMod.settings.length > 0);
 	}
@@ -1321,6 +1351,7 @@ class ModsMenuState extends MusicBeatState
 		modName.visible = false;
 		modDesc.visible = false;
 		modRestartText.visible = false;
+		if(modVersion != null) modVersion.visible = false;
 		settingsButton.enabled = false;
 	}
 
@@ -1447,6 +1478,8 @@ class ModItem extends FlxSpriteGroup
 	// ------------------------------------------------------------------
 	// 卡片排版（**可调参数**：想微调就只改这几个数，其余位置自动跟着走）
 	// ------------------------------------------------------------------
+	/** 卡片行高（列表每项占的纵向空间；ModsMenuState.ROW_H 直接引用它） */
+	public static inline var CARD_ROW_H:Int = 86;
 	/** 图标左缘 */
 	public static var cardIconX:Float = 15;
 	/** 图标上缘 */
@@ -1461,6 +1494,8 @@ class ModItem extends FlxSpriteGroup
 	public var selectBg:FlxSprite;
 	public var icon:FlxSprite;
 	public var text:FlxText;
+	/** 名字下面那行版本号小字；包没声明 version 时为 null（整行不存在）。 */
+	public var versionText:FlxText = null;
 	public var totalFrames:Int = 0;
 
 	// options
@@ -1470,6 +1505,9 @@ class ModItem extends FlxSpriteGroup
 	public var bgColor:FlxColor = 0xFF665AFF;
 	public var pack:Dynamic = null;
 	public var folder:String = 'unknownMod';
+	/** 包清单（pack.json）声明的版本号 / 要求的最低引擎版本；没声明为 null。 */
+	public var version:String = null;
+	public var minEngineVersion:String = null;
 	/** 非 null = Content 体系里的包（相对仓库根的路径，如 content/VanillaSongs/Erect）；普通 mod 为 null。 */
 	public var contentRoot:String = null;
 	public var mustRestart:Bool = false;
@@ -1504,7 +1542,7 @@ class ModItem extends FlxSpriteGroup
 		this.contentRoot = contentRoot;
 
 		var base:String = (contentRoot != null) ? contentRoot : Paths.mods(folder);
-		pack = (contentRoot != null) ? readPackJson(base) : Mods.getPack(folder);
+		pack = (contentRoot != null) ? ContentPacks.readManifest(base) : Mods.getPack(folder);
 
 		var path:String = '$base/data/settings.json';
 		if(FileSystem.exists(path))
@@ -1576,8 +1614,17 @@ class ModItem extends FlxSpriteGroup
 		var displayName:String = (contentRoot != null) ? folder.substr(folder.lastIndexOf('/') + 1) : folder;
 		if(pack != null)
 		{
-			if(pack.name != null) this.name = pack.name;
-			if(pack.description != null) this.desc = pack.description;
+			var packName:String = ContentPacks.manifestString(pack, 'name');
+			if(packName != null) this.name = packName;
+
+			var packDesc:String = ContentPacks.manifestString(pack, 'description');
+			if(packDesc != null)
+			{
+				// 内容包的描述由扫描信息拼（路径 / 曲目数 / 免重启提示），别被清单里的简介顶掉
+				this.desc = (contentRoot != null && fallbackDesc != null)
+					? packDesc + '\n\n' + fallbackDesc
+					: packDesc;
+			}
 			if(pack.iconFramerate != null) this.iconFps = pack.iconFramerate;
 			if(pack.color != null)
 			{
@@ -1585,6 +1632,9 @@ class ModItem extends FlxSpriteGroup
 											  pack.color[1] != null ? pack.color[1] : 0,
 											  pack.color[2] != null ? pack.color[2] : 255);
 			}
+			else if(contentRoot != null) this.bgColor = contentColor(displayName);
+			this.version = ContentPacks.manifestString(pack, 'version');
+			this.minEngineVersion = ContentPacks.manifestString(pack, 'minEngineVersion');
 			this.mustRestart = (pack.restart == true);
 		}
 		else
@@ -1595,6 +1645,24 @@ class ModItem extends FlxSpriteGroup
 			this.mustRestart = false; // 内容包开关不需要重启
 		}
 		text.text = this.name;
+
+		// 有版本号就把名字上移一行，下面补一行小字版本（两行在卡片里竖直居中）
+		if(this.version != null)
+		{
+			versionText = new FlxText(textX, 0, cardContentRight - textX, '', 12);
+			versionText.setFormat(Paths.font("vcr.ttf"), 12, 0xFF9FE8FF, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			versionText.borderSize = 2;
+			versionText.antialiasing = ClientPrefs.data.antialiasing;
+			versionText.text = versionLabel();
+			add(versionText);
+
+			text.updateHitbox();
+			versionText.updateHitbox();
+			var blockH:Float = text.height + 2 + versionText.height;
+			var blockTop:Float = (ModItem.CARD_ROW_H - blockH) * 0.5; // 卡片行高（与 ModsMenuState.ROW_H 同源）
+			text.y = blockTop;
+			versionText.y = blockTop + text.height + 2;
+		}
 
 		if(bmp != null)
 		{
@@ -1626,18 +1694,25 @@ class ModItem extends FlxSpriteGroup
 		}
 	}
 
-	/** 读某个目录下的 pack.json（内容包一旦自带 pack.json 也能享受 name/desc/color/restart）。 */
-	static function readPackJson(base:String):Dynamic
+	/** 卡片上那行小字：'v1.2.0'；包没声明版本返回 null。 */
+	public function versionLabel():String
 	{
-		var path:String = '$base/pack.json';
-		if(!FileSystem.exists(path)) return null;
-		try
-		{
-			var raw:String = File.getContent(path);
-			if(raw != null && raw.length > 0) return tjson.TJSON.parse(raw);
-		}
-		catch(e:Dynamic) trace(e);
-		return null;
+		return version != null ? 'v$version' : null;
+	}
+
+	/** 详情面板的版本标签：带上引擎要求，方便玩家判断包与引擎是否配套。 */
+	public function versionDetailLabel():String
+	{
+		var engineNeed:String = (minEngineVersion != null) ? 'engine >= v$minEngineVersion' : null;
+		if(version == null) return engineNeed;
+		return (engineNeed != null) ? 'v$version   ($engineNeed)' : 'v$version';
+	}
+
+	/** 包声明的引擎要求是否被当前引擎满足（没声明视为满足）。 */
+	public function engineCompatible():Bool
+	{
+		if(minEngineVersion == null) return true;
+		return ContentPacks.compareVersions(ContentPacks.engineVersion(), minEngineVersion) >= 0;
 	}
 
 	/** 内容包没有 pack.json 时，按名字散列挑一个详情面板底色。 */
@@ -1660,6 +1735,7 @@ class ModItem extends FlxSpriteGroup
 	{
 		if(text == null) return;
 		text.color = disabled ? FlxColor.GRAY : (hovered ? FlxColor.WHITE : 0xFFCCCCCC);
+		if(versionText != null) versionText.color = disabled ? FlxColor.GRAY : (hovered ? 0xFFBFF0FF : 0xFF7FD4E8);
 	}
 
 	public function resetScale()

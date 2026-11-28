@@ -749,9 +749,14 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			if (isMod) appendSongToWeek(req.weekPath, req.songName);
 			#end
 
+			// 先切到目标模组：人声 postfix 要按这个模组里的角色 JSON 取，不能用上一个模组的
+			if (isMod) Mods.currentModDirectory = req.mod;
+
 			var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
 			wizard.importVocals = true;
-			wizard.overwrite = false;
+			// 目标目录是刚建的空目录，同名槽位只可能是上次失败留下的，直接替换
+			wizard.overwrite = true;
+			applyAudioWizardPostfixes(wizard, song);
 			wizard.start(dir, function(res:ChartAudioImportResult)
 			{
 				chartAudioCategory = null;
@@ -768,10 +773,11 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 				}
 				Song.chartPath = chartPath;
 				loadChart(song);
+				applyWizardAudioPaths(res);
 				reloadNotesDropdowns();
 				prepareReload();
 				showOutput('New chart "${req.songName}" created at $chartPath'
-					+ (res.anyImported ? '' : ' (audio skipped)'));
+					+ (res.anyImported ? '' : ' (audio skipped)') + audioWizardSuffix(res));
 			});
 		}
 		catch (e:Dynamic)
@@ -2442,6 +2448,25 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 		}
 	}
 
+	/**
+	 * 把成员挪到指定的绘制位置（members 下标），返回落点下标；不在 members 里返回 -1。
+	 * 用 remove(splice) + insert 而不是 remove + add：add() 会先填空槽，挪不动层级。
+	 */
+	function moveMemberTo(obj:flixel.FlxBasic, index:Int):Int
+	{
+		var cur:Int = members.indexOf(obj);
+		if(cur < 0) return -1;
+
+		if(index > length) index = length;
+		if(index < 0) index = 0;
+		if(cur == index) return cur;
+
+		remove(obj, true);
+		if(cur < index) index--; // 目标在其后方，摘掉自己后整体前移一位
+		insert(index, obj);
+		return index;
+	}
+
 	function createGrids(?autoLoad:Bool = true)
 	{
 		var destroyed:Bool = false;
@@ -2472,21 +2497,21 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			insert(getFirstNull(), prevGridBg);
 			insert(getFirstNull(), nextGridBg);
 			insert(getFirstNull(), gridBg);
-			// 确保在重建网格后，重要的覆盖层（波形、虚拟箭头、vortex 指示器、strumLine 和笔记组）位于网格之上
-			for (wave in [waveformSpriteInst, waveformSprite, waveformSpriteOpp])
+
+			// 绘制顺序（自下而上）固定为：网格 → 波形 → 虚拟箭头 / vortex 指示器 / strumLine → note 组。
+			// 波形以前是追加到 members 末尾，一重建就盖住 vortex 和 note；这里整段插回 gridBg 正上方。
+			// 注意别用 remove(x) + add(x) 挪层级：add() 会先填回刚腾出的空槽，位置根本不动。
+			var stack:Array<flixel.FlxBasic> = [waveformSpriteInst, waveformSprite, waveformSpriteOpp,
+				dummyArrow, vortexIndicator, strumLineNotes,
+				behindRenderedNotes, curRenderedNotes, movingNotes];
+			var nextIndex:Int = members.indexOf(gridBg) + 1;
+			for(obj in stack)
 			{
-				if(wave == null) continue;
-				// remove(x) + add(x) 会填回空槽、提不到顶，必须摘干净再追加
-				remove(wave, true);
-				insert(members.length, wave);
+				if(obj == null) continue;
+				var placed:Int = moveMemberTo(obj, nextIndex);
+				if(placed >= 0) nextIndex = placed + 1;
 			}
-			if(dummyArrow != null) { remove(dummyArrow, false); add(dummyArrow); }
-			if(vortexIndicator != null) { remove(vortexIndicator, false); add(vortexIndicator); }
-			if(strumLineNotes != null) { remove(strumLineNotes, false); add(strumLineNotes); }
-			if(behindRenderedNotes != null) { remove(behindRenderedNotes, false); add(behindRenderedNotes); }
-			if(curRenderedNotes != null) { remove(curRenderedNotes, false); add(curRenderedNotes); }
-			if(movingNotes != null) { remove(movingNotes, false); add(movingNotes); }
-			 if(autoLoad) loadSection();
+			if(autoLoad) loadSection();
 		}
 		else
 		{
@@ -2509,6 +2534,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	{
 		PlayState.SONG = song;
 		Paths.currentChartInstPath = null;
+		Paths.currentChartVocalsPaths.clear();
 		updateColumnConfig(song);
 		StageData.loadDirectory(PlayState.SONG);
 		Conductor.bpm = PlayState.SONG.bpm;
@@ -4241,12 +4267,16 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					var func:Void->Void = function()
 					{
 						// 所有格式统一走音频向导，只对缺 Inst 弹警告；不按谱面格式特化。
-						// 声明了音频行的谱面按声明定位；管理目录信任同目录音频，
-						// 外部散落目录一律要求手动导入（不认目录里的通用名残留文件）。
+						// 声明了音频行的谱面按声明定位；引擎管理的谱面目录可信任同目录音频，
+						// 外部散落目录（下载目录混着多首歌）一律要求手动选 Inst / 人声。
+						var managedDir:Bool = isManagedChartDirectory(filePath);
 						var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
-						wizard.importVocals = (loadedChart.needsVoices != false);
-						wizard.allowFolderScan = isManagedChartDirectory(filePath);
+						wizard.importVocals = true; // 要不要人声由玩家在向导里决定，不看谱面 needsVoices
+						wizard.allowFolderScan = managedDir;
+						// 管理目录里的同名文件属于这张谱面，可以替换；外部目录绝不覆盖别人的音轨
+						wizard.overwrite = managedDir;
 						wizard.declaredAudioPath = getDeclaredAudio(filePath);
+						applyAudioWizardPostfixes(wizard, loadedChart);
 						wizard.start(chartDir, function(res:ChartAudioImportResult)
 						{
 							var proceed:Void->Void = function()
@@ -4254,7 +4284,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 								// 登记目录必须早于 prepareReload()。
 								setChartDirectoryFromPath(filePath);
 								loadChart(loadedChart);
-								Paths.currentChartInstPath = res.instPath;
+								applyWizardAudioPaths(res);
 								Song.chartPath = savedPath;
 								reloadNotesDropdowns();
 								prepareReload();
@@ -4262,9 +4292,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 								var audioMsg:String = res.anyImported
 									? 'audio imported (Inst:${res.instPath != null}, P1:${res.playerVocalPath != null}, P2:${res.opponentVocalPath != null})'
 									: (res.hasInst ? 'audio detected in chart folder' : 'no audio');
-								showOutput('Opened chart "${Song.chartPath}" successfully! ($audioMsg)');
+								showOutput('Opened chart "${Song.chartPath}" successfully! ($audioMsg)'
+									+ audioWizardSuffix(res));
 							};
-							loadChartOrWarnNoInst(loadedChart, res, proceed);
+							loadChartOrWarnNoInst(loadedChart, res, proceed, managedDir);
 						});
 					}
 
@@ -6015,8 +6046,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 
 	/**
 	 * 引擎管理的谱面目录（content/CustomCharts、assets、mods）：音频与谱面同放，
-	 * 可以信任目录里的通用名音频，不必强制手动导入。
-	 * 判据是路径类别，与谱面格式、歌名无关。
+	 * 可以信任目录里已有的音频（按 Paths.inst/voices 的候选口径），不必强制手动导入。
+	 * 其余路径（下载目录这类混着多首歌的地方）一律当外部目录：不扫描、不猜，要求手选。
 	 */
 	function isManagedChartDirectory(path:String):Bool
 	{
@@ -6076,16 +6107,78 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 	}
 
 	/**
+	 * 人声落地文件名必须和 loadMusic() 里 Paths.voices() 用的 postfix 一致：
+	 * 那里取的是角色 JSON 的 vocals_file（缺省 'Player' / 'Opponent'），
+	 * 两边不一致的话文件导进来了却永远载不到，听起来就是「人声没导入成功」。
+	 */
+	function vocalsPostfixFor(chart:SwagSong, playerIndex:Int):String
+	{
+		var fallback:String = (playerIndex == 1) ? 'Player' : 'Opponent';
+		if (chart == null) return fallback;
+		var charName:String = Reflect.field(chart, 'player$playerIndex');
+		if (charName == null || charName.length < 1) return fallback;
+		var data:CharacterFile = loadCharacterFile(charName);
+		if (data != null && data.vocals_file != null && data.vocals_file.length > 0) return data.vocals_file;
+		return fallback;
+	}
+
+	function applyAudioWizardPostfixes(wizard:ChartAudioImportWizard, chart:SwagSong):Void
+	{
+		wizard.playerPostfix = vocalsPostfixFor(chart, 1);
+		wizard.opponentPostfix = vocalsPostfixFor(chart, 2);
+	}
+
+	/**
+	 * 把向导的结果登记成显式音轨路径。必须在 loadChart() 之后调用（loadChart 会清空这些覆盖项）。
+	 * 外部目录里同名槽位被别的歌占着时，向导会把选中的文件存成 *-imported.*，
+	 * 只有靠这里指过去才播得到。
+	 */
+	function applyWizardAudioPaths(res:ChartAudioImportResult):Void
+	{
+		if (res == null) return;
+		Paths.currentChartInstPath = res.instPath;
+		Paths.currentChartVocalsPaths.clear();
+		// 键必须用向导当时那把（= 落地文件名里的 postfix），不能事后重算
+		if (res.playerVocalPath != null)
+			Paths.currentChartVocalsPaths.set(res.playerPostfix.toLowerCase(), res.playerVocalPath);
+		if (res.opponentVocalPath != null)
+			Paths.currentChartVocalsPaths.set(res.opponentPostfix.toLowerCase(), res.opponentVocalPath);
+
+		// 玩家真的导了人声 → 谱面按「有人声」算，不然 loadMusic 会跳过人声轨、白导。
+		// 只取消不导时保持谱面原值（取消不等于宣布这首歌没有人声）。
+		if ((res.playerVocalPath != null || res.opponentVocalPath != null) && PlayState.SONG != null)
+			PlayState.SONG.needsVoices = true;
+	}
+
+	/** 向导留下的提示（替换/沿用已有文件、格式不支持、复制失败）拼进同一行输出。 */
+	function audioWizardSuffix(res:ChartAudioImportResult):String
+	{
+		if (res == null || res.warnings == null || res.warnings.length < 1) return '';
+		return ' [' + res.warnings.join('; ') + ']';
+	}
+
+	/**
 	 * 缺 Inst 时谱面会在第一个 section 截断（Conductor 没有音轨不推进）。
 	 * 有 Inst 直接 proceed()；否则弹三按钮警告：手动选择音轨 / 导出谱面 JSON / 取消打开。
 	 * @param loadedChart 待载入的谱面（导出用）
 	 * @param res 音频向导结果，用 hasInst 判断
 	 * @param proceed 真正载入编辑器的闭包（setChartDirectoryFromPath → loadChart → prepareReload…）
+	 * @param allowPathLookup 仅引擎管理的谱面目录允许按歌名/songs 布局复核；
+	 *        外部散落目录必须靠用户手选（混杂目录里按名字命中别人的音轨毫无意义）
 	 */
-	function loadChartOrWarnNoInst(loadedChart:SwagSong, res:ChartAudioImportResult, proceed:Void->Void)
+	function loadChartOrWarnNoInst(loadedChart:SwagSong, res:ChartAudioImportResult, proceed:Void->Void, allowPathLookup:Bool = false)
 	{
 		if (res.hasInst)
 		{
+			proceed();
+			return;
+		}
+
+		// 管理目录复核：向导只扫谱面目录，但引擎按歌名/模组/内容包还能解析到音轨
+		// （mods/<mod>/songs/<歌>/Inst.ogg、内容包 songs/ 等）。能播就别拦着让用户重导一遍。
+		if (allowPathLookup && Paths.hasInst(loadedChart != null ? loadedChart.song : null, true, chartAudioCategory, res.targetDir))
+		{
+			showOutput('Instrumental resolved by path lookup (outside the chart folder).' + audioWizardSuffix(res));
 			proceed();
 			return;
 		}
@@ -6096,7 +6189,8 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 			{
 				var btnY:Float = state.bg.y + state.bg.height - 60;
 
-				// 手动选择音轨：不覆盖目录里已有的 inst.*，靠 currentChartInstPath 直接指向选中的文件
+				// 手动选择音轨：直接落到规范名 inst.<ext>（引擎下次打开也能自己找到），
+				// 规范名已被占用时才退到 selected-inst.<ext>，靠 currentChartInstPath 指过去。
 				var selectBtn:PsychUIButton = new PsychUIButton(0, btnY, 'Select Audio', function()
 				{
 					state.close();
@@ -6110,7 +6204,10 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 							var dir:String = (res.targetDir != null && res.targetDir.length > 0)
 								? res.targetDir
 								: ((Paths.currentChartDirectory != null ? Paths.currentChartDirectory : '') + '/');
-							var dst:String = dir + (dir.endsWith('/') ? '' : '/') + 'selected-inst' + ext;
+							if (!dir.endsWith('/')) dir += '/';
+							var dst:String = dir + 'inst' + ext;
+							if (FileSystem.exists(dst))
+								dst = dir + 'selected-inst' + ext;
 							try
 							{
 								File.copy(src, dst);
@@ -6481,14 +6578,18 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 						if(audioPath != null)
 							showOutput('Audio extracted to: $audioPath');
 
-						// 所有格式统一：谱面自带音频声明行就按声明定位，否则管理目录可扫同目录音频，
-						// 外部散落目录一律要求手动导入。缺 Inst 时由 loadChartOrWarnNoInst 弹警告。
+						// 所有格式统一：谱面自带音频声明行就按声明定位；保存目标是引擎管理目录时
+						// 可信任同目录音频，其余（下载目录混着多首歌）一律要求手动选，不按名字猜。
+						var managedOut:Bool = isManagedChartDirectory(path);
 						var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
-						wizard.importVocals = (loadedChart.needsVoices != false);
-						wizard.allowFolderScan = isManagedChartDirectory(filePath);
+						wizard.importVocals = true; // 要不要人声由玩家在向导里决定，不看谱面 needsVoices
+						wizard.allowFolderScan = managedOut;
+						// 谱面就写在这个目录里，同名音轨视为这张谱面的，允许替换
+						wizard.overwrite = true;
 						// osz 的解包音频即包内 .osu 声明的音轨落地结果，和 .osu 的 AudioFilename 同等对待。
 						var declared:String = getDeclaredAudio(filePath);
 						wizard.declaredAudioPath = (declared == null) ? audioPath : declared;
+						applyAudioWizardPostfixes(wizard, loadedChart);
 						wizard.start(path, function(res:ChartAudioImportResult)
 						{
 						openSubState(new BasePrompt(400, 150, 'Import Complete', function(state:BasePrompt)
@@ -6504,13 +6605,14 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 									GRID_COLUMNS_PER_PLAYER = funkinKeys ? 4 : targetKeys;
 									setChartDirectoryFromPath(savePath);
 									loadChart(loadedChart);
-									Paths.currentChartInstPath = res.instPath;
+									applyWizardAudioPaths(res);
 									Song.chartPath = savePath;
 									reloadNotesDropdowns();
 									rebuildChartLayout();
 									prepareReload();
 									showOutput('Chart loaded from: ' + savePath
-										+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)')));
+										+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)'))
+										+ audioWizardSuffix(res));
 								};
 
 								var afterWarn:Void->Void = function()
@@ -6520,7 +6622,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 									else
 										proceed();
 								};
-								loadChartOrWarnNoInst(loadedChart, res, afterWarn);
+								loadChartOrWarnNoInst(loadedChart, res, afterWarn, managedOut);
 							});
 							yesBtn.normalStyle.bgColor = FlxColor.GREEN;
 							yesBtn.normalStyle.textColor = FlxColor.WHITE;
@@ -6533,7 +6635,7 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 							{
 								state.close();
 								showOutput('Chart converted and saved successfully: ' + savePath
-									+ (res.anyImported ? ' (audio imported)' : ''));
+									+ (res.anyImported ? ' (audio imported)' : '') + audioWizardSuffix(res));
 							});
 							noBtn.cameras = state.cameras;
 							noBtn.screenCenter(X);
@@ -6559,27 +6661,33 @@ class ChartingState extends MusicBeatState implements PsychUIEventHandler.PsychU
 					GRID_COLUMNS_PER_PLAYER = funkinKeys ? 4 : targetKeys;
 
 					// 所有格式统一走音频向导，只对缺 Inst 弹警告；不按谱面格式特化。
-					// 声明了音频行就按声明定位；管理目录信任同目录音频，外部目录一律手动导入。
+					// 声明了音频行就按声明定位；管理目录可信任同目录音频，
+					// 外部散落目录（下载目录混着多首歌）一律要求手动选 Inst / 人声。
 					var srcDir:String = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+					var managedDir:Bool = isManagedChartDirectory(filePath);
 					var wizard:ChartAudioImportWizard = new ChartAudioImportWizard();
-					wizard.importVocals = (loadedChart.needsVoices != false);
-					wizard.allowFolderScan = isManagedChartDirectory(filePath);
+					wizard.importVocals = true; // 要不要人声由玩家在向导里决定，不看谱面 needsVoices
+					wizard.allowFolderScan = managedDir;
+					// 管理目录里的同名文件属于这张谱面，可以替换；外部目录绝不覆盖别人的音轨
+					wizard.overwrite = managedDir;
 					wizard.declaredAudioPath = getDeclaredAudio(filePath);
+					applyAudioWizardPostfixes(wizard, loadedChart);
 					wizard.start(srcDir, function(res:ChartAudioImportResult)
 					{
 						var proceed:Void->Void = function()
 						{
 							setChartDirectoryFromPath(filePath);
 							loadChart(loadedChart);
-							Paths.currentChartInstPath = res.instPath;
+							applyWizardAudioPaths(res);
 							Song.chartPath = null;
 							reloadNotesDropdowns();
 							rebuildChartLayout();
 							prepareReload();
 							showOutput('${targetKeys}K chart loaded from: ' + filePath
-								+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)')));
+								+ (res.anyImported ? ' (audio imported)' : (res.hasInst ? ' (audio detected)' : ' (no audio)'))
+								+ audioWizardSuffix(res));
 						};
-						loadChartOrWarnNoInst(loadedChart, res, proceed);
+						loadChartOrWarnNoInst(loadedChart, res, proceed, managedDir);
 					});
 				};
 

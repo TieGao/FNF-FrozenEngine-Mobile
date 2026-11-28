@@ -14,6 +14,15 @@ import sys.FileSystem;
  * 把用户选到的音频复制成目标目录里的 inst.<ext> / voices-player.<ext> / voices-opponent.<ext>，
  * 然后通过 onDone 回报落地结果。
  *
+ * 【判定口径】只有「谱面自己声明的音轨」（osu AudioFilename / osz 解包结果）和「引擎管理的
+ * 谱面目录（content/CustomCharts、assets、mods）」里的音频会被自动认。外部散落目录
+ * （下载目录这种混杂了多首歌的地方）一律要求手动选 Inst / Player / Opponent ——
+ * 按名字猜只会命中别的歌的 Inst.ogg。
+ *
+ * 【重要】用户在选择框里明确选中的文件一定算数：目标名空闲就直接落成规范名；同名文件已存在
+ * 且内容不是同一份时，外部目录不覆盖，改落成 <名>-imported.<ext> 并通过调用方的显式路径播放。
+ * 绝不静默丢弃，否则调用方会判成「没导入」并要求再导一次。
+ *
  * 【重要】本类不写任何 Paths.current* 全局字段，也不碰调用方的 FileDialogHandler。
  * 调用方须在 onDone 里自行登记目录（setChartDirectoryFromPath / Paths.setChartContext）
  * 再 loadChart / prepareReload，才不会覆盖调用方自己的 category/variant 上下文。
@@ -34,13 +43,26 @@ typedef ChartAudioImportResult = {
 	var anyImported:Bool;
 	/** 目标目录里最终是否有可用 Inst（含 osz 已自动落地的情况）；false 时调用方应拦截打开 */
 	var hasInst:Bool;
+	/** 过程中值得让用户知道的事（替换/改存 *-imported、复制失败、格式不支持），调用方负责输出 */
+	var warnings:Array<String>;
+	/** 本次落地用的人声 postfix —— 调用方登记显式人声路径时必须用同一把键 */
+	var playerPostfix:String;
+	var opponentPostfix:String;
 }
 
 class ChartAudioImportWizard
 {
-	/** 谱面 needsVoices=false 时设 false，只弹 Inst 一步。默认 true。 */
+	/**
+	 * 是否弹 Player / Opponent 两步人声选择框。默认 true；调用方目前一律开着 ——
+	 * 要不要人声由玩家在向导里决定（取消这两步就按没人声导入），不看谱面 needsVoices。
+	 */
 	public var importVocals:Bool = true;
-	/** 目标文件已存在时是否覆盖。默认 false（保护已有音频 / osz 解包结果）。 */
+	/**
+	 * 目标文件已存在时是否用选中的文件替换。默认 false：外部目录可能和别的歌共用，
+	 * 覆盖就等于毁掉别人的音轨。false 时改落成「名-imported.ext」，由调用方的
+	 * 显式路径播放（不静默丢弃，也不会误报「没导入」）。
+	 * 引擎管理的谱面目录 / 新建谱面 / 转换后保存的输出目录可以设 true。
+	 */
 	public var overwrite:Bool = false;
 	/** 人声落地文件名 postfix，须与 characterData.vocalsP1/vocalsP2 对齐。默认 Player/Opponent。 */
 	public var playerPostfix:String = 'Player';
@@ -52,9 +74,10 @@ class ChartAudioImportWizard
 	 */
 	public var declaredAudioPath:Null<String> = null;
 	/**
-	 * 是否允许按通用名（inst.ogg / audio.mp3 等）扫描目标目录里已有的音频。
-	 * 外部导入的谱面设为 false：一律要求手动导入，不自动认目录里的残留文件；
-	 * 新建谱面等目标目录干净的场景保持默认 true。
+	 * 是否自动认目标目录里已有的音频。
+	 * 引擎管理的谱面目录（content/CustomCharts、assets、mods）设 true：音频与谱面同放，可信。
+	 * 外部散落目录设 false：下载目录这类地方混杂着多首歌，按名字命中别人的 Inst.ogg 毫无意义，
+	 * 一律要求手动选 Inst / Player / Opponent。谱面自己声明了音轨（declaredAudioPath）时不受此开关影响。
 	 */
 	public var allowFolderScan:Bool = true;
 
@@ -88,12 +111,15 @@ class ChartAudioImportWizard
 			playerVocalPath: null,
 			opponentVocalPath: null,
 			anyImported: false,
-			hasInst: false
+			hasInst: false,
+			warnings: [],
+			playerPostfix: playerPostfix,
+			opponentPostfix: opponentPostfix
 		};
 
 		#if sys
-		// 外部谱面（osu / osz / FNF 目录）常自带音轨：先探测已存在的音频，只为「缺失」的步骤弹框。
-		// 谱面声明了音轨时只认那一条；外部导入若关闭 allowFolderScan，则不认目录通用名、一律要求手动导入。
+		// 引擎管理的谱面目录（allowFolderScan）先探测已有音频，只为「缺失」的步骤弹框；
+		// 外部散落目录不探测，Inst / 人声都要用户手选。谱面声明了音轨时只认那一条。
 		var existingInst:Null<String> = findExistingAudio('inst');
 		if (existingInst != null)
 		{
@@ -117,6 +143,9 @@ class ChartAudioImportWizard
 		if (_steps.length > 0)
 		{
 			_dlg = new FileDialogHandler();
+			// 音频是二进制：不要让 FileDialogHandler 把整首曲子当 UTF-8 文本读一遍
+			// （白占内存，个别文件还会在解码时抛异常，回调断掉就成了「选了没反应」）。
+			_dlg.readData = false;
 			nextStep();
 		}
 		else finish();
@@ -187,16 +216,30 @@ class ChartAudioImportWizard
 		);
 	}
 
+	/**
+	 * 落地用户选中（或已存在）的一条音轨。
+	 *
+	 * 历史 bug：目标名已存在时直接 return，结果里什么都不记 —— 调用方拿到 hasInst=false，
+	 * 弹「没选中 Inst」再要求导一次，而用户其实刚导完（文件就在那儿），形成死循环。
+	 * 现在三条路都会把结果写进 _result：
+	 *   选中的就是目标文件 → 直接采纳；
+	 *   目标空闲 → 复制成规范名；
+	 *   目标被别的文件占着 → 允许覆盖的目录直接替换，否则落成 <名>-imported.<ext>（绝不静默丢弃）。
+	 */
 	function copyAudio(step:String, src:String):Void
 	{
-		if (_dir.length < 1) return;
-
-		var ext:String = '.ogg';
-		var dot:Int = src.lastIndexOf('.');
-		if (dot >= 0)
+		if (_dir.length < 1)
 		{
-			var raw:String = src.substr(dot + 1).toLowerCase();
-			if (raw == 'mp3') ext = '.mp3';
+			warn('No target folder for the $step audio, skipped.');
+			return;
+		}
+
+		var ext:Null<String> = audioExtension(src);
+		if (ext == null)
+		{
+			// 老代码会把任何后缀（wav/flac…）硬写成 .ogg，产出播不了的文件还报成功
+			warn('Unsupported audio format, skipped: ${fileNameOf(src)} (only .ogg / .mp3).');
+			return;
 		}
 
 		var name:String = switch (step)
@@ -208,109 +251,261 @@ class ChartAudioImportWizard
 		};
 
 		var dst:String = _dir + name;
-		if (FileSystem.exists(dst) && !overwrite) return;
+		if (hasUsableFile(dst))
+		{
+			// 用户挑中的就是目标文件本身（重复打开同一个谱面目录时最常见），别 copy 自己
+			if (isSameFile(src, dst))
+			{
+				accept(step, dst);
+				return;
+			}
+			if (!overwrite)
+			{
+				// 这个槽位已经被别的文件占着（外部混装目录里很可能是另一首歌的音轨）：
+				// 不覆盖别人的文件，改落成 <名>-imported.<ext>，由调用方的显式路径播放。
+				var fallback:String = _dir + importedName(step, ext);
+				try
+				{
+					File.copy(src, fallback);
+					accept(step, fallback);
+					_result.anyImported = true;
+					warn('$name is already used by another file; imported as ${fileNameOf(fallback)} instead.');
+				}
+				catch (e:Dynamic)
+				{
+					warn('Could not import ${fileNameOf(src)} ($e).');
+				}
+				return;
+			}
+		}
 
+		var existed:Bool = hasUsableFile(dst);
 		try
 		{
 			File.copy(src, dst);
-			switch (step)
-			{
-				case 'inst': _result.instPath = dst;
-				case 'player': _result.playerVocalPath = dst;
-				case 'opponent': _result.opponentVocalPath = dst;
-			}
+			accept(step, dst);
 			_result.anyImported = true;
+			if (existed) warn('$name was replaced with ${fileNameOf(src)}.');
 		}
 		catch (e:Dynamic)
 		{
-			trace('[ChartAudioImportWizard] copy failed $src -> $dst : $e');
+			if (hasUsableFile(dst))
+			{
+				// 覆盖失败（占用/只读）但目标位置本来就是可用音频：沿用它，总比判成「没导入」好
+				accept(step, dst);
+				warn('Could not replace $name ($e), kept the existing file.');
+			}
+			else warn('Copy failed: ${fileNameOf(src)} -> $name ($e).');
 		}
+	}
+
+	/** 规范名被占用时的落盘名：-imported 后缀，明确属于「本次导入」。 */
+	function importedName(step:String, ext:String):String
+	{
+		return switch (step)
+		{
+			case 'player': 'voices-' + playerPostfix.toLowerCase() + '-imported' + ext;
+			case 'opponent': 'voices-' + opponentPostfix.toLowerCase() + '-imported' + ext;
+			default: 'inst-imported' + ext;
+		}
+	}
+
+	/** 把某一步的结果登记进 _result（Inst 顺带置 hasInst）。 */
+	function accept(step:String, path:String):Void
+	{
+		switch (step)
+		{
+			case 'inst':
+				_result.instPath = path;
+				_result.hasInst = true;
+			case 'player':
+				_result.playerVocalPath = path;
+			case 'opponent':
+				_result.opponentVocalPath = path;
+			default:
+		}
+	}
+
+	function warn(message:String):Void
+	{
+		trace('[ChartAudioImportWizard] $message');
+		if (_result != null && _result.warnings != null) _result.warnings.push(message);
 	}
 
 	/**
 	 * 声明的音轨文件名可能不是 Paths.inst() 认识的候选名（例如 osu 用 track.ogg），
 	 * 此时复制成目标目录的 inst.<ext>，否则谱面能载入却只会播 beep。
+	 * 音轨本来就在目标目录里时不做这件事：复制没有意义，还会往多首混放的目录里多造文件，
+	 * 调用方已经用显式路径指向它了。
 	 */
 	function ensurePlayableInst(src:String):Void
 	{
 		if (_dir.length < 1) return;
+		if (isUnderDir(src, _dir)) return;
+
 		var name:String = src.substring(src.lastIndexOf('/') + 1).toLowerCase();
 		if (name == 'inst.ogg' || name == 'inst.mp3' || name == 'audio.ogg' || name == 'audio.mp3') return;
 
-		var dot:Int = src.lastIndexOf('.');
-		var ext:String = dot >= 0 ? src.substr(dot).toLowerCase() : '.ogg';
+		var ext:Null<String> = audioExtension(src);
+		if (ext == null) return;
+
 		var dst:String = _dir + 'inst' + ext;
 		try
 		{
 			// 目标名已被别处音轨占用时保留声明的原始文件，交给调用方的显式音轨路径使用
-			if (!FileSystem.exists(dst))
+			if (!hasUsableFile(dst))
 			{
 				File.copy(src, dst);
-				_result.instPath = dst;
+				accept('inst', dst);
 			}
 		}
 		catch (e:Dynamic)
 		{
-			trace('[ChartAudioImportWizard] declared audio copy failed $src -> $dst : $e');
+			warn('Declared audio copy failed: ${fileNameOf(src)} -> inst$ext ($e).');
 		}
 	}
 
 	/**
-	 * 探测已有音轨。谱面声明了音轨就只认那一条文件；否则仅在 allowFolderScan 时
-	 * 按 Paths.inst()/voices() 的候选口径找目标目录里的通用名。命中返回完整路径，否则 null。
+	 * 探测已有音轨。谱面声明了音轨就只认那一条文件；否则仅在 allowFolderScan（引擎管理的
+	 * 谱面目录）时按 Paths.inst()/voices() 的候选口径找目录里的音频。命中返回完整路径，否则 null。
 	 */
 	function findExistingAudio(step:String):Null<String>
 	{
 		if (declaredAudioPath != null && declaredAudioPath.length > 0)
 		{
-			if (step == 'inst') return FileSystem.exists(declaredAudioPath) ? declaredAudioPath : null;
+			if (step == 'inst') return hasUsableFile(declaredAudioPath) ? declaredAudioPath : null;
 			return null;
 		}
+		// 外部散落目录不猜：混杂目录里按名字命中别人的音轨，比什么都不认更糟
 		if (!allowFolderScan) return null;
 		if (_dir.length < 1) return null;
 
-		var names:Array<String> = [];
-		switch (step)
-		{
-			case 'inst':
-				names = [
-					'inst.ogg', 'inst.mp3', 'Inst.ogg', 'Inst.mp3',
-					'audio.ogg', 'audio.mp3', 'Audio.ogg', 'Audio.mp3',
-					'song/inst.ogg', 'song/inst.mp3', 'song/Inst.ogg', 'song/Inst.mp3',
-					'song/audio.ogg', 'song/audio.mp3'
-				];
-			case 'player':
-				names = [
-					'voices-' + playerPostfix.toLowerCase() + '.ogg',
-					'voices-' + playerPostfix.toLowerCase() + '.mp3',
-					'Voices-' + playerPostfix + '.ogg',
-					'Voices-' + playerPostfix + '.mp3',
-					'voices.ogg', 'voices.mp3', 'Voices.ogg', 'Voices.mp3',
-					'vocals.ogg', 'vocals.mp3', 'Vocals.ogg', 'Vocals.mp3',
-					'song/voices.ogg', 'song/voices.mp3', 'song/vocals.ogg', 'song/vocals.mp3',
-					'song/Vocals.ogg', 'song/Vocals.mp3'
-				];
-			case 'opponent':
-				names = [
-					'voices-' + opponentPostfix.toLowerCase() + '.ogg',
-					'voices-' + opponentPostfix.toLowerCase() + '.mp3',
-					'Voices-' + opponentPostfix + '.ogg',
-					'Voices-' + opponentPostfix + '.mp3',
-					'voices.ogg', 'voices.mp3', 'Voices.ogg', 'Voices.mp3',
-					'vocals.ogg', 'vocals.mp3', 'Vocals.ogg', 'Vocals.mp3',
-					'song/voices.ogg', 'song/voices.mp3', 'song/vocals.ogg', 'song/vocals.mp3',
-					'song/Vocals.ogg', 'song/Vocals.mp3'
-				];
-			default:
-				return null;
-		}
+		return findFirstExisting(audioNames(step));
+	}
 
+	function findFirstExisting(names:Array<String>):Null<String>
+	{
 		for (name in names)
 		{
 			var p:String = _dir + name;
-			if (FileSystem.exists(p)) return p;
+			if (hasUsableFile(p)) return p;
 		}
 		return null;
+	}
+
+	/** 各步的候选文件名，口径与 Paths.inst() / voices() 的目录分支一致。 */
+	function audioNames(step:String):Array<String>
+	{
+		switch (step)
+		{
+			case 'inst':
+				return ['inst.ogg', 'inst.mp3', 'Inst.ogg', 'Inst.mp3',
+					'audio.ogg', 'audio.mp3', 'Audio.ogg', 'Audio.mp3',
+					'song/inst.ogg', 'song/inst.mp3', 'song/Inst.ogg', 'song/Inst.mp3',
+					'song/audio.ogg', 'song/audio.mp3', 'song/Audio.ogg', 'song/Audio.mp3'];
+			case 'player':
+				return voiceNames(playerPostfix);
+			case 'opponent':
+				return voiceNames(opponentPostfix);
+			default:
+				return [];
+		}
+	}
+
+	function voiceNames(postfix:String):Array<String>
+	{
+		var lower:String = postfix.toLowerCase();
+		var names:Array<String> = [];
+		for (ext in ['.ogg', '.mp3'])
+		{
+			names.push('voices-$lower$ext');
+			names.push('Voices-$postfix$ext');
+			names.push('song/voices-$lower$ext');
+			names.push('song/Voices-$postfix$ext');
+			// 无后缀的共用名：同一份文件会被 P1/P2 各播一遍，管理目录里通常也是这么放的，认了更省事
+			names.push('voices$ext');
+			names.push('Voices$ext');
+			names.push('vocals$ext');
+			names.push('Vocals$ext');
+			names.push('song/voices$ext');
+			names.push('song/vocals$ext');
+		}
+		return names;
+	}
+
+	/** 文件存在且非空（0 字节多半是上次复制失败的残骸，不能当作「已有音频」）。 */
+	function hasUsableFile(path:String):Bool
+	{
+		if (path == null || path.length < 1) return false;
+		try
+		{
+			if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) return false;
+			return FileSystem.stat(path).size > 0;
+		}
+		catch (e:Dynamic)
+		{
+			return false;
+		}
+	}
+
+	static function audioExtension(src:String):Null<String>
+	{
+		if (src == null || src.length < 1) return null;
+		var slash:Int = src.lastIndexOf('/');
+		var backslash:Int = src.lastIndexOf('\\');
+		if (backslash > slash) slash = backslash;
+		var dot:Int = src.lastIndexOf('.');
+		if (dot < slash) return null;
+		return switch (src.substr(dot + 1).toLowerCase())
+		{
+			case 'ogg': '.ogg';
+			case 'mp3': '.mp3';
+			default: null;
+		}
+	}
+
+	static function fileNameOf(src:String):String
+	{
+		if (src == null) return '(null)';
+		var slash:Int = src.lastIndexOf('/');
+		var backslash:Int = src.lastIndexOf('\\');
+		if (backslash > slash) slash = backslash;
+		return src.substr(slash + 1);
+	}
+
+	/** 同一个文件？Windows 上大小写不敏感，否则 Inst.ogg 与 inst.ogg 会被当成两个文件。 */
+	static function isSameFile(a:String, b:String):Bool
+	{
+		if (a == null || b == null) return false;
+		var na:String = normalizePath(a);
+		var nb:String = normalizePath(b);
+		#if windows
+		return na.toLowerCase() == nb.toLowerCase();
+		#else
+		return na == nb;
+		#end
+	}
+
+	/** src 是否已经在 dir 目录里（Windows 大小写不敏感）。 */
+	static function isUnderDir(src:String, dir:String):Bool
+	{
+		if (src == null || dir == null || dir.length < 1) return false;
+		var np:String = normalizePath(src);
+		var nd:String = normalizePath(dir);
+		if (!nd.endsWith('/')) nd += '/';
+		#if windows
+		return np.toLowerCase().indexOf(nd.toLowerCase()) == 0;
+		#else
+		return np.indexOf(nd) == 0;
+		#end
+	}
+
+	static function normalizePath(path:String):String
+	{
+		var s:String = StringTools.replace(path, '\\', '/');
+		while (s.indexOf('//') >= 0) s = StringTools.replace(s, '//', '/');
+		while (s.indexOf('./') == 0) s = s.substr(2);
+		return s;
 	}
 	#end
 

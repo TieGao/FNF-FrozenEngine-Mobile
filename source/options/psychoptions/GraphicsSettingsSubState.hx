@@ -59,26 +59,31 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 
 
 		#if !html5
-		var option:Option = new Option('Framerate',
-			"Pretty self explanatory, isn't it?",
-			'framerate',
-			INT);
-		addOption(option);
+		// iOS 60Hz 机型（无 ProMotion）硬件上限就是 60，这两项没有可调空间，直接不显示。
+		final maxFps:Int = ClientPrefs.maxSupportedFps();
+		if (maxFps > 60)
+		{
+			var option:Option = new Option('Framerate',
+				"Pretty self explanatory, isn't it?",
+				'framerate',
+				INT);
+			addOption(option);
 
-		final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
-		option.minValue = 60;
-		option.maxValue = 240;
-		option.defaultValue = Std.int(FlxMath.bound(refreshRate, option.minValue, option.maxValue));
-	option.displayFormat = '%v FPS';
-	option.onChange = onChangeFramerate;
+			final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
+			option.minValue = 60;
+			option.maxValue = maxFps;
+			option.defaultValue = Std.int(FlxMath.bound(refreshRate, option.minValue, option.maxValue));
+			option.displayFormat = '%v FPS';
+			option.onChange = onChangeFramerate;
 
-	var unlimitedOption:Option = new Option('Unlimited FPS',
-		"Removes the framerate cap (lime UNCAPPED profile). Takes priority over FPS Rework.",
-		'unlimitedFPS',
-		BOOL);
-	unlimitedOption.onChange = onChangeFramerate;
-	addOption(unlimitedOption);
-	#end
+			var unlimitedOption:Option = new Option('Unlimited FPS',
+				"Removes the framerate cap (lime UNCAPPED profile). Takes priority over FPS Rework.",
+				'unlimitedFPS',
+				BOOL);
+			unlimitedOption.onChange = onChangeFramerate;
+			addOption(unlimitedOption);
+		}
+		#end
 
 	var option:Option = new Option('FPS Rework',
 		"If checked, this works around the game becoming \"slow\" and \"smooth\" when the current FPS is lower than the FPS cap.",

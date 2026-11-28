@@ -17,6 +17,12 @@ typedef ContentPackInfo = {
 	var path:String;
 	var group:String;
 	var name:String;
+	/** 包根 pack.json 里声明的显示名；没声明时为 null（菜单退回目录名）。 */
+	var displayName:String;
+	/** 包自身版本号（pack.json 的 version）；没声明时为 null。 */
+	var version:String;
+	/** 包要求的最低引擎版本（pack.json 的 minEngineVersion）；没声明时为 null。 */
+	var minEngineVersion:String;
 	/** 该包下扫到的曲目目录数；0 = 没扫到（自定义谱面分类常为空）。 */
 	var songs:Int;
 }
@@ -35,15 +41,23 @@ typedef ContentPackInfo = {
 class ContentPacks
 {
 	public static final LIST_FILE:String = 'contentList.txt';
+	/**
+	 * 内容包自描述文件（包根下，与 mods/ 的 pack.json 同名同格式）。
+	 * 关心的字段：name / description / version / minEngineVersion / color / iconFramerate / restart。
+	 * version + minEngineVersion 是给玩家看版本用的，见 ModsMenu 的 CONTENT 页。
+	 */
+	public static final MANIFEST_FILE:String = 'pack.json';
 
 	static var cachedDisabled:Map<String, Bool> = null;
 	static var cachedPacks:Array<ContentPackInfo> = null;
+	static var cachedManifests:Map<String, Dynamic> = null;
 
 	/** 清掉内存缓存（改完配置 / 外部改动过目录后调用）。 */
 	public static function invalidate():Void
 	{
 		cachedDisabled = null;
 		cachedPacks = null;
+		cachedManifests = null;
 	}
 
 	/** 扫盘列出所有 content/<大类>/<子目录>，顺序与磁盘一致。 */
@@ -68,7 +82,16 @@ class ContentPacks
 					var path:String = '$groupPath/$name';
 					if (!FileSystem.isDirectory(path)) continue;
 					if (!isPackDirectory(path)) continue;
-					result.push({path: '$group/$name', group: group, name: name, songs: countSongs(path)});
+					var manifest:Dynamic = readManifest(path);
+					result.push({
+						path: '$group/$name',
+						group: group,
+						name: name,
+						displayName: manifestString(manifest, 'name'),
+						version: manifestString(manifest, 'version'),
+						minEngineVersion: manifestString(manifest, 'minEngineVersion'),
+						songs: countSongs(path)
+					});
 				}
 			}
 		}
@@ -84,6 +107,110 @@ class ContentPacks
 		for (info in listPacks())
 			if (info.path == path) return info;
 		return null;
+	}
+
+	// ============================================================
+	//  包清单（pack.json）与版本号
+	// ============================================================
+
+	/**
+	 * 读某个包根目录下的 pack.json（带内存缓存，改包后 invalidate()）。
+	 * 解析失败 / 文件不存在返回 null —— 菜单会退回目录名与默认配色。
+	 * @param root 包根目录（绝对路径或相对工作目录，如 content/VanillaSongs/Erect）
+	 */
+	public static function readManifest(root:String):Dynamic
+	{
+		if (root == null || root.length < 1) return null;
+		if (cachedManifests == null) cachedManifests = new Map<String, Dynamic>();
+		if (cachedManifests.exists(root)) return cachedManifests.get(root);
+
+		var data:Dynamic = null;
+		#if sys
+		var path:String = '$root/$MANIFEST_FILE';
+		if (FileSystem.exists(path))
+		{
+			try
+			{
+				var raw:String = File.getContent(path);
+				if (raw != null && raw.trim().length > 0) data = tjson.TJSON.parse(raw);
+			}
+			catch (e:Dynamic) trace('Failed to parse $path: $e');
+		}
+		#end
+		cachedManifests.set(root, data);
+		return data;
+	}
+
+	/** 从清单里取一个非空字符串字段；没有 / 类型不对 / 空串都返回 null。 */
+	public static function manifestString(data:Dynamic, key:String):String
+	{
+		if (data == null) return null;
+		var value:Dynamic = Reflect.field(data, key);
+		if (value == null || !Std.isOfType(value, String)) return null;
+		var str:String = (cast value:String).trim();
+		return str.length > 0 ? str : null;
+	}
+
+	/** 引擎自身版本（Project.xml 的 app version）；读不到时返回 '0.0.0'。 */
+	public static function engineVersion():String
+	{
+		try
+		{
+			var value:Dynamic = lime.app.Application.current.meta.get('version');
+			if (value != null && Std.string(value).length > 0) return Std.string(value);
+		}
+		catch (e:Dynamic) {}
+		return '0.0.0';
+	}
+
+	/**
+	 * 比较两个版本号，返回 -1（a 比 b 旧）/ 0（相等）/ 1（a 比 b 新）。
+	 * 只比数字段：'v1.2.3'、'1.2'、'1.2.3-beta' 都认，短的一边缺位按 0 补齐。
+	 */
+	public static function compareVersions(a:String, b:String):Int
+	{
+		var pa:Array<Int> = versionParts(a);
+		var pb:Array<Int> = versionParts(b);
+		var len:Int = Std.int(Math.max(pa.length, pb.length));
+		for (i in 0...len)
+		{
+			var na:Int = i < pa.length ? pa[i] : 0;
+			var nb:Int = i < pb.length ? pb[i] : 0;
+			if (na != nb) return na < nb ? -1 : 1;
+		}
+		return 0;
+	}
+
+	/** 'v1.2.3-beta' → [1,2,3]（遇到第一个非数字非点的字符就截断）。 */
+	static function versionParts(version:String):Array<Int>
+	{
+		var result:Array<Int> = [];
+		if (version == null) return result;
+
+		var str:String = version.trim();
+		if (str.startsWith('v') || str.startsWith('V')) str = str.substr(1);
+
+		var digits:StringBuf = new StringBuf();
+		for (i in 0...str.length)
+		{
+			var ch:String = str.charAt(i);
+			if ((ch >= '0' && ch <= '9') || ch == '.') digits.add(ch);
+			else if (digits.length > 0) break;
+		}
+
+		for (part in digits.toString().split('.'))
+		{
+			var num:Null<Int> = Std.parseInt(part);
+			result.push(num == null ? 0 : num);
+		}
+		return result;
+	}
+
+	/** 包声明的 minEngineVersion 是否被当前引擎满足；没声明视为满足。 */
+	public static function isEngineCompatible(info:ContentPackInfo):Bool
+	{
+		if (info == null || info.minEngineVersion == null) return true;
+		return compareVersions(engineVersion(), info.minEngineVersion) >= 0;
 	}
 
 	/**

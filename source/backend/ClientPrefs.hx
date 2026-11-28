@@ -135,6 +135,13 @@ import states.TitleState;
 	public var pauseMusic:String = 'Tea Time';
 	public var checkForUpdates:Bool = true;
 	public var comboStacking:Bool = true;
+	/**
+	 * 判定弹窗（rating / combo / 数字 / 毫秒文本）画在哪：
+	 *   'UI'           → camHUD，固定在屏幕上（原版行为）
+	 *   'BF' / 'GF'    → camGame，跟随角色世界中点
+	 *   'Stage'        → camGame，场景中心（PE 0.4.2 的 FlxG.width * 0.55 + 屏幕中线）
+	 */
+	public var judgementPopupPos:String = 'UI';
 
 	// 同屏数量限制：0 或 100 表示不限制
 	public var maxNoteSplashes:Int = 8;     // 每条轨道同时存活的 note splash 上限
@@ -192,6 +199,14 @@ import states.TitleState;
 	public var controlTheme:String = 'auto';
 	public var gradientTimeBar:Bool = true;
 	public var guideLineAlpha:Float = 0.0;
+	// Chart Helper HUD（NPS / BPM / Section / Step）：每项一个开关，整组永远居中
+	public var showNPS:Bool = false;
+	public var showBPM:Bool = false;
+	public var showSection:Bool = false;
+	public var showStep:Bool = false;
+	// 整组相对屏幕中心的偏移，在 NoteOffsetState 里拖拽调整
+	public var chartHelperOffsetX:Int = 0;
+	public var chartHelperOffsetY:Int = 0;
 	public var modInfoBox:Bool = true;
 	public var toolBar:Bool = true;
 	public var freeplaySearch:Bool = true;
@@ -223,8 +238,11 @@ import states.TitleState;
 	 *   new    —— 强制新版：忽略谱面的 arrowSkin / splashSkin，改用玩家皮肤，着色一律走 RGB。
 	 * 取值见 backend.NoteSkinStyle 的 AUTO / LEGACY / RGB（存的是 'auto' / 'legacy' / 'new'）。
 	 */
-	public var noteSystem:String = 'auto';
-	public var splashSystem:String = 'auto';
+	public var noteTheme:String = 'auto';
+	public var splashTheme:String = 'auto';
+	// 特殊音符（Hurt Note、自带贴图的 note type）是否也套 RGB / HSV 着色。
+	// 默认关：这类贴图多是烤色图（颜色已经画进图里），着色只会把它改错。
+	public var specialNoteShading:Bool = false;
 	public var customChartFolder:String = 'custom';
 	public var customChartModFolder:String = '';
 	public var customChartStage:String = 'audiostage';
@@ -384,6 +402,9 @@ import states.TitleState;
 	public var audioDisplayUpdate:Float = 33.0;
 	public var audioGain:Float = 1.5;
 	public var transitionType:String = "fade";
+
+	// loading 屏是否用城市插画当背景；关则沿用 funkay 盖板（过渡幕布始终是 funkay，不受此开关影响）
+	public var loadingCityBg:Bool = false;
 	
 	public var renderResolution:Dynamic = "1280x720";
 	#if !mobile
@@ -1000,6 +1021,34 @@ class ClientPrefs {
 	}
 
 	/**
+	 * 设备能请求的最高帧率。
+	 *
+	 * iOS：CADisplayLink 的上限 = UIScreen.maximumFramesPerSecond（ProMotion 120 / 普通屏 60），
+	 * 并且被 Info.plist 的 CADisableMinimumFrameDurationOnPhone 门控（见 Project.xml）。
+	 * SDL 的 iOS displayMode.refreshRate 直接取的就是 maximumFramesPerSecond —— 硬件能力值，
+	 * 不是当前锁定的 60 —— 所以可以拿来当选项上限。
+	 *
+	 * 其它平台维持原来的 480。
+	 */
+	public static function maxSupportedFps():Int
+	{
+		#if ios
+		try
+		{
+			final r:Int = Std.int(FlxG.stage.application.window.displayMode.refreshRate);
+			if (r >= 60) return Std.int(FlxMath.bound(r, 60, 240));
+		}
+		catch (e:Dynamic) {}
+
+		// 取不到就按 ProMotion 处理：宁可在 60Hz 机型上多显示一档无效值，
+		// 也别把 120Hz 机型的选项锁死在 60。
+		return 120;
+		#else
+		return 480;
+		#end
+	}
+
+	/**
 	 * 统一应用帧率 / lime 帧调度。loadPrefs() 与三套设置菜单的即时生效都走这里。
 	 * 传 idleFps（仅 backend.IdleFPSManager 调用）= 闲置节能档：强制 BALANCED + 关 vsync，
 	 * 帧率压到 idleFps（UNCAPPED 档无视 frameRate，必须临时切走）；无参调用即恢复常规档。
@@ -1025,7 +1074,9 @@ class ClientPrefs {
 				app.configureFrameTiming(lime.app.FrameProfile.BALANCED,
 					{uncapMode: lime.app.UncapMode.OFF}, lime.app.VSyncMode.OFF);
 			}
-			else if (data.unlimitedFPS)
+			// 60Hz 屏（普通 iPhone）上 UNCAPPED 也突破不了 60，只会空转烧电：
+			// maxSupportedFps() 在非 iOS 恒为 480，所以这段不会改变桌面/安卓行为。
+			else if (data.unlimitedFPS && maxSupportedFps() > 60)
 			{
 				#if android
 				// 无限帧率：帧预算交给设备首选刷新间隔，别再按 60fps 报目标
@@ -1061,7 +1112,7 @@ class ClientPrefs {
 		// （LogFrontEnd.hx:29），调试版会直接把 flixel 控制台弹出来。
 		final fps = (idleFps != null)
 			? Std.int(FlxMath.bound(idleFps, 5, 60))
-			: Std.int(FlxMath.bound(data.framerate, 30, 480));
+			: Std.int(FlxMath.bound(data.framerate, 30, maxSupportedFps()));
 		FlxG.updateFramerate = fps;
 		FlxG.drawFramerate = fps;
 
@@ -1104,8 +1155,21 @@ class ClientPrefs {
 
 		// 三态体系开关只认 auto/legacy/new，老存档没这两个键（走默认 auto）、手改的 json 里
 		// 写错一个字母就会让整条判定链哑掉，这里统一收口。
-		data.noteSystem = NoteSkinStyle.normalizeMode(data.noteSystem);
-		data.splashSystem = NoteSkinStyle.normalizeMode(data.splashSystem);
+		// 键名从 noteSystem / splashSystem 改成 noteTheme / splashTheme（英文「体系」用 theme 更准）：
+		// 老存档里还是旧键，读不到新键就搬一次，别把玩家的选择重置回 auto。
+		if (!Reflect.hasField(FlxG.save.data, 'noteTheme'))
+		{
+			var oldNoteTheme:Dynamic = Reflect.field(FlxG.save.data, 'noteSystem');
+			if (oldNoteTheme != null) data.noteTheme = Std.string(oldNoteTheme);
+		}
+		if (!Reflect.hasField(FlxG.save.data, 'splashTheme'))
+		{
+			var oldSplashTheme:Dynamic = Reflect.field(FlxG.save.data, 'splashSystem');
+			if (oldSplashTheme != null) data.splashTheme = Std.string(oldSplashTheme);
+		}
+
+		data.noteTheme = NoteSkinStyle.normalizeMode(data.noteTheme);
+		data.splashTheme = NoteSkinStyle.normalizeMode(data.splashTheme);
 
 		// GPU Caching 从 Bool 换成三态字符串（disabled/auto/full）。老存档里还是 cacheOnGPU:Bool，
 		// 新键缺失时读老键做一次映射，别把老用户的选择重置掉。

@@ -25,7 +25,7 @@ class NoteSkinStyle
 	public static inline var RGB:String = 'rgb';
 	public static inline var LEGACY:String = 'legacy';
 
-	// 设置项（ClientPrefs.noteSystem / splashSystem）的三态取值。注意 RGB 是"体系名"，
+	// 设置项（ClientPrefs.noteTheme / splashTheme）的三态取值。注意 RGB 是"体系名"，
 	// 设置里存的第三项叫 new —— 两者语义相同，别混着比。
 	public static inline var AUTO:String = 'auto';
 	public static inline var NEW:String = 'new';
@@ -60,8 +60,8 @@ class NoteSkinStyle
 		return AUTO;
 	}
 
-	public static function noteMode():String return normalizeMode(ClientPrefs.data.noteSystem);
-	public static function splashMode():String return normalizeMode(ClientPrefs.data.splashSystem);
+	public static function noteMode():String return normalizeMode(ClientPrefs.data.noteTheme);
+	public static function splashMode():String return normalizeMode(ClientPrefs.data.splashTheme);
 
 	// 缓存里用 unknown 表示「判不出来」，避免每张音符都重算一遍
 	static inline var UNKNOWN:String = 'unknown';

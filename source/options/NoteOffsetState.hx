@@ -7,6 +7,7 @@ import objects.DraggableBar;
 import objects.KeyboardViewer;
 import objects.HitErrorBar;
 import objects.JudgementCounter;
+import objects.ChartHelper;
 import flixel.addons.display.shapes.FlxShapeCircle;
 
 import states.stages.StageWeek1 as BackgroundStage;
@@ -228,6 +229,7 @@ class NoteOffsetState extends MusicBeatState
 
 		// 最后创建，保证画在顶部黑条之上
 		createCounterPreview();
+		createChartHelperPreview();
 		createTestTexts();
 		
 		updateMode();
@@ -255,6 +257,10 @@ class NoteOffsetState extends MusicBeatState
 	// 判定计数器预览（按当前 counterPos 摆位，可拖动改偏移）
 	var counterPreview:Array<CounterLayoutItem> = [];
 	var startCounterOffset:FlxPoint = new FlxPoint();
+
+	// Chart Helper 预览（NPS / BPM / Section / Step 整组）
+	var chartHelperPreview:ChartHelper;
+	var startChartHelperOffset:FlxPoint = new FlxPoint();
 
 	override public function update(elapsed:Float)
 	{
@@ -412,6 +418,14 @@ class NoteOffsetState extends MusicBeatState
 					startHitBarOffset.x = ClientPrefs.data.hitErrorBarOffsetX;
 					startHitBarOffset.y = ClientPrefs.data.hitErrorBarOffsetY;
 				}
+				// 判定计数器在 Center 模式下会和 Chart Helper 完全重叠；
+				// Chart Helper 后 add（画在上面），命中就按"看得见的优先"给它
+				else if (inChartHelperBlock(startMousePos.x, startMousePos.y))
+				{
+					draggingTarget = "charthelper";
+					startChartHelperOffset.x = ClientPrefs.data.chartHelperOffsetX;
+					startChartHelperOffset.y = ClientPrefs.data.chartHelperOffsetY;
+				}
 				else if (inCounterBlock('', startMousePos.x, startMousePos.y))
 				{
 					// split 下顶部 / 底部各写各的偏移，其余三种布局共用一组
@@ -522,6 +536,25 @@ class NoteOffsetState extends MusicBeatState
 				}
 			}
 
+			// 拖拽 Chart Helper 整组（永远居中，这里只改相对中心的偏移）
+			if (draggingTarget == "charthelper")
+			{
+				if(FlxG.mouse.justMoved || analogMoved)
+				{
+					var mousePos:FlxPoint = null;
+					if(!controls.controllerMode)
+						mousePos = FlxG.mouse.getViewPosition(camHUD);
+					else
+						mousePos = controllerPointer.getScreenPosition(camHUD);
+
+					ClientPrefs.data.chartHelperOffsetX = Math.round((mousePos.x - startMousePos.x) + startChartHelperOffset.x);
+					ClientPrefs.data.chartHelperOffsetY = Math.round((mousePos.y - startMousePos.y) + startChartHelperOffset.y);
+
+					updateChartHelperPreviewPosition();
+					reloadTexts();
+				}
+			}
+
 			if(controls.RESET || touchPad.buttonC.justPressed)
 			{
 				// 重置所有偏移量
@@ -539,11 +572,14 @@ class NoteOffsetState extends MusicBeatState
 				ClientPrefs.data.counterSplitTopY = 0;
 				ClientPrefs.data.counterSplitBottomX = 0;
 				ClientPrefs.data.counterSplitBottomY = 0;
+				ClientPrefs.data.chartHelperOffsetX = 0;
+				ClientPrefs.data.chartHelperOffsetY = 0;
 				
 				repositionCombo();
 				updateKeyboardViewerPosition();
 				updateHitErrorBarPosition();
 				updateCounterPreviewPosition();
+				updateChartHelperPreviewPosition();
 				reloadTexts();
 			}
 		}
@@ -924,8 +960,9 @@ class NoteOffsetState extends MusicBeatState
 
 	function createTexts()
 	{
-		// 4 行固定（rating / numbers）+ 3 行计数器偏移，按行内容显隐
-		for (i in 0...7)
+		// 6 行固定（rating / numbers / 键盘 / 判定条 / 计数器位置 / Counter 或 Split Top）+ 1 行 Chart Helper
+		// （split 下多一行 Split Bottom，正好 8 行）
+		for (i in 0...8)
 		{
 			var text:FlxText = new FlxText(10, 48 + (i * 26), 0, '', 24);
 			text.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
@@ -939,10 +976,10 @@ class NoteOffsetState extends MusicBeatState
 	function reloadTexts()
 	{
 		var lines:Array<String> = [];
-		lines.push(Language.getPhrase('combo_rating_offset', 'Rating Offset:'));
-		lines.push('[' + ClientPrefs.data.comboOffset[0] + ', ' + ClientPrefs.data.comboOffset[1] + ']');
-		lines.push(Language.getPhrase('combo_numbers_offset', 'Numbers Offset:'));
-		lines.push('[' + ClientPrefs.data.comboOffset[2] + ', ' + ClientPrefs.data.comboOffset[3] + ']');
+		lines.push(Language.getPhrase('combo_rating_offset', 'Rating Offset:') + ' [' + ClientPrefs.data.comboOffset[0] + ', ' + ClientPrefs.data.comboOffset[1] + ']');
+		lines.push(Language.getPhrase('combo_numbers_offset', 'Numbers Offset:') + ' [' + ClientPrefs.data.comboOffset[2] + ', ' + ClientPrefs.data.comboOffset[3] + ']');
+		lines.push(Language.getPhrase('keyboard_preview_offset', 'Keyboard Offset:') + ' [' + ClientPrefs.data.kbOffsetX + ', ' + ClientPrefs.data.kbOffsetY + ']');
+		lines.push(Language.getPhrase('hiterrorbar_preview_offset', 'Hit Error Bar Offset:') + ' [' + ClientPrefs.data.hitErrorBarOffsetX + ', ' + ClientPrefs.data.hitErrorBarOffsetY + ']');
 		lines.push(Language.getPhrase('counter_preview_position', 'Counter Position:') + ' ' + ClientPrefs.data.counterPos.toUpperCase());
 		if (ClientPrefs.data.counterPos == JudgementCounter.POS_SPLIT)
 		{
@@ -953,6 +990,7 @@ class NoteOffsetState extends MusicBeatState
 		{
 			lines.push(Language.getPhrase('counter_preview_offset', 'Counter Offset:') + ' [' + ClientPrefs.data.counterOffsetX + ', ' + ClientPrefs.data.counterOffsetY + ']');
 		}
+		lines.push(Language.getPhrase('chart_helper_preview_offset', 'Chart Helper Offset:') + ' [' + ClientPrefs.data.chartHelperOffsetX + ', ' + ClientPrefs.data.chartHelperOffsetY + ']');
 
 		for (i in 0...dumbTexts.length)
 		{
@@ -1021,6 +1059,36 @@ class NoteOffsetState extends MusicBeatState
 		return false;
 	}
 
+	/** NPS / BPM / Section / Step 四行预览，布局与游戏内同源（ChartHelper.layout）。 */
+	function createChartHelperPreview():Void
+	{
+		chartHelperPreview = new ChartHelper(null, true);
+		for (row in chartHelperPreview.rows)
+		{
+			row.text.cameras = [camHUD];
+			add(row.text);
+		}
+		updateChartHelperPreviewPosition();
+	}
+
+	function updateChartHelperPreviewPosition():Void
+	{
+		if (chartHelperPreview == null) return;
+		ChartHelper.layout(chartHelperPreview.rows, true);
+	}
+
+	function inChartHelperBlock(px:Float, py:Float):Bool
+	{
+		if (chartHelperPreview == null) return false;
+		for (row in chartHelperPreview.rows)
+		{
+			var text:FlxText = row.text;
+			if (!text.visible) continue;
+			if (px >= text.x && px <= text.x + text.width && py >= text.y && py <= text.y + text.height) return true;
+		}
+		return false;
+	}
+
 	function updateNoteDelay()
 	{
 		ClientPrefs.data.noteOffset = Math.round(barPercent);
@@ -1053,6 +1121,11 @@ class NoteOffsetState extends MusicBeatState
 			testHintText.visible = !onComboMenu;
 		for (item in counterPreview)
 			item.text.visible = onComboMenu;
+		if (chartHelperPreview != null)
+		{
+			if (onComboMenu) chartHelperPreview.refresh();
+			else for (row in chartHelperPreview.rows) row.text.visible = false;
+		}
 
 		controllerPointer.visible = false;
 		FlxG.mouse.visible = true;

@@ -100,6 +100,11 @@ class ComponentsData
 
         var sub5 = cat.section('ChartHelper', 'Chart Helper');
 
+        sub5.add(new Option('Show NPS', 'Show notes hit per second in the chart helper', 'showNPS', BOOL));
+        sub5.add(new Option('Show BPM', 'Show current BPM and its lowest~highest range in the chart helper', 'showBPM', BOOL));
+        sub5.add(new Option('Show Section', 'Show the current chart section in the chart helper', 'showSection', BOOL));
+        sub5.add(new Option('Show Step', 'Show the current chart step in the chart helper', 'showStep', BOOL));
+
         var guideLineAlpha = new Option('Note Guide Line Opacity', 'Transparency of the chart helper display', 'guideLineAlpha', FLOAT);
         guideLineAlpha.minValue = 0;
         guideLineAlpha.maxValue = 1;

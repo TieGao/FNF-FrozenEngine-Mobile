@@ -52,6 +52,8 @@ class VideoSprite extends FlxSpriteGroup {
 
 		videoSprite.bitmap.onVideoFormatSetup.add(function() // hxvlc 2.3.2 改名（旧 onFormatSetup 已弃用）
 		{
+			// 事件可能晚于销毁到达（hxvlc 走主线程派发），此时 bitmap 已被置空
+			if(alreadyDestroyed || videoSprite == null || videoSprite.bitmap == null) return;
 			/*
 			#if hxvlc
 			var wd:Int = videoSprite.bitmap.formatWidth;
@@ -72,11 +74,16 @@ class VideoSprite extends FlxSpriteGroup {
 	}
 
 	public var alreadyDestroyed:Bool = false;
+	/** 销毁完成时回调，宿主（PlayState）据此清掉指向本实例的悬空引用 */
+	public var onDestroyed:Void->Void = null;
+
 	override function destroy()
 	{
 		if(alreadyDestroyed)
 			return;
 
+		// 先置位，避免销毁过程中被父组/回调重入
+		alreadyDestroyed = true;
 		playingVideos--;
 
 		trace('Video destroyed');
@@ -84,21 +91,26 @@ class VideoSprite extends FlxSpriteGroup {
 		{
 			remove(cover);
 			cover.destroy();
+			cover = null;
 		}
 		
 		finishCallback = null;
 		onSkip = null;
 
+		var destroyedCallback = onDestroyed;
+		onDestroyed = null;
+		if(destroyedCallback != null)
+			destroyedCallback();
+
 		if(FlxG.state != null)
 		{
-			if(FlxG.state.members.contains(this))
+			if(FlxG.state.members != null && FlxG.state.members.contains(this))
 				FlxG.state.remove(this);
 
-			if(FlxG.state.subState != null && FlxG.state.subState.members.contains(this))
+			if(FlxG.state.subState != null && FlxG.state.subState.members != null && FlxG.state.subState.members.contains(this))
 				FlxG.state.subState.remove(this);
 		}
 		super.destroy();
-		alreadyDestroyed = true;
 	}
 	function finishVideo()
 	{
@@ -129,7 +141,9 @@ class VideoSprite extends FlxSpriteGroup {
 			{
 				if(onSkip != null) onSkip();
 				finishCallback = null;
-				videoSprite.bitmap.onEndReached.dispatch();
+				// onSkip 里可能已经 destroy（自定义回调），此时 bitmap 已为空
+				if(!alreadyDestroyed && videoSprite != null && videoSprite.bitmap != null)
+					videoSprite.bitmap.onEndReached.dispatch();
 				trace('Skipped video');
 				return;
 			}
@@ -172,5 +186,19 @@ class VideoSprite extends FlxSpriteGroup {
 	public function play() videoSprite?.play();
 	public function resume() videoSprite?.resume();
 	public function pause() videoSprite?.pause();
+
+	/**
+	 * 安全设置播放速率。
+	 * 视频自然播完 / 被跳过 / 切 state 后底层 `bitmap` 会被 hxvlc 置空，
+	 * 但宿主可能还持有本实例的引用（例如歌曲结束时写 `playbackRate = 1`），
+	 * 此时直接访问 `videoSprite.bitmap.rate` 会抛 Null Object Reference。
+	 */
+	public function setRate(rate:Float):Void
+	{
+		if(alreadyDestroyed || videoSprite == null || videoSprite.bitmap == null)
+			return;
+
+		videoSprite.bitmap.rate = rate;
+	}
 	#end
 }

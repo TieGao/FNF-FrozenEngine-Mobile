@@ -69,11 +69,13 @@ class SkinData
 
         // 音符 / 溅射各自的三态体系开关（auto / legacy / new），互相独立：
         //   new  = 忽略谱面皮肤 + 强制 RGB；legacy = 沿用谱面皮肤 + 强制 HSV；auto = 引擎自己判
-        sub.add(new Option('Note System', 'auto: detect | legacy: force HSV | new: force RGB + custom skin', 'noteSystem', STRING, ['auto', 'legacy', 'new']));
-        sub.add(new Option('Splash System', 'auto: detect | legacy: force HSV | new: force RGB + custom skin', 'splashSystem', STRING, ['auto', 'legacy', 'new']));
+        sub.add(new Option('Note Theme', 'auto: detect | legacy: force HSV | new: force RGB + custom skin', 'noteTheme', STRING, ['auto', 'legacy', 'new']));
+        sub.add(new Option('Special Note Shading', 'Apply RGB/HSV shading to notes with their own texture (custom_notetypes / script-set). Off keeps their baked colors, same as Psych 1.0.4', 'specialNoteShading', BOOL));
+        sub.add(new Option('Splash Theme', 'auto: detect | legacy: force HSV | new: force RGB + custom skin', 'splashTheme', STRING, ['auto', 'legacy', 'new']));
 
         var sub = cat.section('Judgements', 'Judgements Settings');
         sub.add(new Option('Judgements Style', 'Select your preferred judgements Image', 'customUI', STRING, ratings));
+        sub.add(new Option('Judgement Popup Position', 'Where the judgement popup is drawn: fixed on the UI, following BF/GF in the scene, or the stage center', 'judgementPopupPos', STRING, ['UI', 'BF', 'GF', 'Stage']));
         sub.add(new Option('Combo Stacking', 'Stack combo numbers', 'comboStacking', BOOL));
         sub.add(new Option('MS Number', 'Make you know how late/early ur when hit notes', 'showMS', BOOL));
         sub.add(new Option('Force Number Color', 'Force numbers to a specific color', 'forceNumberColor', BOOL));

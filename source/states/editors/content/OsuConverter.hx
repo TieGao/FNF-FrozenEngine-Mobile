@@ -5,6 +5,7 @@ import haxe.Json;
 import sys.io.File;
 import sys.FileSystem;
 import haxe.ds.StringMap;
+import states.editors.content.ChartTimingUtil.ChartSectionSpan;
 
 using StringTools;
 
@@ -34,227 +35,176 @@ class OsuConverter
 	 * @param filePath .osu 文件路径
 	 */
 	public static function convertOsuToPsych(filePath:String, ?chartCategory:String, ?chartSongDir:String):SwagSong
-    {
-        //trace("========== OSU → Psych 转换开始 ==========");
-        
-        if (!FileSystem.exists(filePath))
-        {
-            trace('【错误】文件不存在: $filePath');
-            return null;
-        }
-        
-        var content:String = File.getContent(filePath);
-        var sections:Map<String, Array<String>> = parseOsuSections(content);
+	{
+		if (!FileSystem.exists(filePath))
+		{
+			trace('【错误】文件不存在: $filePath');
+			return null;
+		}
 
-        var general:Map<String, String> = parseKeyValues(sections["General"]);
-        var metadata:Map<String, String> = parseKeyValues(sections["Metadata"]);
-        var difficulty:Map<String, String> = parseKeyValues(sections["Difficulty"]);
-        var timingLines:Array<String> = sections["TimingPoints"] ?? [];
-        var hitLines:Array<String> = sections["HitObjects"] ?? [];
+		var content:String = File.getContent(filePath);
+		var sections:Map<String, Array<String>> = parseOsuSections(content);
 
-        //trace('【解析】HitObjects 行数: ${hitLines.length}');
+		var metadata:Map<String, String> = parseKeyValues(sections["Metadata"]);
+		var difficulty:Map<String, String> = parseKeyValues(sections["Difficulty"]);
+		var timingLines:Array<String> = sections["TimingPoints"] ?? [];
+		var hitLines:Array<String> = sections["HitObjects"] ?? [];
 
-        // 提取 BPM 变化
-        var bpmChanges:Array<BpmChange> = [];
-        for (line in timingLines)
-        {
-            var parts = line.split(",");
-            if (parts.length < 8) continue;
-            var time:Float = Std.parseFloat(parts[0]);
-            var beatLength:Float = Std.parseFloat(parts[1]);
-            var meter:Int = Std.parseInt(parts[2]);
-            var uninherited:Int = Std.parseInt(parts[6]);
-            if (uninherited == 1) // BPM change
-            {
-                var bpm:Float = 60000.0 / beatLength;
-                bpmChanges.push({ time: time, bpm: bpm, meter: meter });
-            }
-        }
-        if (bpmChanges.length == 0)
-        {
-            bpmChanges.push({ time: 0, bpm: 120, meter: 4 });
-            trace('【警告】未找到 TimingPoints，使用默认 BPM=120');
-        }
-        // 按时间排序
-        bpmChanges.sort((a, b) -> Std.int(a.time - b.time));
-        
-        //trace('【提取】BPM变化点数: ${bpmChanges.length}');
-        for (bpm in bpmChanges)
-        {
-//            trace('  time=${bpm.time}, bpm=${bpm.bpm}');
-        }
+		// ===== BPM 段（uninherited 才有意义，beatLength 是每拍毫秒） =====
+		var bpmChanges:Array<BpmChange> = [];
+		for (line in timingLines)
+		{
+			var parts = line.split(",");
+			if (parts.length < 8) continue;
+			var time:Float = Std.parseFloat(parts[0]);
+			var beatLength:Float = Std.parseFloat(parts[1]);
+			var meter:Int = Std.parseInt(parts[2]);
+			var uninherited:Int = Std.parseInt(parts[6]);
+			if (uninherited != 1 || beatLength <= 0) continue;
+			bpmChanges.push({time: time, bpm: 60000.0 / beatLength, meter: meter});
+		}
+		bpmChanges.sort((a, b) -> a.time < b.time ? -1 : (a.time > b.time ? 1 : 0));
 
-        // 提取音符
-        var keys:Int = Std.parseInt(difficulty.get("CircleSize"));
-        if (keys < 1) keys = 4;
-        
-        var notes:Array<OsuNote> = [];
-        for (line in hitLines)
-        {
-            var parts = line.split(",");
-            if (parts.length < 6) continue;
-            var x:Float = Std.parseFloat(parts[0]);
-            var time:Float = Std.parseFloat(parts[2]);
-            var type:Int = Std.parseInt(parts[3]);
-            var params:String = parts[5];
-            var lane:Int = Math.floor((x / 512) * keys);
-            var length:Float = 0;
-            if (type == 128) // hold note
-            {
-                var endTimeStr = params.split(":")[0];
-                var endTime:Float = Std.parseFloat(endTimeStr);
-                if (endTime > time) length = endTime - time;
-            }
-            notes.push({ time: time, lane: lane, length: length });
-        }
-        // 按时间排序
-        notes.sort((a, b) -> Std.int(a.time - b.time));
-        
-        //trace('【提取】OSU音符总数: ${notes.length}');
-        if (notes.length > 0)
-        {
-           // trace('【提取】第一个音符时间: ${notes[0].time}ms, 最后一个音符时间: ${notes[notes.length - 1].time}ms');
-        }
+		// 同一时间点的多条只留最后一条；相邻且 BPM/拍号相同的重复定义也合并，
+		// 免得在段边界切出一个多余的小节。负时间点 / 0 点补段交给 ChartTimingUtil
+		var dedup:Array<BpmChange> = [];
+		for (change in bpmChanges)
+		{
+			if (dedup.length > 0)
+			{
+				var prev:BpmChange = dedup[dedup.length - 1];
+				if (Math.abs(change.time - prev.time) < 0.01)
+				{
+					dedup[dedup.length - 1] = change;
+					continue;
+				}
+				if (Math.abs(change.bpm - prev.bpm) < 0.001 && (change.meter ?? 4) == (prev.meter ?? 4))
+					continue;
+			}
+			dedup.push(change);
+		}
+		bpmChanges = dedup;
+		if (bpmChanges.length == 0) bpmChanges.push({time: 0, bpm: 120, meter: 4});
 
-       		var sourceInfo:Array<String> = getChartSourceInfo(filePath);
+		// ===== 音符 =====
+		var keys:Int = Std.parseInt(difficulty.get("CircleSize"));
+		if (keys < 1) keys = 4;
+		if (keys > 18) keys = 18;
+
+		var notes:Array<OsuNote> = [];
+		for (line in hitLines)
+		{
+			var parts = line.split(",");
+			if (parts.length < 6) continue;
+			var x:Float = Std.parseFloat(parts[0]);
+			var time:Float = Std.parseFloat(parts[2]);
+			var type:Int = Std.parseInt(parts[3]);
+			var lane:Int = Math.floor((x / 512) * keys);
+			if (lane < 0) lane = 0;
+			if (lane >= keys) lane = keys - 1; // x 正好压在 512 上时别越到对手侧
+
+			var length:Float = 0;
+			// hold 的 type 是位标志（128 / 129 / 132…），不能用 == 128 判
+			if ((type & 128) != 0)
+			{
+				var endTime:Float = Std.parseFloat(parts[5].split(":")[0]);
+				if (endTime > time) length = endTime - time;
+			}
+			notes.push({time: time, lane: lane, length: length});
+		}
+		notes.sort((a, b) -> a.time < b.time ? -1 : (a.time > b.time ? 1 : 0));
+
+		var endTime:Float = 1600;
+		if (notes.length > 0)
+		{
+			var lastNote:OsuNote = notes[notes.length - 1];
+			// 只到最后一个 note 的起点：hold 尾巴不需要额外小节，末尾的空 BPM 段也不用铺满
+			// （+1 是开区间判断：单点 note 的 time 正好等于 endTime 会掉出最后一节）
+			endTime = lastNote.time + 1;
+		}
+		if (endTime <= 0) endTime = 1600;
+
+		// ===== 时间轴 → section =====
+		// 必须按 BPM 段切（见 ChartTimingUtil）：osu 的 timing 时间戳只到整毫秒，
+		// 之前"从小节线反推变速点"会把贴着小节线的变速推到下一小节，整条时间轴偏一拍。
+		var spans:Array<ChartSectionSpan> = ChartTimingUtil.buildSections([for (change in bpmChanges) {
+			time: change.time,
+			bpm: change.bpm,
+			meter: change.meter
+		}], endTime);
+
+		var swagSections:Array<SwagSection> = [];
+		var songBpm:Float = (spans.length > 0) ? spans[0].bpm : bpmChanges[0].bpm;
+		var lastBpm:Float = songBpm;
+		var noteIndex:Int = 0;
+
+		for (span in spans)
+		{
+			var sectionNotes:Array<Dynamic> = [];
+			while (noteIndex < notes.length && notes[noteIndex].time < span.end)
+			{
+				var note:OsuNote = notes[noteIndex++];
+				sectionNotes.push([note.time, note.lane, note.length]);
+			}
+
+			var change:Bool = span.bpm != lastBpm;
+			var sec:SwagSection = {
+				sectionNotes: sectionNotes,
+				sectionBeats: span.beats,
+				mustHitSection: true,
+				changeBPM: change,
+				altAnim: false,
+				gfSection: false
+			};
+			if (change) sec.bpm = span.bpm;
+			swagSections.push(sec);
+			lastBpm = span.bpm;
+		}
+
+		if (swagSections.length <= 0)
+		{
+			swagSections.push({
+				sectionNotes: [for (note in notes) [note.time, note.lane, note.length]],
+				sectionBeats: 4,
+				mustHitSection: true,
+				changeBPM: false,
+				altAnim: false,
+				gfSection: false
+			});
+		}
+
+		// ===== 元数据 =====
+		var sourceInfo:Array<String> = getChartSourceInfo(filePath);
 		if (chartCategory == null) chartCategory = sourceInfo[0];
 		if (chartSongDir == null) chartSongDir = sourceInfo[1];
 		var songName:String = (chartSongDir != null && chartSongDir.length > 0)
 			? chartSongDir
 			: (metadata.get("Title") ?? "Untitled");
-        var song:SwagSong = {
+
+		var song:SwagSong = {
 			song: songName,
-            notes: [],
-            events: [],
-            bpm: bpmChanges[0].bpm,
-            needsVoices: true,
-            speed: 1.0,
-            offset: 0,
-            player1: "bf",
-            player2: "dad",
-            gfVersion: "gf",
-            stage: "stage",
-            format: "psych_v1",
-            // 添加 mania 相关字段
-            mania: keys - 1,
-            keyCount: keys,
-            keycount: keys
-        };
+			notes: swagSections,
+			events: [],
+			bpm: songBpm,
+			needsVoices: true,
+			speed: 1.0,
+			offset: 0,
+			player1: "bf",
+			player2: "dad",
+			gfVersion: "gf",
+			stage: "stage",
+			format: "psych_v1",
+			mania: keys - 1,
+			keyCount: keys,
+			keycount: keys
+		};
 
-        Reflect.setField(song, 'mania', keys - 1);
-        Reflect.setField(song, 'keyCount', keys);
-        Reflect.setField(song, 'keycount', keys);
+		Reflect.setField(song, 'mania', keys - 1);
+		Reflect.setField(song, 'keyCount', keys);
+		Reflect.setField(song, 'keycount', keys);
 
-        // ========== 修复：精确计算总小节数 ==========
-        var beatsPerSection:Float = 4.0;
-        var totalSections:Int = 1;
-        
-        if (notes.length > 0)
-        {
-            var lastNoteTime:Float = notes[notes.length - 1].time;
-            
-            // 计算从0到最后一个音符的总拍数（考虑BPM变化）
-            var totalBeats:Float = 0;
-            var currentTime:Float = 0;
-            var currentBpm:Float = bpmChanges[0].bpm;
-            var bpmIndex:Int = 0;
-            
-            while (currentTime < lastNoteTime)
-            {
-                // 检查是否有BPM变化
-                var nextBpmTime:Float = (bpmIndex + 1 < bpmChanges.length) ? bpmChanges[bpmIndex + 1].time : lastNoteTime + 1;
-                var segmentDuration:Float = nextBpmTime - currentTime;
-                if (segmentDuration <= 0)
-                {
-                    bpmIndex++;
-                    if (bpmIndex >= bpmChanges.length) break;
-                    currentBpm = bpmChanges[bpmIndex].bpm;
-                    continue;
-                }
-                
-                // 计算这段持续时间的拍数
-                var beatsInSegment:Float = segmentDuration / (60000 / currentBpm);
-                totalBeats += beatsInSegment;
-                
-                currentTime = nextBpmTime;
-                bpmIndex++;
-                if (bpmIndex < bpmChanges.length)
-                {
-                    currentBpm = bpmChanges[bpmIndex].bpm;
-                }
-            }
-            
-            // 额外加几个小节作为缓冲，确保所有音符都被包含
-            totalSections = Math.ceil(totalBeats / beatsPerSection) + 4;
-            //trace('【计算】总拍数: $totalBeats, 生成小节数: $totalSections (含4节缓冲)');
-        }
-
-        var swagSections:Array<SwagSection> = [];
-        var sectionTime:Float = 0;
-        var bpmIndex:Int = 0;
-        var currentBpm:Float = bpmChanges[0].bpm;
-        var totalSectionNotes:Int = 0;
-        
-        for (i in 0...totalSections)
-        {
-            // 检查当前小节是否应该改变BPM
-            var nextBpm:Float = currentBpm;
-            var changeBPM:Bool = false;
-            
-            // 如果下一个BPM变化在这个小节开始之前，更新BPM
-            while (bpmIndex + 1 < bpmChanges.length && bpmChanges[bpmIndex + 1].time <= sectionTime + 0.1)
-            {
-                bpmIndex++;
-                currentBpm = bpmChanges[bpmIndex].bpm;
-                changeBPM = true;
-            }
-            nextBpm = currentBpm;
-
-            var sec:SwagSection = {
-                sectionNotes: [],
-                sectionBeats: beatsPerSection,
-                mustHitSection: true,
-                bpm: nextBpm,
-                changeBPM: changeBPM,
-                altAnim: false,
-                gfSection: false
-            };
-
-            // 将该小节时间范围内的音符加入
-            var startTime:Float = sectionTime;
-            var endTime:Float = sectionTime + beatsPerSection * (60000 / currentBpm);
-            
-            var sectionNotes:Array<Array<Dynamic>> = [];
-            for (note in notes)
-            {
-                if (note.time >= startTime && note.time < endTime)
-                {
-                    var data:Int = note.lane;
-                    var length:Float = note.length;
-                    var noteType:String = null;
-                    sectionNotes.push([note.time, data, length, noteType]);
-                }
-            }
-            sec.sectionNotes = sectionNotes;
-            swagSections.push(sec);
-            totalSectionNotes += sectionNotes.length;
-            
-            if (i % 20 == 0 || i == totalSections - 1)
-            {
-//                trace('【小节 $i】时间范围: $startTime ~ $endTime ms, BPM: $currentBpm, 音符数: ${sectionNotes.length}');
-            }
-
-            sectionTime = endTime;
-        }
-
-        song.notes = swagSections;
-        
-       // trace('【完成】生成小节数: ${swagSections.length}');
-        //trace('【完成】总音符数: $totalSectionNotes');
-       // trace("========== OSU → Psych 转换完成 ==========");
-        
-        return song;
-    }
+		return song;
+	}
 
 	private static function getChartSourceInfo(filePath:String):Array<String>
 	{

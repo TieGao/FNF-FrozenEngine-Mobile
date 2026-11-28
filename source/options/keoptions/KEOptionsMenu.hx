@@ -1291,7 +1291,7 @@ class KEOptionsMenu extends MusicBeatState
 			"FPS Counter Settings"
 		);
 
-		return [
+		var options:Array<KEOption> = [
 			fpsOptions,
 			KEOption.create("Low Quality", "Reduce graphics for performance", "lowQuality", "bool"),
 			KEOption.create("Anti-Aliasing", "Smoother visuals", "antialiasing", "bool"),
@@ -1306,7 +1306,7 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.createStringOption("GPU Caching", "Texture caching mode: disabled = RAM only; auto = drop the CPU copy after the first draw; full = upload and drop the CPU copy at load (least RAM, risky on low VRAM)", "gpuCaching", ["disabled", "auto", "full"], "disabled"),
 			// TPS/FPS 拆分已废弃：flixel 的 updateFramerate 依赖 fixedTimestep，本引擎关掉了（见 ClientPrefs.applyFrameTiming）。
 			// KEOption.create("Divide Draw And Update", "Draw and Update in separate threads", "devideDrawAndUpdate", "bool"),
-			KEOption.create("Framerate", "Target framerate", "framerate", "int", 60, 60, 480, 1),
+			KEOption.create("Framerate", "Target framerate", "framerate", "int", 60, 60, ClientPrefs.maxSupportedFps(), 1),
 			// KEOption.create("Update Rate", "Target update rate", "updaterate", "int", 60, 60, 480, 1),
 			KEOption.create("Unlimited FPS", "Remove framerate cap (lime UNCAPPED, takes priority over FPS Rework)", "unlimitedFPS", "bool"),
 			KEOption.create("FPS Rework", "Make ur game more smooth", "fpsRework", "bool"),
@@ -1314,6 +1314,13 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Idle Delay", "Seconds of inactivity before entering power-saving mode", "idleFPSTime", "int", 60, 10, 600, 5),
 			KEOption.create("Idle FPS", "Framerate cap used in power-saving mode", "idleFPSValue", "int", 15, 5, 60, 1)
 		];
+
+		// iOS 60Hz 机型（无 ProMotion）硬件上限就是 60：Framerate / Unlimited FPS
+		// 没有任何可调空间，直接不显示；ProMotion 与其它平台照常。
+		if (ClientPrefs.maxSupportedFps() <= 60)
+			options = options.filter(o -> o.variable != "framerate" && o.variable != "unlimitedFPS");
+
+		return options;
 	}
 
 	function getGameplayOptions():Array<KEOption>
@@ -1364,14 +1371,16 @@ class KEOptionsMenu extends MusicBeatState
 				KEOption.create("Note Splashes", "Select your preferred Note Splash variation","splashSkin","string", splashes),
 				KEOption.create("Note HoldCover", "Select your preferred Note Hold Cover","holdCoverSkin","string", holdCovers),
 				KEOption.create("Judgements Style", "Select your preferred judgements Image","customUI","string", ratings),
+				KEOption.create("Judgement Popup Position", "Where the judgement popup is drawn: fixed on the UI, following BF/GF in the scene, or the stage center", "judgementPopupPos", "string", ['UI', 'BF', 'GF', 'Stage']),
 				KEOption.create("Note Opacity", "Note transparency", "noteAlpha", "float", 0.9, 0, 1, 0.1),
 				KEOption.create("Note Splash Opacity", "Note splash transparency", "splashAlpha", "float", 0.8, 0, 1, 0.1),
 				KEOption.create("Note HoldCover Opacity", "Note splash transparency", "holdcoverAlpha", "float", 0.8, 0, 1, 0.1),
 				KEOption.create("Force Number Color", "Force numbers to a specific color", "forceNumberColor", "bool"),
 				KEOption.create("showEarlyLate", "Show early/late text on hit", "showEarlyLate", "bool"),
 				KEOption.create("showCombo", "Show combo text when combo > 10", "showCombo", "bool"),
-				KEOption.create("Note System", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "noteSystem", "string", ['auto', 'legacy', 'new']),
-				KEOption.create("Splash System", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "splashSystem", "string", ['auto', 'legacy', 'new'])
+				KEOption.create("Note Theme", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "noteTheme", "string", ['auto', 'legacy', 'new']),
+				KEOption.create("Special Note Shading", "Apply RGB/HSV shading to notes with their own texture (custom_notetypes / script-set). Off keeps their baked colors, same as Psych 1.0.4", "specialNoteShading", "bool"),
+				KEOption.create("Splash Theme", "auto: detect | legacy: force HSV | new: force RGB + custom skin", "splashTheme", "string", ['auto', 'legacy', 'new'])
 			],
 			"Skin Settings"
 		);
@@ -1411,6 +1420,10 @@ class KEOptionsMenu extends MusicBeatState
 			"Chart Helper",
 			"Configure Chart Helper settings",
 			[
+				KEOption.create("Show NPS", "Show notes hit per second in the chart helper", "showNPS", "bool"),
+				KEOption.create("Show BPM", "Show current BPM and its lowest~highest range in the chart helper", "showBPM", "bool"),
+				KEOption.create("Show Section", "Show the current chart section in the chart helper", "showSection", "bool"),
+				KEOption.create("Show Step", "Show the current chart step in the chart helper", "showStep", "bool"),
 				KEOption.create("Note Guide Line Opacity", "Transparency of the chart helper display", "guideLineAlpha", "float", 1.0, 0.0, 1.0, 0.1),
 			],
 			"Chart Helper Settings"
@@ -1506,6 +1519,8 @@ class KEOptionsMenu extends MusicBeatState
 			KEOption.create("Health Text", "Show health as number", "healthText", "bool"),
 			KEOption.create("Score Screen", "Show Kade-style results", "scoreScreen", "bool"),
 			KEOption.create("Transition Type", "Choose the transition animation style when switching scenes", "transitionType", "string", ['fade', 'pixel', 'loading']),
+			KEOption.create("Loading City Background", "Show the city artwork behind the loading screen instead of funkay. Transition wipes still use funkay.",
+				"loadingCityBg", "bool"),
 			KEOption.create("Blur Effect", "Enable blur effect on background elements", "blurEffects", "bool"),
 			KEOption.create("Skip Results Screen Fade Out", "Skip the exit results screen animation", "skipResultExitAnim", "bool"),
 			KEOption.create("Charm Bar Pause", "Modern Pause Sub State", "charmPause", "bool"),

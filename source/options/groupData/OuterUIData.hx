@@ -60,6 +60,8 @@ class OuterUIData
         // 菜单/场景过渡 + 全局外观（主题、强调色）集中在这一段。
         var menu = cat.section('Menu', 'Menu');
         menu.add(new Option('Transition Type', 'Choose the transition animation style when switching scenes', 'transitionType', STRING, ['fade', 'pixel', 'loading']));
+        menu.add(new Option('Loading City Background', 'Show the city artwork behind the loading screen instead of funkay. Transition wipes still use funkay.',
+            'loadingCityBg', BOOL));
         menu.add(new Option('Blur Effect', 'Enable blur effect on background elements', 'blurEffects', BOOL));
 
         menu.add(new Option('Color Mode', 'Switch between dark and white mode', 'colorMode', STRING, ['dark', 'white']));

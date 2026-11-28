@@ -93,7 +93,11 @@ class Note extends FlxSprite
 	public var noteStyle:String = NoteSkinStyle.RGB;
 	public var skinPath:String = '';
 	public var useRGBShader:Bool = true;
-	// shader 槽位一生只拍板一次（构造时的第一次 reloadNote），之后引擎不再碰；见 updateNoteShader()
+	// 特殊音符：自带贴图的音符（custom_notetypes / 脚本里 setProperty(...,'texture',...)）。
+	// 这类贴图的颜色是画死的，Psych 1.0.4 在 reloadNote 里直接 rgbShader.enabled = false；
+	// 本引擎同样默认不着色，ClientPrefs.specialNoteShading 打开才强制套当前体系。
+	public var isSpecialNote:Bool = false;
+	// shader 槽位默认只拍板一次（构造时的 reloadNote）；set_noteType 会带 force 再拍一次，见 updateNoteShader()
 	var shaderDecided:Bool = false;
 	public var inEditor:Bool = false;
 
@@ -395,6 +399,9 @@ class Note extends FlxSprite
 			if (value != null && value.length > 1) NoteTypesConfig.applyNoteTypeData(this, value);
 			if (hitsound != 'hitsound' && hitsoundVolume > 0) Paths.sound(hitsound); //precache new sound for being idiot-proof
 			noteType = value;
+			// noteType 是构造之后才赋的；这里让着色按当前状态再拍一次（自带贴图的音符、
+			// specialNoteShading 开关都靠它收口）。
+			updateNoteShader(true);
 		}
 		return value;
 	}
@@ -544,6 +551,20 @@ class Note extends FlxSprite
 	public function reloadNote(texture:String = '', postfix:String = '') {
 		if(texture == null) texture = '';
 		if(postfix == null) postfix = '';
+		// 显式指定贴图（custom_notetypes / 脚本设的 texture）= 自带颜色的特殊音符。
+		// 对齐 Psych 1.0.4 的 `else rgbShader.enabled = false`：这类图的颜色是画死的，
+		// 不管当前体系是 RGB 还是 HSV 都不该再着色；specialNoteShading 打开才强制套用。
+		// 注意必须在这里**立即**关，不能只打标记 —— 脚本是构造之后才设 texture 的，
+		// 而 shader 槽位在构造时就拍板了，updateNoteShader() 不会重算。
+		if (texture.length > 0)
+		{
+			isSpecialNote = true;
+			if (!ClientPrefs.data.specialNoteShading && rgbShader != null)
+			{
+				useRGBShader = false;
+				rgbShader.enabled = false;
+			}
+		}
 
 		var skin:String = (texture.length < 1) ? getNoteSkinPath(postfix) : texture + postfix;
 		// 玩家皮肤后缀叠加前的基础贴图：体系判定 / 三级回退的层级都按它认，别用叠过后缀的路径去比对
@@ -620,7 +641,8 @@ class Note extends FlxSprite
 	}
 
 	/**
-	 * 拍板这张音符挂什么 shader —— **一生只决定一次**（构造时的第一次调用）。
+	 * 拍板这张音符挂什么 shader —— 构造时拍板一次；之后只有 set_noteType 会带 force 重拍
+	 * （noteType 是构造之后才赋的，特殊音符要靠这一次把已经挂上的着色摘掉）。
 	 * 一个 sprite 只有一个 shader 槽位，0.6.x / 0.7+ 的共同点是「生成时挂好，之后引擎不再动」，
 	 * 所以这里拍板后就收手：模组中途换 shader（Lua/HScript 直接赋 sprite.shader）引擎不抢回来，
 	 * 换贴图触发的后续 reloadNote 也只换贴图换动画。
@@ -629,11 +651,21 @@ class Note extends FlxSprite
 	 *   legacy 体系 → HSV 只挂这一次（0.6.x 行为），全 0 不挂；
 	 *   auto + 谱面 disableNoteRGB → RGB、HSV 都不挂，贴图原样（谱面说啥就是啥）。
 	 */
-	public function updateNoteShader():Void
+	public function updateNoteShader(?force:Bool = false):Void
 	{
 		if (noteData < 0 || rgbShader == null) return;
-		if (shaderDecided) return;
+		if (shaderDecided && !force) return;
 		shaderDecided = true;
+
+		// 特殊音符（自带贴图）：颜色是画进贴图的，默认不套任何着色。
+		// enabled = false 会把 sprite.shader 一并置 null（RGBShaderReference.set_enabled），
+		// 所以上一轮 legacy 挂上的 HSV 也一起摘掉。
+		if (isSpecialNote && !ClientPrefs.data.specialNoteShading)
+		{
+			useRGBShader = false;
+			rgbShader.enabled = false;
+			return;
+		}
 
 		if (NoteSkinStyle.noteMode() == NoteSkinStyle.AUTO && PlayState.SONG != null && PlayState.SONG.disableNoteRGB)
 		{

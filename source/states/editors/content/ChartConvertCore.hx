@@ -9,6 +9,7 @@ import moonchart.formats.Quaver;
 import moonchart.backend.Timing;
 import moonchart.parsers.QuaverParser.QuaverHitObject;
 import moonchart.parsers._internal.ZipFile;
+import states.editors.content.ChartTimingUtil.ChartSectionSpan;
 import states.editors.content.MidiTrackReader.MidiPart;
 
 using StringTools;
@@ -328,6 +329,10 @@ class ChartConvertCore
 		var keys:Int = Std.int(fmt.data.Difficulty.CircleSize);
 		if(keys < 1) keys = 4;
 		if(keys > 16) keys = 16;
+
+		var basic:BasicChart = fmt.toBasicFormat();
+		applyOsuMeters(fmt, basic);
+
 		return {
 			info: {
 				format: format,
@@ -336,8 +341,45 @@ class ChartConvertCore
 				diffs: diffs,
 				title: cleanName(fmt.data.Metadata.Title, 'Unknown')
 			},
-			basic: fmt.toBasicFormat()
+			basic: basic
 		};
+	}
+
+	/**
+	 * moonchart 的 osu 解析把 beatsPerMeasure 写死成 4，这里按源谱 [TimingPoints] 的 meter 补回来，
+	 * 否则 3/4、6/8 拍的谱会按 4 拍切小节，section 边界与 osu 编辑器里的小节线对不上。
+	 */
+	static function applyOsuMeters(fmt:OsuMania, basic:BasicChart):Void
+	{
+		var points:Array<Array<Float>> = fmt.data.TimingPoints;
+		if(points == null || points.length <= 0) return;
+
+		var fallbackMeter:Float = 0;
+		for(point in points)
+		{
+			if(point[6] == 1 && point[2] > 0)
+			{
+				fallbackMeter = point[2];
+				break;
+			}
+		}
+		if(fallbackMeter <= 0) fallbackMeter = 4;
+
+		for(change in basic.meta.bpmChanges)
+		{
+			var meter:Float = 0;
+			for(point in points)
+			{
+				if(point[6] != 1) continue;
+				if(Math.abs(point[0] - change.time) < 0.5)
+				{
+					meter = point[2];
+					break;
+				}
+			}
+			if(meter <= 0) meter = fallbackMeter;
+			change.beatsPerMeasure = meter;
+		}
 	}
 
 	static function loadOszPack(path:String, ?diff:String):{info:ChartImportInfo, basic:BasicChart}
@@ -615,79 +657,53 @@ class ChartConvertCore
 		// SM 的 #OFFSET 按 moonchart 惯例烘焙进音符时间（time -= offset），引擎侧 offset 保持 0
 		var bakeOffset:Float = meta.offset ?? 0;
 
-		var measures:Array<BasicMeasure> = Timing.divideNotesToMeasures(notes, [], bpmChanges);
-		if(measures.length <= 0)
+		// 时间轴按 BPM 段直接切小节（见 ChartTimingUtil）：不能走 Timing.divideNotesToMeasures
+		// 再回头猜变速点落在哪个小节——源时间戳只精确到整毫秒，贴着小节线的变速点会被判成
+		// "小节内变速"，该小节按新 BPM 算长度，后面整条时间轴错位；编辑器随后把越界 note
+		// 夹到 section 末端，表现为 note 在每节末尾堆叠。
+		Timing.sortNotes(notes);
+		var endTime:Float = 1600;
+		if(notes.length > 0)
 		{
-			// 只有一个 t=0 音符的谱（endTime=0）切不出小节，手工补一个
-			measures = [{
-				notes: notes.copy(),
-				events: [],
-				bpmChanges: [bpmChanges[0]],
-				bpm: bpmChanges[0].bpm,
-				beatsPerMeasure: bpmChanges[0].beatsPerMeasure,
-				stepsPerBeat: 4,
-				startTime: 0,
-				endTime: 1600,
-				length: 1600,
-				snap: 4
-			}];
+			var lastNote:BasicNote = notes[notes.length - 1];
+			// 只到最后一个 note 的起点：hold 尾巴不需要额外小节，末尾的空 BPM 段也不用铺满
+			// （+1 是开区间判断：单点 note 的 time 正好等于 endTime 会掉出最后一节）
+			endTime = lastNote.time + 1;
 		}
+		if(endTime <= 0) endTime = 1600;
+
+		var spans:Array<ChartSectionSpan> = ChartTimingUtil.buildSections([for(change in bpmChanges) {
+			time: change.time,
+			bpm: change.bpm,
+			meter: Std.int(change.beatsPerMeasure)
+		}], endTime);
+
 		var sections:Array<Dynamic> = [];
-		var lastBpm:Float = bpmChanges[0].bpm;
+		var songBpm:Float = (spans.length > 0) ? spans[0].bpm : bpmChanges[0].bpm;
+		var lastBpm:Float = songBpm;
+		var noteIndex:Int = 0;
 
-		for(measure in measures)
+		for(span in spans)
 		{
-			if(measure.bpmChanges.length > 1)
-			{
-				// 小节内多次变速：在变速点把小节拆成多个子 section，
-				// FE 的 Conductor 以 section 粒度重建 BPM 时间轴，不拆会整体错位
-				var last:BasicBPMChange = measure.bpmChanges[0];
-				var pushedBeats:Float = 0;
-				var rest:Array<BasicNote> = measure.notes.copy();
+			var sectionNotes:Array<BasicNote> = [];
+			while(noteIndex < notes.length && notes[noteIndex].time < span.end)
+				sectionNotes.push(notes[noteIndex++]);
 
-				for(i in 1...measure.bpmChanges.length)
-				{
-					var next:BasicBPMChange = measure.bpmChanges[i];
-					var elapsedBeats:Float = Timing.roundFloat((next.time - last.time) / Timing.crochet(last.bpm));
-					var subNotes:Array<BasicNote> = [];
-					while(rest.length > 0 && rest[0].time < next.time)
-						subNotes.push(rest.shift());
-
-					sections.push(makeSection(subNotes, elapsedBeats, last.bpm, keys, bakeOffset, laneLimit));
-					pushedBeats += elapsedBeats;
-					last = next;
-				}
-
-				var tailBeats:Float = Timing.roundFloat(measure.beatsPerMeasure - pushedBeats);
-				if(tailBeats <= 0) tailBeats = 1;
-				sections.push(makeSection(rest, tailBeats, last.bpm, keys, bakeOffset, laneLimit));
-				lastBpm = last.bpm;
-			}
-			else
-			{
-				var change:Bool = measure.bpm != lastBpm;
-				sections.push(makeSection(measure.notes, measure.beatsPerMeasure, change ? measure.bpm : null, keys, bakeOffset, laneLimit));
-				lastBpm = measure.bpm;
-			}
+			var change:Bool = span.bpm != lastBpm;
+			sections.push(makeSection(sectionNotes, span.beats, change ? span.bpm : null, keys, bakeOffset, laneLimit));
+			lastBpm = span.bpm;
 		}
 
-		// divideNotesToMeasures 的小节区间是左闭右开：正好卡在最后一个 measure 结束点上的音符会掉出去，
-		// 这里按拍把漏掉的尾部音符补成追加 section
-		var tailStart:Float = measures[measures.length - 1].endTime;
-		var tail:Array<BasicNote> = [];
-		for(note in notes)
-			if(note.time >= tailStart) tail.push(note);
-
-		var tailBpm:Float = measures[measures.length - 1].bpm;
-		while(tail.length > 0)
+		// 兜底：endTime 已覆盖最后一个 note，正常不该有残留（老格式可能带超出末段的 hold 尾巴）
+		while(noteIndex < notes.length)
 		{
-			var sectionEnd:Float = tailStart + 4 * Timing.crochet(tailBpm);
-			var chunk:Array<BasicNote> = [];
-			while(tail.length > 0 && tail[0].time < sectionEnd)
-				chunk.push(tail.shift());
-			sections.push(makeSection(chunk, 4, null, keys, bakeOffset, laneLimit));
-			tailStart = sectionEnd;
+			var rest:Array<BasicNote> = [];
+			while(noteIndex < notes.length)
+				rest.push(notes[noteIndex++]);
+			sections.push(makeSection(rest, 4, null, keys, bakeOffset, laneLimit));
 		}
+		if(sections.length <= 0)
+			sections.push(makeSection(notes.copy(), 4, null, keys, bakeOffset, laneLimit));
 
 		var speed:Float = 1.0;
 		for(k => v in meta.scrollSpeeds)
@@ -704,7 +720,7 @@ class ChartConvertCore
 			song: cleanName(meta.title, 'Unknown'),
 			notes: sections,
 			events: [],
-			bpm: bpmChanges[0].bpm,
+			bpm: songBpm,
 			needsVoices: false,
 			speed: speed,
 			offset: malodyOffset,

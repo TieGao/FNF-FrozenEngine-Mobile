@@ -2,6 +2,7 @@ package options.objects.backend;
 
 import options.Option;
 import backend.UIControlTheme;
+import options.objects.win8.Win8StepButton;
 
 /**
  * 数值控件（滑块）
@@ -26,6 +27,10 @@ class NumButton extends FlxSpriteGroup {
     var valueText:FlxText;
     var valueTextWidth:Float = 80;
 
+    /** 值两侧的 "-" / "+" 步进按钮（固定 Win8 描边外观，见 Win8StepButton） */
+    var minusBtn:Win8StepButton;
+    var plusBtn:Win8StepButton;
+
     var max:Float;
     var min:Float;
 
@@ -49,13 +54,22 @@ class NumButton extends FlxSpriteGroup {
         innerY = Y;
         win8 = UIControlTheme.isWin8();
 
+        // 两端各让出一枚方框按钮的位置，轨道缩到中间。
+        // 加减按钮是自创件（真实的 Win8 数值条没有加减），所以固定走 Metro 描边，
+        // 不跟轨道一起切 Win10 / Win8 两套外观。
+        var btnSize:Float = Math.max(14, Math.min(24, Math.floor(height * 0.7)));
+        var btnGap:Float = 8;
+        var btnY:Float = (height - btnSize) * 0.5;
+        var trackX:Float = btnSize + btnGap;
+        var trackW:Float = Math.max(20, width - trackX * 2);
+
         var trackH:Float = win8 ? 3 : height * 0.1;
         var rodH:Float = win8 ? Math.min(height, 18) : height;
         var rodW:Float = win8 ? 8 : width * 0.05;
 
-        moveBG = new Rect(0,
+        moveBG = new Rect(trackX,
                          0,
-                         width,
+                         trackW,
                          trackH,
                          0,
                          0,
@@ -66,9 +80,9 @@ class NumButton extends FlxSpriteGroup {
         add(moveBG);
 
         // 已填充部分
-        moveDis = new Rect(0,
+        moveDis = new Rect(trackX,
                          0,
-                         width,
+                         trackW,
                          trackH,
                          0,
                          0,
@@ -97,8 +111,16 @@ class NumButton extends FlxSpriteGroup {
         valueText.borderStyle = NONE;
         valueText.antialiasing = ClientPrefs.data.antialiasing;
         valueText.y = (height - valueText.height) * 0.5;
-        valueText.x = moveBG.width + 12;
+        // 位置钉在**控件**右外侧（轨道缩窄了，不能再用 moveBG.width 推算）
+        valueText.x = width + 12;
         add(valueText);
+
+        // 两端步进按钮。必须在 initData() 之前 —— 那里会走 rectUpdate → refreshStepButtons
+        minusBtn = new Win8StepButton(0, btnY, btnSize, false, function() stepBy(-1));
+        add(minusBtn);
+
+        plusBtn = new Win8StepButton(width - btnSize, btnY, btnSize, true, function() stepBy(1));
+        add(plusBtn);
 
         initData();
     }
@@ -198,6 +220,10 @@ class NumButton extends FlxSpriteGroup {
                 OptionInput.releasePointer(this);
             }
         }
+
+        // 加减按钮跟滑块共用同一个输入门（滚动惯性 / allowUpdate 关掉时都不响应）
+        if (minusBtn != null) minusBtn.processInput(inputAllow, keyboardHighlight);
+        if (plusBtn != null) plusBtn.processInput(inputAllow, keyboardHighlight);
 	}
 
     // ===== 新增：设置 rod 颜色的辅助函数 =====
@@ -293,6 +319,44 @@ class NumButton extends FlxSpriteGroup {
         follow.change();
         if (follow.updateDisText != null) follow.updateDisText();
         savePending = true;
+
+        refreshStepButtons(outputData);
+    }
+
+    /** "-" / "+" 点击：按 changeValue 步进一格，再夹回 [min, max] */
+    function stepBy(dir:Int):Void
+    {
+        var step:Float = getStep();
+        // 没设步长（连续值）时给个细粒度兜底，否则点了按钮纹丝不动
+        if (step <= 0) step = (max - min) * 0.02;
+        if (step <= 0) return;
+
+        var curValue:Dynamic = follow.getValue();
+        if (curValue == null) curValue = follow.defaultValue;
+
+        var target:Float = snapToStep(cast curValue, min, step) + step * dir;
+        target = FlxMath.bound(target, min, max);
+
+        var percent:Float = (max - min) == 0 ? 0 : (target - min) / (max - min);
+        rectUpdate(percent, FlxMath.roundDecimal(target, follow.decimals));
+
+        // 单次点击没有后续的 justReleased，直接落盘（顺手清掉 rectUpdate 里挂的待存标记）
+        savePending = false;
+        follow.saveCurrentValue();
+        FlxG.sound.play(Paths.sound('scrollMenu'), 0.5);
+    }
+
+    /** 到边界时把对应按钮灰掉（视觉 + 禁止点击） */
+    function refreshStepButtons(?value:Dynamic):Void
+    {
+        if (minusBtn == null || plusBtn == null) return;
+
+        var raw:Dynamic = (value != null) ? value : follow.getValue();
+        if (raw == null) raw = follow.defaultValue;
+
+        var cur:Float = cast raw;
+        minusBtn.enabled = cur > min + 0.0001;
+        plusBtn.enabled = cur < max - 0.0001;
     }
 
     /** 让控件按当前值重新摆一次（键盘操作改了值之后调用） */
@@ -321,6 +385,8 @@ class NumButton extends FlxSpriteGroup {
         if (moveDis != null) moveDis.color = win8 ? UIControlTheme.accent() : UITheme.sliderFill;
         if (rod != null) rod.color = colorNormal();
         if (valueText != null) valueText.color = win8 ? UIControlTheme.text() : UITheme.sliderValueText;
+        if (minusBtn != null) minusBtn.refreshTheme();
+        if (plusBtn != null) plusBtn.refreshTheme();
     }
 
     function formatValueText(value:Dynamic):String

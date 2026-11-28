@@ -180,11 +180,21 @@ class LoadingState extends MusicBeatState
 		addBehindBar(logo);
 
 		#else // BASE GAME LOADING SCREEN
-		// 和 CustomFadeTransition 共用同一张合成盖板，交接瞬间不会跳色或跳位
-		var bg = new FlxSprite().loadGraphic(LoadingCover.build(FlxG.width, FlxG.height));
-		bg.scrollFactor.set();
-		bg.screenCenter();
-		addBehindBar(bg);
+		// 选项开启：整屏城市插画，不叠 funkay；关闭：沿用 funkay 盖板。
+		// 过渡幕布（CustomFadeTransition）始终是 funkay，不随这个开关变化。
+		var cityBg:FlxSprite = ClientPrefs.data.loadingCityBg ? createCityBackdrop() : null;
+		if (cityBg != null)
+		{
+			addBehindBar(cityBg);
+		}
+		else
+		{
+			// 和 CustomFadeTransition 共用同一张合成盖板，交接瞬间不会跳色或跳位
+			var bg = new FlxSprite().loadGraphic(LoadingCover.build(FlxG.width, FlxG.height));
+			bg.scrollFactor.set();
+			bg.screenCenter();
+			addBehindBar(bg);
+		}
 		#end
 		
 		// loading 过渡用不透明的纯色盖板接管画面：进场时上一段过渡刚把同一张盖板铺满到 1.0，
@@ -219,6 +229,23 @@ class LoadingState extends MusicBeatState
 	function addBehindBar(obj:flixel.FlxBasic)
 	{
 		insert(members.indexOf(barGroup), obj);
+	}
+
+	// loading 屏专用的城市背景；缺图返回 null，调用方退回 funkay 盖板
+	function createCityBackdrop():FlxSprite
+	{
+		if (!Paths.fileExists('images/loading_screen/city.png', IMAGE)) return null;
+
+		var spr:FlxSprite = new FlxSprite().loadGraphic(Paths.image('loading_screen/city'));
+		spr.antialiasing = ClientPrefs.data.antialiasing;
+		spr.scrollFactor.set();
+
+		// 铺满屏幕（cover），不拉伸变形
+		var fit:Float = Math.max(FlxG.width / spr.width, FlxG.height / spr.height) * 1.01;
+		spr.setGraphicSize(Std.int(spr.width * fit), Std.int(spr.height * fit));
+		spr.updateHitbox();
+		spr.screenCenter();
+		return spr;
 	}
 
 	// loading 过渡是全程不透明的纯色盖板，没有 alpha 淡入淡出可言

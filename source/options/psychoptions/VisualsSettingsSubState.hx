@@ -68,19 +68,25 @@ class VisualsSettingsSubState extends BaseOptionsMenu
 		}
 
 		// 音符 / 溅射体系三态开关（auto 自动判 / legacy 强制 HSV / new 强制 RGB + 自定义皮肤），两者互相独立
-		var noteSystemOption:Option = new Option('Note System',
+		var noteThemeOption:Option = new Option('Note Theme',
 			"auto: detect | legacy: force HSV | new: force RGB + custom skin.",
-			'noteSystem',
+			'noteTheme',
 			STRING,
 			['auto', 'legacy', 'new']);
-		addOption(noteSystemOption);
+		addOption(noteThemeOption);
 
-		var splashSystemOption:Option = new Option('Splash System',
+		// 特殊音符（Hurt Note / 自带贴图的 note type）是否也着色；默认关 = 保持贴图原色
+		addOption(new Option('Special Note Shading',
+			"Apply RGB/HSV shading to notes with their own texture (custom_notetypes / script-set). Off keeps their baked colors, same as Psych 1.0.4.",
+			'specialNoteShading',
+			BOOL));
+
+		var splashThemeOption:Option = new Option('Splash Theme',
 			"auto: detect | legacy: force HSV | new: force RGB + custom skin.",
-			'splashSystem',
+			'splashTheme',
 			STRING,
 			['auto', 'legacy', 'new']);
-		addOption(splashSystemOption);
+		addOption(splashThemeOption);
 
 		var holdCovers:Array<String> = Mods.mergeAllTextsNamed('images/holdCover/list.txt');
 		if(holdCovers.length > 0)
@@ -277,6 +283,13 @@ class VisualsSettingsSubState extends BaseOptionsMenu
 			"If unchecked, Ratings and Combo won't stack, saving on System Memory and making them easier to read",
 			'comboStacking',
 			BOOL);
+		addOption(option);
+
+		var option:Option = new Option('Judgement Popup Position',
+			"Where the judgement popup is drawn: fixed on the UI, following BF/GF in the scene, or the stage center",
+			'judgementPopupPos',
+			STRING,
+			['UI', 'BF', 'GF', 'Stage']);
 		addOption(option);
 
 		var option:Option = new Option('Center Pause',

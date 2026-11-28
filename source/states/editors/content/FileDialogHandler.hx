@@ -92,6 +92,12 @@ class FileDialogHandler extends FlxBasic
 	public var data:String;
 	public var path:String;
 	public var completed:Bool = true;
+		/**
+	 * open() 选中文件后是否顺便把整个文件读成文本塞进 data。
+	 * 音频等二进制文件设为 false：省掉一次整文件 UTF-8 解码（大文件白占内存，
+	 * 个别内容还会在解码时抛异常，把回调链条打断成「选了没反应」）。
+	 */
+	public var readData:Bool = true;
 
 	#if mobile
 	/** 宿主在 GL 线程的 update() 里调用，把 JNI 回调攒下的结果派发掉。 */
@@ -117,7 +123,7 @@ class FileDialogHandler extends FlxBasic
 	{
 		@:privateAccess
 		this.path = _fileRef.__path;
-		this.data = File.getContent(this.path);
+		if (readData) this.data = File.getContent(this.path);
 		this.completed = true;
 		trace('Loaded file from: $path');
 
