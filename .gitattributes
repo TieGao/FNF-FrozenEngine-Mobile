@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# shell 脚本必须 LF：CI 直接 `sh setup/xxx.sh` 执行，而 Windows runner 的
+# core.autocrlf=true 会把工作区翻成 CRLF → sh 报 $'\r': command not found。
+# 别删：setup/apply-flxanimate-nmv-blend.sh 的 Windows job 全靠这条。
+*.sh text eol=lf
+
+# 补丁文本同理（git apply 对 CRLF 形式的 patch 不稳，setup/apply-flxanimate-nmv-blend.sh
+# 里还会再 tr 一遍兜底）。
+*.patch text eol=lf

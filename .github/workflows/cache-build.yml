@@ -255,18 +255,16 @@ jobs:
       # NMV 分支专属（勿同步回 main）：flxanimate blend 补丁。setup/unix.sh 里也有一份，
       # 但那只覆盖 install 模式 —— cached 模式 setup 不跑，而失败轮存下的缓存里 flxanimate
       # 是未打补丁的干净克隆，sentinel 只查 classpath 健康不查内容，不在这里补打编译必炸
-      # （PsychFlxAnimate blendNoBake，11-22 双 job 实录）。--check 先探保证幂等。
+      # （PsychFlxAnimate blendNoBake，11-22 双 job 实录）。
+      # 具体定位/幂等/门控都收敛进 setup/apply-flxanimate-nmv-blend.sh（脚本在 main 上
+      # 不存在，这里先判存在；补丁打不上时脚本 exit 1，早失败而不是留给编译期）。
       - name: Apply flxanimate nmv-blend patch (NMV branch only)
         shell: bash
         run: |
-          if [ -d source/nmv ] && [ -f setup/flxanimate-nmv-blend.patch ] && [ -d "$HAXELIB_REPO/flxanimate/git" ]; then
-            ( cd "$HAXELIB_REPO/flxanimate/git" \
-              && git apply --check ../../../setup/flxanimate-nmv-blend.patch \
-              && git apply ../../../setup/flxanimate-nmv-blend.patch \
-              && echo "flxanimate nmv-blend patch: applied" ) \
-              || echo "flxanimate nmv-blend patch: skip (already applied or layout drift)"
+          if [ -f setup/apply-flxanimate-nmv-blend.sh ] && [ -d source/nmv ]; then
+            sh setup/apply-flxanimate-nmv-blend.sh
           else
-            echo "flxanimate nmv-blend patch: not an NMV checkout or lib layout unexpected, skip"
+            echo "flxanimate nmv-blend patch: not an NMV checkout, skip"
           fi
 
       # extension-document-picker 的 git fork 只带源码（project/），没有预编译的

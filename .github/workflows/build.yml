@@ -54,6 +54,19 @@ jobs:
       - name: Install Libraries
         run: ${{ inputs.setupCommand }}
 
+      # NMV 分支专属（勿同步回 main，脚本不存在时自动跳过）：flxanimate blend 补丁。
+      # PsychFlxAnimate.hx 直接写 params.blendNoBake，Dot-Stuff 上游没有该字段，
+      # 干净检出编译必炸。setup 脚本里已有一份，这里再兜一层，避免某个调用方传入的
+      # setupCommand 没走 setup/unix.sh（例如自定义依赖清单）。
+      - name: Patch flxanimate (NMV blend)
+        shell: bash
+        run: |
+          if [ -f setup/apply-flxanimate-nmv-blend.sh ] && [ -d source/nmv ]; then
+            sh setup/apply-flxanimate-nmv-blend.sh
+          else
+            echo "非 NMV 检出，跳过 flxanimate 补丁"
+          fi
+
       - name: Configure Android
         if: inputs.name == 'Android'
         run: |

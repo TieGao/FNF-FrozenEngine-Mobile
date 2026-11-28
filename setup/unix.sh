@@ -2,6 +2,11 @@
 # SETUP FOR MAC AND LINUX SYSTEMS!!!
 # REMINDER THAT YOU NEED HAXE INSTALLED PRIOR TO USING THIS
 # https://haxe.org/download
+# setup 目录的绝对路径必须在 cd .. 之前抓：之后 $0 的相对路径就指到上一级去了。
+# 下面调 apply-flxanimate-nmv-blend.sh 全靠它定位仓库根（旧版补丁块用
+# source/nmv + ../../../setup/... 双相对路径，被 `cd ..` 一挪全线失效，补丁在 CI
+# 里从未真正打上过 —— 11-22 / 11-28 Android job 两度炸在 blendNoBake）。
+SETUP_DIR=$(cd "$(dirname "$0")" && pwd)
 cd ..
 # CI 里 workflow 已把 haxelib 钉到项目内 .haxelib/（HAXELIB_REPO 注入），这里别再 setup 到
 # ~/haxelib 把配置覆盖掉，否则依赖落到家目录、缓存里的 .haxelib/ 是空的。
@@ -39,14 +44,9 @@ haxelib set hxcpp git
 # NMV blend 语义需要 flxanimate 库补丁（blendNoBake + 绘制树实时混合 + 遮罩贴回混合，
 # 见 setup/flxanimate-nmv-blend.patch）。Dot-Stuff 上游没有 blendNoBake（全库 0 命中），
 # 该改动此前只存在于本地 E 仓检出的未提交状态——CI 干净检出编译必炸
-# （PsychFlxAnimate.hx blendNoBake，11-22 Android/iOS 双 job 实录）。
-# 双门控：source/nmv 存在（main 无消费端，blendNoBake 恒 false 行为不变，勿同步回 main）
-# + HAXELIB_REPO 设置（CI 场景；本地 E 仓补丁已在位，--check 失败即跳过）。
-if [ -d source/nmv ] && [ -f setup/flxanimate-nmv-blend.patch ] && [ -n "$HAXELIB_REPO" ] && [ -d "$HAXELIB_REPO/flxanimate/git" ]; then
-  ( cd "$HAXELIB_REPO/flxanimate/git" \
-    && git apply --check ../../../setup/flxanimate-nmv-blend.patch \
-    && git apply ../../../setup/flxanimate-nmv-blend.patch \
-    && echo "flxanimate nmv-blend patch: applied" ) \
-    || echo "flxanimate nmv-blend patch: skip (already applied or layout drift)"
-fi
+# （PsychFlxAnimate.hx blendNoBake，11-22 / 11-28 Android job 实录）。
+# 具体定位/幂等/门控都在脚本里（库路径先问 $HAXELIB_REPO 再问 haxelib config），
+# 这里只负责在 --always 重装完 flxanimate 之后（会覆盖本地改动）重新打一次。
+# main 分支脚本自己跳过，行为不变。
+sh "$SETUP_DIR/apply-flxanimate-nmv-blend.sh" || exit 1
 echo Finished!

@@ -164,6 +164,21 @@ jobs:
       - name: Install Libraries
         run: ${{ matrix.setupCommand }}
 
+      # NMV blend 语义必须给 flxanimate 打补丁：source/flxanimate/PsychFlxAnimate.hx 直接写
+      # params.blendNoBake，Dot-Stuff 上游没有这个字段 → 干净检出编译期就报
+      #   flxanimate.animate.SymbolParameters has no field blendNoBake
+      # setup/unix.sh、setup/windows.bat 里各有一份，但本工作流是内联的（不复用
+      # build.yml / cache-build.yml），历史上只给 cache-build.yml 加过兜底步骤，
+      # 这里漏掉 → 11-28 Android job 实录。脚本自带幂等 + 分支门控，重复调用无害。
+      - name: Patch flxanimate (NMV blend)
+        shell: bash
+        run: |
+          if [ -f setup/apply-flxanimate-nmv-blend.sh ] && [ -d source/nmv ]; then
+            sh setup/apply-flxanimate-nmv-blend.sh
+          else
+            echo "非 NMV 检出，跳过 flxanimate 补丁"
+          fi
+
       - name: Configure Android
         if: matrix.name == 'Android'
         run: |
